@@ -1,0 +1,106 @@
+# Dev environment
+
+What was found on the development machine on 2026-09-12, and how the coding agent
+drives it without a human at the keyboard.
+
+## Machine
+
+| | |
+|---|---|
+| OS | Ubuntu 26.04.1 LTS (Resolute Raccoon) |
+| Kernel | 7.0.0-31-generic, x86_64 |
+| Desktop | KDE Plasma on **Wayland** (`XDG_SESSION_TYPE=wayland`, KWin) |
+| Display | single output `eDP-1`, 1920x1080, **scale 1**, 144 Hz |
+| GPU | Intel UHD Graphics (Comet Lake), Mesa 26.0.8, OpenGL 4.6 / GLES 3.2 |
+| Audio | PipeWire 1477 with `pipewire-pulse`, so PulseAudio APIs work |
+| Bluetooth | Intel AX201, `bluetooth.service` active |
+| Keyboard layout | **German (QWERTZ)**, `pc105` |
+| sudo | passwordless |
+
+Toolchain already present: Flutter 3.47.4 stable (snap, at
+`~/snap/flutter/common/flutter`), Dart 3.13.3, CMake 4.2.3, Ninja 1.13.2, GCC 15.2,
+Clang 21.1.8, git 2.53. `flutter doctor` reports the Linux desktop toolchain green.
+
+Not present yet, needed from M1: Boost, libusb, OpenSSL headers, protobuf, ffmpeg,
+libva, libpulse. Install with `tools/setup-dev-machine.sh --build-deps`.
+
+## Screenshots
+
+Wayland means no `scrot`, `import`, `maim` or `xwd`. Screenshots come from KDE's
+Spectacle in batch mode, which needs no portal dialog:
+
+```bash
+spectacle -b -n -f -o out.png     # full screen
+spectacle -b -n -a -o out.png     # active window
+spectacle -b -n -f -p -o out.png  # include the mouse pointer
+```
+
+Screenshot pixels map 1:1 to screen coordinates because the output scale is 1.
+
+Wrapped as `tools/ui.sh shot` / `shotwin` / `crop`.
+
+KWin also exposes `org.kde.KWin.ScreenShot2` over D-Bus (`CaptureWindow`,
+`CaptureActiveWindow`, `CaptureArea`, `CaptureScreen`) if Spectacle ever gets in the way.
+
+## Synthetic input
+
+`ydotool` injects events through `/dev/uinput`. Two things had to be sorted out:
+
+**1. Permissions.** `ydotool.service` ships enabled but was failing because the user
+could not open `/dev/uinput`. Fixed with a udev rule plus group membership:
+
+```
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+```
+
+The group change needs a re-login, so `tools/ui.sh setup` starts `ydotoold` under sudo
+instead and hands the socket to the user. Nothing else needs root.
+
+**2. Absolute positioning.** `ydotool mousemove --absolute` does not land on the
+requested pixel on this compositor. The working approach is to slam the pointer into the
+top left with a huge relative move and then move relatively to the target. That is only
+exact once pointer acceleration is off for the virtual device.
+
+KWin exposes per device settings on D-Bus, so `tools/ui.sh setup` finds the
+`ydotoold virtual device` under `/org/kde/KWin/InputDevice/eventN` and sets:
+
+```
+pointerAccelerationProfileFlat = true
+pointerAcceleration            = 0.0
+```
+
+This only touches the virtual device. The real mouse and touchpad keep their settings.
+
+Verified: after flattening, "home then move by (960, 540)" lands the cursor exactly on
+(960, 540). Before flattening the same move overshot to roughly (1890, 1070).
+
+**3. Keyboard layout.** `ydotool` sends raw evdev keycodes and the compositor maps them
+through the **German** layout, so `ydotool type "ydotool"` arrives as `zdotool`. Use
+`tools/ui.sh paste <text>` (clipboard plus ctrl+v) whenever the text has to be exact.
+`tools/ui.sh key ctrl+c` style shortcuts are fine, modifiers and control keys are
+layout independent.
+
+## Verified agent capabilities
+
+| Capability | Status | How |
+|---|---|---|
+| Full screen screenshot | works | `tools/ui.sh shot` |
+| Active window screenshot | works | `tools/ui.sh shotwin` |
+| Crop a region for a closer look | works | `tools/ui.sh crop` |
+| Move the pointer to an exact pixel | works, after `setup` | `tools/ui.sh move` |
+| Left / right click, drag, scroll | works | `tools/ui.sh click` etc |
+| Type text | works, layout mangled | prefer `tools/ui.sh paste` |
+| Key combinations | works | `tools/ui.sh key ctrl+s` |
+| Launch and detach a GUI app | works | `tools/run-example.sh --bg` |
+| sudo without a password | works | |
+
+Tested end to end by opening Kate, typing into it, and reading the result back from a
+screenshot.
+
+## Still to confirm
+
+- An Android phone for testing. Nothing is plugged in, and `adb` is not installed.
+  Needed from M3 onward, together with `tools/setup-dev-machine.sh --udev`.
+- VA-API capability, `vainfo` is not installed yet. Needed for the M4 zero copy path.
+- Whether Flutter on this machine defaults to Impeller-GL or Skia-GL. Both should
+  support external textures, `tools/run-example.sh --no-impeller` is the escape hatch.
