@@ -142,17 +142,21 @@ Asio entirely with a small epoll reactor behind aasdk's existing IO interfaces.
 
 ## Licence situation
 
-`aasdk` is **GPL-3.0-or-later**. Linking it into the plugin makes the plugin, and any
-application shipping the plugin, GPL-3.0. There is no way around that while using aasdk.
+**Settled: the repository is GPL-3.0-or-later.**
 
-The federated package split limits the blast radius:
+`aasdk` is GPL-3.0-or-later. Linking it into the plugin makes the plugin, and any
+application shipping the plugin, GPL-3.0. There is no way around that while using aasdk,
+and the infotainment app this is built for is GPL-3.0 anyway.
+
+The federated package split still matters, for future optionality rather than for
+licensing today:
 
 - `android_auto_platform_interface` - pure Dart, no aasdk, can be permissive
 - `android_auto` - pure Dart, no aasdk, can be permissive
 - `android_auto_linux` - links aasdk, **must be GPL-3.0-or-later**
 
 An app that depends on `android_auto` and therefore pulls in `android_auto_linux` is
-still subject to GPL-3.0. Spell this out in the README.
+subject to GPL-3.0. The README says so plainly.
 
 The head unit certificate is publicly known and shipped by every implementation, but it
 is issued to a third party. The plugin loads it from a configurable path so integrators

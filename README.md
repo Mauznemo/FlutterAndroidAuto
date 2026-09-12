@@ -57,14 +57,14 @@ tools/run-example.sh
 
 ## Licence
 
-This is the part to read before depending on the project.
+**GPL-3.0-or-later**, see [`LICENSE`](LICENSE).
 
 The Linux implementation links [`aasdk`](https://github.com/opencardev/aasdk), which is
-**GPL-3.0-or-later**. That makes `android_auto_linux`, and any application shipping it,
-GPL-3.0-or-later as well.
+GPL-3.0-or-later, so any application shipping this plugin is GPL-3.0-or-later too.
 
-`android_auto` and `android_auto_platform_interface` contain no aasdk code, so the
-interface stays free for a permissively licensed implementation to be dropped in later.
+`android_auto` and `android_auto_platform_interface` contain no aasdk derived code. That
+is deliberate: if a permissively licensed protocol implementation ever appears, those two
+packages can be relicensed without untangling anything.
 
 The bundled head unit certificate is the publicly known Google Automotive Link
 certificate that every open source Android Auto implementation uses. It is loaded from a

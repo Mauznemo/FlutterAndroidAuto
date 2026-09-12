@@ -44,7 +44,7 @@ implementation can be added later without touching the app-facing API.
 - [x] Write `tools/ui.sh` (screenshot and synthetic input helper for the agent)
 - [x] Write `tools/setup-dev-machine.sh` (one shot host provisioning)
 - [x] Extend `CLAUDE.md` with the facts every later session needs
-- [ ] **Decide the project licence** (see "Open decisions" below, blocks M1)
+- [x] **Decide the project licence**: GPL-3.0-or-later, confirmed 2026-09-12
 - [ ] Confirm an Android test phone is available and USB access works
 
 ---
@@ -256,16 +256,15 @@ Sketch only, do not build yet. Recorded so the structure does not have to change
 
 These need a call from the project owner. The first one blocks M1.
 
-1. **Licence.** `aasdk` (both `f1xpl` and the maintained `opencardev` fork) is **GPL-3.0-or-later**.
-   Linking it makes this plugin, and any app that ships it, GPL-3.0 too.
-   - Option A: accept GPL-3.0 for the whole project. Fastest path, matches the rest of the ecosystem.
-   - Option B: keep the aasdk based core in a separate optional GPL package and define a
-     permissive interface, so a future clean implementation can be swapped in.
-   - Option C: write the protocol layer from scratch against the published `.proto`
-     definitions and licence it permissively. Biggest effort by a wide margin.
-   - Recommendation: **Option A now, with the architecture of Option B**, which is what the
-     federated split already gives us: `android_auto` and `android_auto_platform_interface`
-     stay permissive, only `android_auto_linux` is GPL.
+1. ~~**Licence.**~~ **Decided 2026-09-12: GPL-3.0-or-later for the whole repository.**
+   `aasdk` is GPL-3.0-or-later, so `android_auto_linux` has no other option, and the
+   infotainment app this plugin is built for is GPL-3.0 anyway. One `LICENSE` at the
+   root covers every package.
+
+   The federated split still matters, just not for licensing reasons today:
+   `android_auto` and `android_auto_platform_interface` contain no aasdk derived code,
+   so if a permissive protocol implementation ever appears they can be relicensed
+   without untangling anything. Keep it that way.
 
 2. **Head unit certificate.** Every open source implementation ships the same publicly
    known Google Automotive Link certificate. It is not a secret, but it is also not ours.
