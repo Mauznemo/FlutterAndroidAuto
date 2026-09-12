@@ -172,6 +172,24 @@ with `gdk_window_create_gl_context()` on the `FlView`'s `GdkWindow`; that contex
 shared with Flutter's, so textures created in it are visible to the raster thread.
 `fl_texture_registrar_mark_texture_frame_available()` tells the engine a new frame is up.
 
+Verified against the headers Flutter 3.47.4 ships in
+`example/linux/flutter/ephemeral/flutter_linux/`:
+
+```c
+struct _FlTextureGLClass {
+  GObjectClass parent_class;
+  gboolean (*populate)(FlTextureGL* texture, uint32_t* target, uint32_t* name,
+                       uint32_t* width, uint32_t* height, GError** error);
+};
+
+gboolean fl_texture_registrar_register_texture(FlTextureRegistrar*, FlTexture*);
+gboolean fl_texture_registrar_mark_texture_frame_available(FlTextureRegistrar*, FlTexture*);
+gboolean fl_texture_registrar_unregister_texture(FlTextureRegistrar*, FlTexture*);
+```
+
+The header states that Flutter's GL context is already current when `populate` is
+called, so that callback must not make another context current.
+
 Caveats found:
 
 - External textures are implemented for the **OpenGL** backend. Vulkan external textures
