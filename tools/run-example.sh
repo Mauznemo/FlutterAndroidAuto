@@ -3,8 +3,10 @@
 #
 #   tools/run-example.sh              debug run, logs to /tmp/aa-example.log
 #   tools/run-example.sh --release
-#   tools/run-example.sh --no-impeller   force the Skia GL backend
 #   tools/run-example.sh --bg         run detached, so the agent can screenshot it
+#
+# There is deliberately no renderer switch. Impeller is the only renderer on Linux as
+# of Flutter 3.47, and --no-enable-impeller is a verified no-op here.
 #
 # The window is placed at a known position and size so screenshot coordinates in
 # tools/ui.sh line up across runs.
@@ -21,7 +23,6 @@ for arg in "$@"; do
   case "$arg" in
     --release)     MODE=--release ;;
     --profile)     MODE=--profile ;;
-    --no-impeller) EXTRA+=(--no-enable-impeller) ;;
     --bg)          BG=1 ;;
     *)             EXTRA+=("$arg") ;;
   esac

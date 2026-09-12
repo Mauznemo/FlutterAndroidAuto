@@ -160,17 +160,38 @@ can substitute their own.
 
 ## Flutter side
 
-### External textures on Linux
+### Renderer situation on Linux, and why it constrains the design
 
-The Flutter Linux embedder exposes `FlTextureRegistrar`, with two texture types:
+Verified on this machine, Flutter 3.47.4, by reading the app's own startup log:
+
+```
+[IMPORTANT:...embedder_surface_gl_impeller.cc(126)]
+    Using the Impeller rendering backend (OpenGLESSDF).
+```
+
+So, as of Flutter 3.47:
+
+- **Impeller is the only renderer on Linux.** Skia is gone.
+- Impeller on Linux currently runs its **OpenGLES** backend.
+- `--no-enable-impeller` is a **verified no-op**. Passing it changes nothing, the log
+  still says Impeller. There is no fallback renderer to retreat to, so any plan that
+  treats "turn Impeller off" as an escape hatch is already wrong.
+- An **Impeller Vulkan backend for Linux and Windows desktop** is in progress upstream
+  (design doc [flutter/flutter#183495](https://github.com/flutter/flutter/issues/183495),
+  tracking #181711, draft PR #183382). Assume Linux moves to Vulkan.
+
+This matters beyond renderer trivia, because **Flutter GPU and `flutter_scene` want
+Vulkan**. Flutter GPU runs on GLES but with known rough edges, and `flutter_scene`'s
+retained backend activates only on Metal and Vulkan contexts. A host app that wants 3D
+in its infotainment UI is therefore pulling in the same direction Flutter is already
+heading.
+
+### External textures, and the Vulkan problem
+
+The Flutter Linux embedder exposes `FlTextureRegistrar` with two texture types:
 
 - `FlTextureGL` - we hand over a GL texture name. Flutter only accepts `GL_RGBA8`.
 - `FlPixelBufferTexture` - we hand over CPU pixels, the engine uploads them.
-
-`FlTextureGL` is the one we want. The documented pattern is to create a `GdkGLContext`
-with `gdk_window_create_gl_context()` on the `FlView`'s `GdkWindow`; that context is
-shared with Flutter's, so textures created in it are visible to the raster thread.
-`fl_texture_registrar_mark_texture_frame_available()` tells the engine a new frame is up.
 
 Verified against the headers Flutter 3.47.4 ships in
 `example/linux/flutter/ephemeral/flutter_linux/`:
@@ -190,18 +211,25 @@ gboolean fl_texture_registrar_unregister_texture(FlTextureRegistrar*, FlTexture*
 The header states that Flutter's GL context is already current when `populate` is
 called, so that callback must not make another context current.
 
-Caveats found:
+`FlTextureGL` works today because Linux is on Impeller-GLES. It is, by name and by
+signature, an **OpenGL** interface. Impeller's Vulkan external texture work so far
+([flutter/flutter#137639](https://github.com/flutter/flutter/issues/137639), closed) was
+about Android `SurfaceTexture`, not a Linux embedder API. When Linux moves to Vulkan,
+the Linux embedder needs a new external texture entry point, and `FlTextureGL` either
+gains a GL interop shim or is superseded.
 
-- External textures are implemented for the **OpenGL** backend. Vulkan external textures
-  are still unimplemented in Impeller, so if Linux ever defaults to Impeller-Vulkan this
-  breaks. Impeller on Linux currently uses OpenGLES, and a 2026 fix specifically
-  addressed rendering external GL textures under Impeller on Linux.
-- `flutter run`/`build` accept `--enable-impeller` / `--no-enable-impeller` on desktop,
-  so we always have a working escape hatch while this settles.
-- Registering a texture requires the `FlTextureRegistrar`, which only comes from an
-  `FlPluginRegistrar`. A pure `ffiPlugin` never gets one. So `android_auto_linux` must be
-  declared with a `pluginClass` (the GTK registration entry point) even though most calls
-  go through FFI.
+**The design response, and the reason this is not a trap:** do not treat "a GL texture"
+as the thing the video pipeline produces. Produce a **dmabuf**. VA-API already decodes
+into dmabuf-backed surfaces, and a dmabuf imports into either API:
+
+| Target | Import path |
+|---|---|
+| OpenGL / EGL | `EGL_EXT_image_dma_buf_import` to `EGLImage` to GL texture |
+| Vulkan | `VK_EXT_external_memory_dma_buf` plus `VK_EXT_image_drm_format_modifier` to `VkImage` |
+
+Everything upstream of the import is shared. Only a thin present adapter is API
+specific, so following Flutter to Vulkan is a contained change rather than a rewrite.
+See `docs/architecture.md` for where that seam sits.
 
 ### Why FFI and not method channels
 

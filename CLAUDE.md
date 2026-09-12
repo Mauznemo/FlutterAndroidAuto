@@ -61,10 +61,17 @@ Three things that will bite otherwise:
 
 ```bash
 cd example && flutter pub get && flutter build linux --debug
-tools/run-example.sh --no-impeller   # escape hatch if external textures misbehave
+tools/run-example.sh --bg
 ```
 
 Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
+
+**Impeller is the only renderer on Linux now** and it runs its **OpenGLES** backend
+(`Using the Impeller rendering backend (OpenGLESSDF)`). `--no-enable-impeller` is a
+verified no-op, there is no Skia fallback to retreat to. Impeller's Vulkan backend for
+Linux desktop is in progress upstream, and the project has to be ready for it, so the
+video pipeline hands Flutter a **dmabuf**, never a raw GL texture. See
+`docs/architecture.md`.
 
 ## Native notes that keep coming back
 

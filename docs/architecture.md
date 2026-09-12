@@ -34,20 +34,65 @@
 │                                                                      │
 │    aa_core.h                      flat C ABI, the only FFI surface   │
 │    aa_core.cc                     session lifecycle, io_context pool │
-│      ├─ VideoPipeline    H.264 ─> VA-API/SW ─> dmabuf ─> GL texture  │
+│      ├─ VideoPipeline    H.264 ─> VA-API/SW ─> dmabuf ─> present     │
 │      ├─ AudioSinks x3    PCM ─> PipeWire (media / system / speech)   │
 │      ├─ AudioSource      PipeWire ─> PCM ─> phone (microphone)       │
 │      ├─ InputSink        Flutter pointers ─> AA touch events         │
 │      ├─ SensorSource     Dart pushes ─> AA sensor events             │
 │      └─ MetadataTaps     nav / media / phone status ─> Dart events   │
 │                                                                      │
-│    video_texture.cc               FlTextureGL subclass, triple buffer│
+│    present/gl_adapter.cc          dmabuf ─> EGLImage ─> FlTextureGL  │
+│    present/vk_adapter.cc          dmabuf ─> VkImage   (when needed)  │
 │    event_bus.cc                   native ─> Dart event queue         │
 │                                                                      │
 │    third_party/aasdk (submodule) + patches/                          │
 │      USB / TCP transport, SSL, framing, protobuf, channel objects    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+## Staying ahead of the renderer, not behind it
+
+Flutter 3.47 made Impeller the only renderer on Linux, running its **OpenGLES** backend.
+`--no-enable-impeller` does nothing, which was verified on this machine. An Impeller
+**Vulkan** backend for Linux desktop is in progress upstream, and Flutter GPU and
+`flutter_scene` both point the same way: `flutter_scene`'s retained backend only
+activates on Metal and Vulkan contexts. A host app that wants 3D in its infotainment UI
+will want Linux on Vulkan.
+
+That makes "hand Flutter a GL texture" the wrong thing to build the pipeline around,
+because `FlTextureGL` is an OpenGL interface by name and by signature.
+
+**So the pipeline's output is a dmabuf, not a texture.** A dmabuf is what VA-API already
+decodes into, and it imports into either graphics API:
+
+| Target | Import path |
+|---|---|
+| OpenGL / EGL | `EGL_EXT_image_dma_buf_import` to `EGLImage` to GL texture |
+| Vulkan | `VK_EXT_external_memory_dma_buf` plus `VK_EXT_image_drm_format_modifier` to `VkImage` |
+
+Concretely, the seam is:
+
+```
+H.264 ─> decoder ─> dmabuf fd + DRM format modifier + stride  ┐
+                                                              │  everything above here
+                                                              │  is API agnostic
+   ────────────────────────────────────────────────────────── ┤
+                                                              │  present adapter,
+   gl_adapter   dmabuf ─> EGLImage ─> FlTextureGL  (today)    │  the only API
+   vk_adapter   dmabuf ─> VkImage  ─> whatever the Linux      │  specific code
+                embedder exposes for Vulkan (when it lands)   ┘
+```
+
+Rules that keep this true:
+
+- Nothing above the seam may name a GL type. The decoder hands over
+  `{int fd, uint64_t modifier, uint32_t stride, offset, fourcc, width, height}`.
+- `FlTextureGL` is referenced in exactly one file, `present/gl_adapter.cc`.
+- The software decode fallback also produces a dmabuf where it can, and only drops to
+  `FlPixelBufferTexture` when the driver gives us nothing better.
+
+The cost of this discipline is one indirection. The cost of skipping it is a rewrite the
+day Linux flips to Vulkan.
 
 ## Threads
 
@@ -61,10 +106,10 @@
 
 Handoff rules:
 
-- Decoded frames go into a small ring of GL textures. The decoder thread uploads using a
-  **shared** GL context (created with `gdk_window_create_gl_context()` on the `FlView`
-  window), then flips an index and calls
-  `fl_texture_registrar_mark_texture_frame_available()`.
+- Decoded frames go into a small ring of dmabuf backed surfaces. The present adapter
+  imports the current one, using a **shared** GL context (created with
+  `gdk_window_create_gl_context()` on the `FlView` window) while we are on GL, then
+  flips an index and calls `fl_texture_registrar_mark_texture_frame_available()`.
 - `populate()` on the raster thread only reads the current index. No locks held across
   GL calls, no allocation.
 - Native to Dart events are pushed onto a lock free queue and posted to a Dart

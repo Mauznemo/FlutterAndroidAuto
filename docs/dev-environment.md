@@ -97,10 +97,23 @@ layout independent.
 Tested end to end by opening Kate, typing into it, and reading the result back from a
 screenshot.
 
+## Renderer
+
+Checked by reading the example app's own startup log:
+
+```
+[IMPORTANT:...embedder_surface_gl_impeller.cc(126)]
+    Using the Impeller rendering backend (OpenGLESSDF).
+```
+
+Impeller is the only renderer on Linux as of Flutter 3.47, running its OpenGLES backend.
+Passing `--no-enable-impeller` changes nothing, verified: the log is identical with and
+without it. There is no Skia fallback. See `docs/research.md` for why that shapes the
+video pipeline.
+
 ## Still to confirm
 
 - An Android phone for testing. Nothing is plugged in, and `adb` is not installed.
   Needed from M3 onward, together with `tools/setup-dev-machine.sh --udev`.
-- VA-API capability, `vainfo` is not installed yet. Needed for the M4 zero copy path.
-- Whether Flutter on this machine defaults to Impeller-GL or Skia-GL. Both should
-  support external textures, `tools/run-example.sh --no-impeller` is the escape hatch.
+- VA-API zero copy for M4. `vainfo` is not installed yet, and the dmabuf export path
+  has not been exercised on this Intel UHD part.
