@@ -1,0 +1,2056 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1b1eb74..ffe6dfb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -248,7 +248,7 @@ else()
+     message(STATUS "Skipping Abseil requirement - using system protobuf")
+ endif()
+ 
+-find_package(Boost REQUIRED COMPONENTS system log_setup log OPTIONAL_COMPONENTS unit_test_framework)
++find_package(Boost REQUIRED COMPONENTS log_setup log OPTIONAL_COMPONENTS unit_test_framework)
+ 
+ # Capture Boost version for packaging
+ if(Boost_VERSION)
+@@ -296,12 +296,16 @@ else()
+ endif()
+ if(SKIP_BUILD_PROTOBUF)
+     target_include_directories(aasdk PUBLIC
++        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
++        $<INSTALL_INTERFACE:include>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/protobuf>
+         $<BUILD_INTERFACE:${Protobuf_INCLUDE_DIRS}>
+         $<INSTALL_INTERFACE:include/aap_protobuf>
+     )
+ else()
+     target_include_directories(aasdk PUBLIC
++        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
++        $<INSTALL_INTERFACE:include>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/protobuf>
+         $<BUILD_INTERFACE:${protobuf_SOURCE_DIR}/src>
+         $<INSTALL_INTERFACE:include/aap_protobuf>
+diff --git a/cmake_modules/gitversion.cmake b/cmake_modules/gitversion.cmake
+index 2b4182f..97b9503 100644
+--- a/cmake_modules/gitversion.cmake
++++ b/cmake_modules/gitversion.cmake
+@@ -1,5 +1,5 @@
+ # cmake/gitversion.cmake
+-cmake_minimum_required(VERSION 3.0.0)
++cmake_minimum_required(VERSION 3.16)
+ 
+ message(STATUS "Resolving GIT Version")
+ 
+diff --git a/cmake_modules_old/gitversion.cmake b/cmake_modules_old/gitversion.cmake
+index b3267b5..59ad22e 100644
+--- a/cmake_modules_old/gitversion.cmake
++++ b/cmake_modules_old/gitversion.cmake
+@@ -1,5 +1,5 @@
+ # cmake/gitversion.cmake
+-cmake_minimum_required(VERSION 3.0.0)
++cmake_minimum_required(VERSION 3.16)
+ 
+ message(STATUS "Resolving GIT Version")
+ 
+diff --git a/include/aasdk/Channel/Bluetooth/BluetoothService.hpp b/include/aasdk/Channel/Bluetooth/BluetoothService.hpp
+index eb68925..ef161d1 100644
+--- a/include/aasdk/Channel/Bluetooth/BluetoothService.hpp
++++ b/include/aasdk/Channel/Bluetooth/BluetoothService.hpp
+@@ -19,13 +19,14 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IBluetoothService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::bluetooth {
+ 
+   class BluetoothService
+       : public IBluetoothService, public Channel, public std::enable_shared_from_this<BluetoothService> {
+   public:
+-    BluetoothService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    BluetoothService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/Channel.hpp b/include/aasdk/Channel/Channel.hpp
+index 838936c..5124f37 100644
+--- a/include/aasdk/Channel/Channel.hpp
++++ b/include/aasdk/Channel/Channel.hpp
+@@ -22,12 +22,13 @@
+ #include "aasdk/Channel/Promise.hpp"
+ #include "aasdk/Channel/IChannel.hpp"
+ #include <aap_protobuf/service/control/ControlMessageType.pb.h>
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk {
+   namespace channel {
+     class Channel : public virtual IChannel {
+     public:
+-      Channel(boost::asio::io_service::strand &strand,
++      Channel(aasdk::Strand &strand,
+               messenger::IMessenger::Pointer messenger,
+               messenger::ChannelId channelId);
+ 
+@@ -38,7 +39,7 @@ namespace aasdk {
+       void send(messenger::Message::Pointer message, SendPromise::Pointer promise) override;
+ 
+     protected:
+-      boost::asio::io_service::strand &strand_;
++      aasdk::Strand &strand_;
+       messenger::IMessenger::Pointer messenger_;
+       messenger::ChannelId channelId_;
+     };
+diff --git a/include/aasdk/Channel/Control/ControlServiceChannel.hpp b/include/aasdk/Channel/Control/ControlServiceChannel.hpp
+index e15ea2a..0c343f9 100644
+--- a/include/aasdk/Channel/Control/ControlServiceChannel.hpp
++++ b/include/aasdk/Channel/Control/ControlServiceChannel.hpp
+@@ -21,6 +21,7 @@
+ #include <aasdk/Messenger/IMessenger.hpp>
+ #include "aasdk/Channel/Channel.hpp"
+ #include <aasdk/Channel/Control/IControlServiceChannel.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::control {
+@@ -28,7 +29,7 @@ namespace aasdk::channel::control {
+   class ControlServiceChannel
+       : public IControlServiceChannel, public Channel, public std::enable_shared_from_this<ControlServiceChannel> {
+   public:
+-    ControlServiceChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    ControlServiceChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/GenericNotification/GenericNotificationService.hpp b/include/aasdk/Channel/GenericNotification/GenericNotificationService.hpp
+index d0fc49e..d42e9ce 100644
+--- a/include/aasdk/Channel/GenericNotification/GenericNotificationService.hpp
++++ b/include/aasdk/Channel/GenericNotification/GenericNotificationService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IGenericNotificationService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::genericnotification {
+@@ -29,7 +30,7 @@ namespace aasdk::channel::genericnotification {
+         public Channel,
+         public std::enable_shared_from_this<GenericNotificationService> {
+   public:
+-    GenericNotificationService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    GenericNotificationService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/InputSource/InputSourceService.hpp b/include/aasdk/Channel/InputSource/InputSourceService.hpp
+index c4cb045..dc8565c 100644
+--- a/include/aasdk/Channel/InputSource/InputSourceService.hpp
++++ b/include/aasdk/Channel/InputSource/InputSourceService.hpp
+@@ -19,13 +19,14 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IInputSourceService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::inputsource {
+ 
+   class InputSourceService
+       : public IInputSourceService, public Channel, public std::enable_shared_from_this<InputSourceService> {
+   public:
+-    InputSourceService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    InputSourceService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/MediaBrowser/MediaBrowserService.hpp b/include/aasdk/Channel/MediaBrowser/MediaBrowserService.hpp
+index 86cde36..1d9c216 100644
+--- a/include/aasdk/Channel/MediaBrowser/MediaBrowserService.hpp
++++ b/include/aasdk/Channel/MediaBrowser/MediaBrowserService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IMediaBrowserService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::mediabrowser {
+@@ -27,7 +28,7 @@ namespace aasdk::channel::mediabrowser {
+   class MediaBrowserService
+       : public IMediaBrowserService, public Channel, public std::enable_shared_from_this<MediaBrowserService> {
+   public:
+-    MediaBrowserService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    MediaBrowserService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.hpp b/include/aasdk/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.hpp
+index 7508559..d8695f7 100644
+--- a/include/aasdk/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.hpp
++++ b/include/aasdk/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IMediaPlaybackStatusService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::mediaplaybackstatus {
+@@ -29,7 +30,7 @@ namespace aasdk::channel::mediaplaybackstatus {
+         public Channel,
+         public std::enable_shared_from_this<MediaPlaybackStatusService> {
+   public:
+-    MediaPlaybackStatusService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    MediaPlaybackStatusService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp b/include/aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp
+index 30a3d4d..2afb131 100644
+--- a/include/aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp
++++ b/include/aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp
+@@ -20,13 +20,14 @@
+ #include "aasdk/Messenger/MessageId.hpp"
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IAudioMediaSinkService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio {
+ 
+   class AudioMediaSinkService
+       : public IAudioMediaSinkService, public Channel, public std::enable_shared_from_this<AudioMediaSinkService> {
+   public:
+-    AudioMediaSinkService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger,
++    AudioMediaSinkService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger,
+                           messenger::ChannelId channelId);
+ 
+     // Senders and Receivers
+@@ -79,4 +80,4 @@ namespace aasdk::channel::mediasink::audio {
+                                             IAudioMediaSinkServiceEventHandler::Pointer eventHandler);
+ 
+   };
+-}
+\ No newline at end of file
++}
+diff --git a/include/aasdk/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.hpp b/include/aasdk/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.hpp
+index 8b7f339..51d8e2d 100644
+--- a/include/aasdk/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.hpp
++++ b/include/aasdk/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.hpp
+@@ -18,6 +18,7 @@
+ #pragma once
+ 
+ #include "aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+   using aasdk::channel::mediasink::audio::AudioMediaSinkService;
+@@ -25,6 +26,6 @@ namespace aasdk::channel::mediasink::audio::channel {
+ 
+   class GuidanceAudioChannel : public AudioMediaSinkService {
+   public:
+-    GuidanceAudioChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    GuidanceAudioChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+   };
+ }
+diff --git a/include/aasdk/Channel/MediaSink/Audio/Channel/MediaAudioChannel.hpp b/include/aasdk/Channel/MediaSink/Audio/Channel/MediaAudioChannel.hpp
+index 09f7add..97df84e 100644
+--- a/include/aasdk/Channel/MediaSink/Audio/Channel/MediaAudioChannel.hpp
++++ b/include/aasdk/Channel/MediaSink/Audio/Channel/MediaAudioChannel.hpp
+@@ -18,6 +18,7 @@
+ #pragma once
+ 
+ #include "aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+   using aasdk::channel::mediasink::audio::AudioMediaSinkService;
+@@ -25,6 +26,6 @@ namespace aasdk::channel::mediasink::audio::channel {
+ 
+   class MediaAudioChannel : public AudioMediaSinkService {
+   public:
+-    MediaAudioChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    MediaAudioChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+   };
+ }
+diff --git a/include/aasdk/Channel/MediaSink/Audio/Channel/SystemAudioChannel.hpp b/include/aasdk/Channel/MediaSink/Audio/Channel/SystemAudioChannel.hpp
+index 38fe1bc..23502cf 100644
+--- a/include/aasdk/Channel/MediaSink/Audio/Channel/SystemAudioChannel.hpp
++++ b/include/aasdk/Channel/MediaSink/Audio/Channel/SystemAudioChannel.hpp
+@@ -18,6 +18,7 @@
+ #pragma once
+ 
+ #include "aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+   using aasdk::channel::mediasink::audio::AudioMediaSinkService;
+@@ -25,6 +26,6 @@ namespace aasdk::channel::mediasink::audio::channel {
+ 
+   class SystemAudioChannel : public AudioMediaSinkService {
+   public:
+-    SystemAudioChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    SystemAudioChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+   };
+ }
+diff --git a/include/aasdk/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.hpp b/include/aasdk/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.hpp
+index 9350579..f3da917 100644
+--- a/include/aasdk/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.hpp
++++ b/include/aasdk/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.hpp
+@@ -18,6 +18,7 @@
+ #pragma once
+ 
+ #include "aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+   using aasdk::channel::mediasink::audio::AudioMediaSinkService;
+@@ -25,7 +26,7 @@ namespace aasdk::channel::mediasink::audio::channel {
+ 
+   class TelephonyAudioChannel : public AudioMediaSinkService {
+   public:
+-    TelephonyAudioChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    TelephonyAudioChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+   };
+ }
+ 
+diff --git a/include/aasdk/Channel/MediaSink/Video/Channel/VideoChannel.hpp b/include/aasdk/Channel/MediaSink/Video/Channel/VideoChannel.hpp
+index c4e1398..372a512 100644
+--- a/include/aasdk/Channel/MediaSink/Video/Channel/VideoChannel.hpp
++++ b/include/aasdk/Channel/MediaSink/Video/Channel/VideoChannel.hpp
+@@ -18,6 +18,7 @@
+ #pragma once
+ 
+ #include "aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::video::channel {
+   using aasdk::channel::mediasink::video::VideoMediaSinkService;
+@@ -25,6 +26,6 @@ namespace aasdk::channel::mediasink::video::channel {
+ 
+   class VideoChannel : public VideoMediaSinkService {
+   public:
+-    VideoChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    VideoChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+   };
+ }
+diff --git a/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp b/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp
+index fdfd8bb..1e2705e 100644
+--- a/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp
++++ b/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp
+@@ -21,13 +21,14 @@
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IVideoMediaSinkService.hpp"
+ #include <aap_protobuf/service/media/video/message/VideoFocusNotification.pb.h>
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::video {
+ 
+   class VideoMediaSinkService
+       : public IVideoMediaSinkService, public Channel, public std::enable_shared_from_this<VideoMediaSinkService> {
+   public:
+-    VideoMediaSinkService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger,
++    VideoMediaSinkService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger,
+                           messenger::ChannelId channelId);
+ 
+     // Senders and Receivers
+diff --git a/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp b/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp
+index ab13545..7948b20 100644
+--- a/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp
++++ b/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp
+@@ -18,12 +18,13 @@
+ #pragma once
+ 
+ #include "aasdk/Channel/MediaSource/MediaSourceService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasource::audio {
+ 
+   class MicrophoneAudioChannel : public MediaSourceService {
+   public:
+-    MicrophoneAudioChannel(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    MicrophoneAudioChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+   };
+ }
+ 
+diff --git a/include/aasdk/Channel/MediaSource/MediaSourceService.hpp b/include/aasdk/Channel/MediaSource/MediaSourceService.hpp
+index 7aea978..cbd7cd4 100644
+--- a/include/aasdk/Channel/MediaSource/MediaSourceService.hpp
++++ b/include/aasdk/Channel/MediaSource/MediaSourceService.hpp
+@@ -21,6 +21,7 @@
+ #include "aasdk/Messenger/Timestamp.hpp"
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IMediaSourceService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::mediasource {
+@@ -28,7 +29,7 @@ namespace aasdk::channel::mediasource {
+   class MediaSourceService
+       : public IMediaSourceService, public Channel, public std::enable_shared_from_this<MediaSourceService> {
+   public:
+-    MediaSourceService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger,
++    MediaSourceService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger,
+                        messenger::ChannelId channelId);
+ 
+     // Senders and Receivers
+diff --git a/include/aasdk/Channel/NavigationStatus/NavigationStatusService.hpp b/include/aasdk/Channel/NavigationStatus/NavigationStatusService.hpp
+index bab1da1..79375e0 100644
+--- a/include/aasdk/Channel/NavigationStatus/NavigationStatusService.hpp
++++ b/include/aasdk/Channel/NavigationStatus/NavigationStatusService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "INavigationStatusService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::navigationstatus {
+@@ -27,7 +28,7 @@ namespace aasdk::channel::navigationstatus {
+   class NavigationStatusService
+       : public INavigationStatusService, public Channel, public std::enable_shared_from_this<NavigationStatusService> {
+   public:
+-    NavigationStatusService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    NavigationStatusService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/PhoneStatus/PhoneStatusService.hpp b/include/aasdk/Channel/PhoneStatus/PhoneStatusService.hpp
+index 732805c..e0c8184 100644
+--- a/include/aasdk/Channel/PhoneStatus/PhoneStatusService.hpp
++++ b/include/aasdk/Channel/PhoneStatus/PhoneStatusService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IPhoneStatusService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::phonestatus {
+@@ -27,7 +28,7 @@ namespace aasdk::channel::phonestatus {
+   class PhoneStatusService
+       : public IPhoneStatusService, public Channel, public std::enable_shared_from_this<PhoneStatusService> {
+   public:
+-    PhoneStatusService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    PhoneStatusService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/Radio/RadioService.hpp b/include/aasdk/Channel/Radio/RadioService.hpp
+index 6ace180..4557c77 100644
+--- a/include/aasdk/Channel/Radio/RadioService.hpp
++++ b/include/aasdk/Channel/Radio/RadioService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IRadioService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::radio {
+ 
+@@ -26,7 +27,7 @@ namespace aasdk::channel::radio {
+   class RadioService
+       : public IRadioService, public Channel, public std::enable_shared_from_this<RadioService> {
+   public:
+-    RadioService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    RadioService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/SensorSource/SensorSourceService.hpp b/include/aasdk/Channel/SensorSource/SensorSourceService.hpp
+index 6bbd619..b614205 100644
+--- a/include/aasdk/Channel/SensorSource/SensorSourceService.hpp
++++ b/include/aasdk/Channel/SensorSource/SensorSourceService.hpp
+@@ -19,12 +19,13 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "ISensorSourceService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::sensorsource {
+ 
+   class SensorSourceService : public ISensorSourceService, public Channel, public std::enable_shared_from_this<SensorSourceService> {
+   public:
+-    SensorSourceService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    SensorSourceService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/VendorExtension/VendorExtensionService.hpp b/include/aasdk/Channel/VendorExtension/VendorExtensionService.hpp
+index 8c127b1..bb501d8 100644
+--- a/include/aasdk/Channel/VendorExtension/VendorExtensionService.hpp
++++ b/include/aasdk/Channel/VendorExtension/VendorExtensionService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IVendorExtensionService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::vendorextension {
+@@ -27,7 +28,7 @@ namespace aasdk::channel::vendorextension {
+   class VendorExtensionService
+       : public IVendorExtensionService, public Channel, public std::enable_shared_from_this<VendorExtensionService> {
+   public:
+-    VendorExtensionService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    VendorExtensionService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Channel/WifiProjection/WifiProjectionService.hpp b/include/aasdk/Channel/WifiProjection/WifiProjectionService.hpp
+index c6f903a..8318db8 100644
+--- a/include/aasdk/Channel/WifiProjection/WifiProjectionService.hpp
++++ b/include/aasdk/Channel/WifiProjection/WifiProjectionService.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include "aasdk/Channel/Channel.hpp"
+ #include "IWifiProjectionService.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::wifiprojection {
+@@ -27,7 +28,7 @@ namespace aasdk::channel::wifiprojection {
+   class WifiProjectionService
+       : public IWifiProjectionService, public Channel, public std::enable_shared_from_this<WifiProjectionService> {
+   public:
+-    WifiProjectionService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger);
++    WifiProjectionService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
+ 
+     // Senders and Receivers
+ 
+diff --git a/include/aasdk/Common/Strand.hpp b/include/aasdk/Common/Strand.hpp
+new file mode 100644
+index 0000000..8b54d2f
+--- /dev/null
++++ b/include/aasdk/Common/Strand.hpp
+@@ -0,0 +1,68 @@
++// This file is part of aasdk library project.
++// Copyright (C) 2018 f1x.studio (Michal Szwaj)
++//
++// aasdk is free software: you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 3 of the License, or
++// (at your option) any later version.
++//
++// aasdk is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with aasdk. If not, see <http://www.gnu.org/licenses/>.
++
++#pragma once
++
++#include <boost/asio.hpp>
++#include <utility>
++
++namespace aasdk {
++
++// aasdk::Strand was removed in Boost 1.87. Its replacement,
++// boost::asio::strand<Executor>, models the Executor concept instead: it is built from
++// an executor rather than an io_context, its dispatch() and post() take an allocator,
++// its context() is typed execution_context&, and it has no get_io_service().
++//
++// aasdk calls strands in the old style in roughly a hundred places. This subclass keeps
++// that call style working so the port stays a mechanical type substitution instead of a
++// rewrite of every handler dispatch in the library.
++class Strand : public boost::asio::strand<boost::asio::io_context::executor_type> {
++ public:
++  using Base = boost::asio::strand<boost::asio::io_context::executor_type>;
++
++  // The old strand(io_service&) constructor.
++  explicit Strand(boost::asio::io_context& ioContext) : Base(ioContext.get_executor()) {}
++
++  // Keep the Executor based constructors usable too.
++  explicit Strand(const Base& base) : Base(base) {}
++
++  // The old one argument dispatch() and post(). boost::asio::strand<Executor> requires
++  // an allocator on both, the free functions do not.
++  template <typename Handler>
++  void dispatch(Handler&& handler) {
++    boost::asio::dispatch(static_cast<Base&>(*this), std::forward<Handler>(handler));
++  }
++
++  template <typename Handler>
++  void post(Handler&& handler) {
++    boost::asio::post(static_cast<Base&>(*this), std::forward<Handler>(handler));
++  }
++
++  // aasdk reaches the owning io_context two ways, guarded on BOOST_VERSION: the old
++  // get_io_service() below 1.66, and context() above it. On boost::asio::strand<Executor>
++  // context() exists but is typed execution_context&, which does not bind to the
++  // io_context& parameters aasdk passes it to. Both accessors are narrowed here.
++  //
++  // The downcast is sound: every Strand is built from an io_context by the constructor
++  // above, so the execution_context really is one.
++  boost::asio::io_context& context() {
++    return static_cast<boost::asio::io_context&>(Base::context());
++  }
++
++  boost::asio::io_context& get_io_service() { return context(); }
++};
++
++}  // namespace aasdk
+diff --git a/include/aasdk/IO/IOContextWrapper.hpp b/include/aasdk/IO/IOContextWrapper.hpp
+index 031e089..b2c643c 100644
+--- a/include/aasdk/IO/IOContextWrapper.hpp
++++ b/include/aasdk/IO/IOContextWrapper.hpp
+@@ -19,6 +19,7 @@
+ 
+ #include <boost/asio.hpp>
+ #include <mutex>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -28,14 +29,14 @@ namespace aasdk {
+     public:
+       IOContextWrapper();
+ 
+-      explicit IOContextWrapper(boost::asio::io_service &ioService);
++      explicit IOContextWrapper(boost::asio::io_context &ioService);
+ 
+-      explicit IOContextWrapper(boost::asio::io_service::strand &strand);
++      explicit IOContextWrapper(aasdk::Strand &strand);
+ 
+       template<typename CompletionHandlerType>
+       void post(CompletionHandlerType &&handler) {
+         if (ioService_ != nullptr) {
+-          ioService_->post(std::move(handler));
++          boost::asio::post(*ioService_, std::move(handler));
+         } else if (strand_ != nullptr) {
+           strand_->post(std::move(handler));
+         }
+@@ -44,7 +45,7 @@ namespace aasdk {
+       template<typename CompletionHandlerType>
+       void dispatch(CompletionHandlerType &&handler) {
+         if (ioService_ != nullptr) {
+-          ioService_->dispatch(std::move(handler));
++          boost::asio::dispatch(*ioService_, std::move(handler));
+         } else if (strand_ != nullptr) {
+           strand_->dispatch(std::move(handler));
+         }
+@@ -55,9 +56,9 @@ namespace aasdk {
+       bool isActive() const;
+ 
+     private:
+-      boost::asio::io_service *ioService_;
+-      boost::asio::io_service::strand *strand_;
++      boost::asio::io_context *ioService_;
++      aasdk::Strand *strand_;
+     };
+ 
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/include/aasdk/IO/Promise.hpp b/include/aasdk/IO/Promise.hpp
+index 9f27926..44bec29 100644
+--- a/include/aasdk/IO/Promise.hpp
++++ b/include/aasdk/IO/Promise.hpp
+@@ -22,6 +22,7 @@
+ #include <boost/core/noncopyable.hpp>
+ #include <aasdk/Error/Error.hpp>
+ #include <aasdk/IO/IOContextWrapper.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -36,20 +37,20 @@ namespace aasdk {
+       typedef std::function<void(ErrorArgumentType)> RejectHandler;
+       typedef std::shared_ptr<Promise> Pointer;
+ 
+-      static Pointer defer(boost::asio::io_service &ioService) {
++      static Pointer defer(boost::asio::io_context &ioService) {
+         return std::make_shared<Promise>(ioService);
+       }
+ 
+-      static Pointer defer(boost::asio::io_service::strand &strand) {
++      static Pointer defer(aasdk::Strand &strand) {
+         return std::make_shared<Promise>(strand);
+       }
+ 
+-      Promise(boost::asio::io_service &ioService)
++      Promise(boost::asio::io_context &ioService)
+           : ioContextWrapper_(ioService) {
+ 
+       }
+ 
+-      Promise(boost::asio::io_service::strand &strand)
++      Promise(aasdk::Strand &strand)
+           : ioContextWrapper_(strand) {
+ 
+       }
+@@ -107,20 +108,20 @@ namespace aasdk {
+       typedef std::function<void(ErrorArgumentType)> RejectHandler;
+       typedef std::shared_ptr<Promise> Pointer;
+ 
+-      static Pointer defer(boost::asio::io_service &ioService) {
++      static Pointer defer(boost::asio::io_context &ioService) {
+         return std::make_shared<Promise>(ioService);
+       }
+ 
+-      static Pointer defer(boost::asio::io_service::strand &strand) {
++      static Pointer defer(aasdk::Strand &strand) {
+         return std::make_shared<Promise>(strand);
+       }
+ 
+-      Promise(boost::asio::io_service &ioService)
++      Promise(boost::asio::io_context &ioService)
+           : ioContextWrapper_(ioService) {
+ 
+       }
+ 
+-      Promise(boost::asio::io_service::strand &strand)
++      Promise(aasdk::Strand &strand)
+           : ioContextWrapper_(strand) {
+ 
+       }
+@@ -176,20 +177,20 @@ namespace aasdk {
+       typedef std::function<void()> RejectHandler;
+       typedef std::shared_ptr<Promise> Pointer;
+ 
+-      static Pointer defer(boost::asio::io_service &ioService) {
++      static Pointer defer(boost::asio::io_context &ioService) {
+         return std::make_shared<Promise>(ioService);
+       }
+ 
+-      static Pointer defer(boost::asio::io_service::strand &strand) {
++      static Pointer defer(aasdk::Strand &strand) {
+         return std::make_shared<Promise>(strand);
+       }
+ 
+-      Promise(boost::asio::io_service &ioService)
++      Promise(boost::asio::io_context &ioService)
+           : ioContextWrapper_(ioService) {
+ 
+       }
+ 
+-      Promise(boost::asio::io_service::strand &strand)
++      Promise(aasdk::Strand &strand)
+           : ioContextWrapper_(strand) {
+ 
+       }
+@@ -246,20 +247,20 @@ namespace aasdk {
+       typedef std::function<void(void)> RejectHandler;
+       typedef std::shared_ptr<Promise> Pointer;
+ 
+-      static Pointer defer(boost::asio::io_service &ioService) {
++      static Pointer defer(boost::asio::io_context &ioService) {
+         return std::make_shared<Promise>(ioService);
+       }
+ 
+-      static Pointer defer(boost::asio::io_service::strand &strand) {
++      static Pointer defer(aasdk::Strand &strand) {
+         return std::make_shared<Promise>(strand);
+       }
+ 
+-      Promise(boost::asio::io_service &ioService)
++      Promise(boost::asio::io_context &ioService)
+           : ioContextWrapper_(ioService) {
+ 
+       }
+ 
+-      Promise(boost::asio::io_service::strand &strand)
++      Promise(aasdk::Strand &strand)
+           : ioContextWrapper_(strand) {
+ 
+       }
+diff --git a/include/aasdk/Messenger/MessageInStream.hpp b/include/aasdk/Messenger/MessageInStream.hpp
+index 24127bd..19b87f1 100644
+--- a/include/aasdk/Messenger/MessageInStream.hpp
++++ b/include/aasdk/Messenger/MessageInStream.hpp
+@@ -24,6 +24,7 @@
+ #include <aasdk/Messenger/FrameHeader.hpp>
+ #include <aasdk/Messenger/FrameSize.hpp>
+ #include <aasdk/Messenger/FrameType.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -32,7 +33,7 @@ namespace aasdk {
+     class MessageInStream
+         : public IMessageInStream, public std::enable_shared_from_this<MessageInStream>, boost::noncopyable {
+     public:
+-      MessageInStream(boost::asio::io_service &ioService, transport::ITransport::Pointer transport,
++      MessageInStream(boost::asio::io_context &ioService, transport::ITransport::Pointer transport,
+                       ICryptor::Pointer cryptor);
+ 
+       void startReceive(ReceivePromise::Pointer promise) override;
+@@ -46,7 +47,7 @@ namespace aasdk {
+ 
+       void receiveFramePayloadHandler(const common::DataConstBuffer &buffer);
+ 
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       transport::ITransport::Pointer transport_;
+       ICryptor::Pointer cryptor_;
+ 
+diff --git a/include/aasdk/Messenger/MessageOutStream.hpp b/include/aasdk/Messenger/MessageOutStream.hpp
+index e228f6e..f12fae4 100644
+--- a/include/aasdk/Messenger/MessageOutStream.hpp
++++ b/include/aasdk/Messenger/MessageOutStream.hpp
+@@ -23,6 +23,7 @@
+ #include <aasdk/Messenger/IMessageOutStream.hpp>
+ #include <aasdk/Messenger/FrameHeader.hpp>
+ #include <aasdk/Messenger/FrameSize.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -31,7 +32,7 @@ namespace aasdk {
+     class MessageOutStream
+         : public IMessageOutStream, public std::enable_shared_from_this<MessageOutStream>, boost::noncopyable {
+     public:
+-      MessageOutStream(boost::asio::io_service &ioService, transport::ITransport::Pointer transport,
++      MessageOutStream(boost::asio::io_context &ioService, transport::ITransport::Pointer transport,
+                        ICryptor::Pointer cryptor);
+ 
+       void stream(Message::Pointer message, SendPromise::Pointer promise) override;
+@@ -51,7 +52,7 @@ namespace aasdk {
+ 
+       void reset();
+ 
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       transport::ITransport::Pointer transport_;
+       ICryptor::Pointer cryptor_;
+       Message::Pointer message_;
+diff --git a/include/aasdk/Messenger/Messenger.hpp b/include/aasdk/Messenger/Messenger.hpp
+index ce1c8df..3e41eb9 100644
+--- a/include/aasdk/Messenger/Messenger.hpp
++++ b/include/aasdk/Messenger/Messenger.hpp
+@@ -24,6 +24,7 @@
+ #include <aasdk/Messenger/IMessageOutStream.hpp>
+ #include <aasdk/Messenger/ChannelReceiveMessageQueue.hpp>
+ #include <aasdk/Messenger/ChannelReceivePromiseQueue.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -31,7 +32,7 @@ namespace aasdk {
+ 
+     class Messenger : public IMessenger, public std::enable_shared_from_this<Messenger>, boost::noncopyable {
+     public:
+-      Messenger(boost::asio::io_service &ioService, IMessageInStream::Pointer messageInStream,
++      Messenger(boost::asio::io_context &ioService, IMessageInStream::Pointer messageInStream,
+                 IMessageOutStream::Pointer messageOutStream);
+ 
+       void enqueueReceive(ChannelId channelId, ReceivePromise::Pointer promise) override;
+@@ -54,8 +55,8 @@ namespace aasdk {
+ 
+       void rejectSendPromiseQueue(const error::Error &e);
+ 
+-      boost::asio::io_service::strand receiveStrand_;
+-      boost::asio::io_service::strand sendStrand_;
++      aasdk::Strand receiveStrand_;
++      aasdk::Strand sendStrand_;
+       IMessageInStream::Pointer messageInStream_;
+       IMessageOutStream::Pointer messageOutStream_;
+ 
+diff --git a/include/aasdk/Transport/TCPTransport.hpp b/include/aasdk/Transport/TCPTransport.hpp
+index 28ab036..81f8a46 100644
+--- a/include/aasdk/Transport/TCPTransport.hpp
++++ b/include/aasdk/Transport/TCPTransport.hpp
+@@ -26,7 +26,7 @@ namespace aasdk {
+ 
+     class TCPTransport : public Transport {
+     public:
+-      TCPTransport(boost::asio::io_service &ioService, tcp::ITCPEndpoint::Pointer tcpEndpoint);
++      TCPTransport(boost::asio::io_context &ioService, tcp::ITCPEndpoint::Pointer tcpEndpoint);
+ 
+       void stop() override;
+ 
+diff --git a/include/aasdk/Transport/Transport.hpp b/include/aasdk/Transport/Transport.hpp
+index f55e8d7..49f1b93 100644
+--- a/include/aasdk/Transport/Transport.hpp
++++ b/include/aasdk/Transport/Transport.hpp
+@@ -22,6 +22,7 @@
+ #include <boost/asio.hpp>
+ #include <aasdk/Transport/ITransport.hpp>
+ #include <aasdk/Transport/DataSink.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -29,7 +30,7 @@ namespace aasdk {
+ 
+     class Transport : public ITransport, public std::enable_shared_from_this<Transport>, boost::noncopyable {
+     public:
+-      Transport(boost::asio::io_service &ioService);
++      Transport(boost::asio::io_context &ioService);
+ 
+       void receive(size_t size, ReceivePromise::Pointer promise) override;
+ 
+@@ -53,10 +54,10 @@ namespace aasdk {
+ 
+       DataSink receivedDataSink_;
+ 
+-      boost::asio::io_service::strand receiveStrand_;
++      aasdk::Strand receiveStrand_;
+       ReceiveQueue receiveQueue_;
+ 
+-      boost::asio::io_service::strand sendStrand_;
++      aasdk::Strand sendStrand_;
+       SendQueue sendQueue_;
+     };
+ 
+diff --git a/include/aasdk/Transport/USBTransport.hpp b/include/aasdk/Transport/USBTransport.hpp
+index a0d597d..bb0cc69 100644
+--- a/include/aasdk/Transport/USBTransport.hpp
++++ b/include/aasdk/Transport/USBTransport.hpp
+@@ -27,7 +27,7 @@ namespace aasdk {
+ 
+     class USBTransport : public Transport {
+     public:
+-      USBTransport(boost::asio::io_service &ioService, usb::IAOAPDevice::Pointer aoapDevice);
++      USBTransport(boost::asio::io_context &ioService, usb::IAOAPDevice::Pointer aoapDevice);
+ 
+       void stop() override;
+ 
+diff --git a/include/aasdk/USB/AOAPDevice.hpp b/include/aasdk/USB/AOAPDevice.hpp
+index 59ca051..15d8f5d 100644
+--- a/include/aasdk/USB/AOAPDevice.hpp
++++ b/include/aasdk/USB/AOAPDevice.hpp
+@@ -29,7 +29,7 @@ namespace aasdk {
+ 
+     class AOAPDevice : public IAOAPDevice, boost::noncopyable {
+     public:
+-      AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle,
++      AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                  const libusb_interface_descriptor *interfaceDescriptor);
+ 
+       ~AOAPDevice() override;
+@@ -39,7 +39,7 @@ namespace aasdk {
+       IUSBEndpoint &getOutEndpoint() override;
+ 
+       static IAOAPDevice::Pointer
+-      create(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle);
++      create(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle);
+ 
+     private:
+       static ConfigDescriptorHandle getConfigDescriptor(IUSBWrapper &usbWrapper, DeviceHandle handle);
+diff --git a/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp b/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp
+index 89452a2..553484f 100644
+--- a/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp
++++ b/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp
+@@ -26,7 +26,7 @@ namespace aasdk {
+     class AccessoryModeProtocolVersionQuery
+         : public AccessoryModeQuery, public std::enable_shared_from_this<AccessoryModeProtocolVersionQuery> {
+     public:
+-      AccessoryModeProtocolVersionQuery(boost::asio::io_service &ioService, IUSBWrapper &usbWrapper,
++      AccessoryModeProtocolVersionQuery(boost::asio::io_context &ioService, IUSBWrapper &usbWrapper,
+                                         IUSBEndpoint::Pointer usbEndpoint);
+ 
+       void start(Promise::Pointer promise) override;
+diff --git a/include/aasdk/USB/AccessoryModeQuery.hpp b/include/aasdk/USB/AccessoryModeQuery.hpp
+index 62e6635..10d276a 100644
+--- a/include/aasdk/USB/AccessoryModeQuery.hpp
++++ b/include/aasdk/USB/AccessoryModeQuery.hpp
+@@ -23,6 +23,7 @@
+ #include <aasdk/USB/IUSBEndpoint.hpp>
+ #include <aasdk/USB/IUSBWrapper.hpp>
+ #include <aasdk/USB/IAccessoryModeQuery.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -30,12 +31,12 @@ namespace aasdk {
+ 
+     class AccessoryModeQuery : public IAccessoryModeQuery, boost::noncopyable {
+     public:
+-      AccessoryModeQuery(boost::asio::io_service &ioService, IUSBEndpoint::Pointer usbEndpoint);
++      AccessoryModeQuery(boost::asio::io_context &ioService, IUSBEndpoint::Pointer usbEndpoint);
+ 
+       void cancel() override;
+ 
+     protected:
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       IUSBEndpoint::Pointer usbEndpoint_;
+       common::Data data_;
+       Promise::Pointer promise_;
+diff --git a/include/aasdk/USB/AccessoryModeQueryChain.hpp b/include/aasdk/USB/AccessoryModeQueryChain.hpp
+index 104aa3e..77ce772 100644
+--- a/include/aasdk/USB/AccessoryModeQueryChain.hpp
++++ b/include/aasdk/USB/AccessoryModeQueryChain.hpp
+@@ -20,6 +20,7 @@
+ #include <aasdk/USB/IUSBWrapper.hpp>
+ #include <aasdk/USB/IAccessoryModeQueryFactory.hpp>
+ #include <aasdk/USB/IAccessoryModeQueryChain.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -33,7 +34,7 @@ namespace aasdk {
+           boost::noncopyable {
+     public:
+       AccessoryModeQueryChain(IUSBWrapper &usbWrapper,
+-                              boost::asio::io_service &ioService,
++                              boost::asio::io_context &ioService,
+                               IAccessoryModeQueryFactory &queryFactory);
+ 
+       void start(DeviceHandle handle, Promise::Pointer promise) override;
+@@ -63,7 +64,7 @@ namespace aasdk {
+       void startQueryHandler(IUSBEndpoint::Pointer usbEndpoint);
+ 
+       IUSBWrapper &usbWrapper_;
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       IAccessoryModeQueryFactory &queryFactory_;
+       DeviceHandle handle_;
+       Promise::Pointer promise_;
+diff --git a/include/aasdk/USB/AccessoryModeQueryChainFactory.hpp b/include/aasdk/USB/AccessoryModeQueryChainFactory.hpp
+index 5a64377..366f240 100644
+--- a/include/aasdk/USB/AccessoryModeQueryChainFactory.hpp
++++ b/include/aasdk/USB/AccessoryModeQueryChainFactory.hpp
+@@ -27,14 +27,14 @@ namespace aasdk {
+     class AccessoryModeQueryChainFactory : public IAccessoryModeQueryChainFactory {
+     public:
+       AccessoryModeQueryChainFactory(IUSBWrapper &usbWrapper,
+-                                     boost::asio::io_service &ioService,
++                                     boost::asio::io_context &ioService,
+                                      IAccessoryModeQueryFactory &queryFactory);
+ 
+       IAccessoryModeQueryChain::Pointer create() override;
+ 
+     private:
+       IUSBWrapper &usbWrapper_;
+-      boost::asio::io_service &ioService_;
++      boost::asio::io_context &ioService_;
+       IAccessoryModeQueryFactory &queryFactory_;
+     };
+ 
+diff --git a/include/aasdk/USB/AccessoryModeQueryFactory.hpp b/include/aasdk/USB/AccessoryModeQueryFactory.hpp
+index f74e40a..fd6e875 100644
+--- a/include/aasdk/USB/AccessoryModeQueryFactory.hpp
++++ b/include/aasdk/USB/AccessoryModeQueryFactory.hpp
+@@ -26,14 +26,14 @@ namespace aasdk {
+ 
+     class AccessoryModeQueryFactory : public IAccessoryModeQueryFactory {
+     public:
+-      AccessoryModeQueryFactory(usb::IUSBWrapper &usbWrapper, boost::asio::io_service &ioService);
++      AccessoryModeQueryFactory(usb::IUSBWrapper &usbWrapper, boost::asio::io_context &ioService);
+ 
+       IAccessoryModeQuery::Pointer
+       createQuery(AccessoryModeQueryType queryType, IUSBEndpoint::Pointer usbEndpoint) override;
+ 
+     private:
+       usb::IUSBWrapper &usbWrapper_;
+-      boost::asio::io_service &ioService_;
++      boost::asio::io_context &ioService_;
+     };
+ 
+   }
+diff --git a/include/aasdk/USB/AccessoryModeSendStringQuery.hpp b/include/aasdk/USB/AccessoryModeSendStringQuery.hpp
+index 4846bc7..3426810 100644
+--- a/include/aasdk/USB/AccessoryModeSendStringQuery.hpp
++++ b/include/aasdk/USB/AccessoryModeSendStringQuery.hpp
+@@ -28,7 +28,7 @@ namespace aasdk {
+     class AccessoryModeSendStringQuery
+         : public AccessoryModeQuery, public std::enable_shared_from_this<AccessoryModeSendStringQuery> {
+     public:
+-      AccessoryModeSendStringQuery(boost::asio::io_service &ioService, IUSBWrapper &usbWrapper,
++      AccessoryModeSendStringQuery(boost::asio::io_context &ioService, IUSBWrapper &usbWrapper,
+                                    IUSBEndpoint::Pointer usbEndpoint,
+                                    AccessoryModeSendStringType sendStringType, const std::string &queryValue);
+ 
+diff --git a/include/aasdk/USB/AccessoryModeStartQuery.hpp b/include/aasdk/USB/AccessoryModeStartQuery.hpp
+index d8d5acd..f624ebc 100644
+--- a/include/aasdk/USB/AccessoryModeStartQuery.hpp
++++ b/include/aasdk/USB/AccessoryModeStartQuery.hpp
+@@ -26,7 +26,7 @@ namespace aasdk {
+     class AccessoryModeStartQuery
+         : public AccessoryModeQuery, public std::enable_shared_from_this<AccessoryModeStartQuery> {
+     public:
+-      AccessoryModeStartQuery(boost::asio::io_service &ioService, IUSBWrapper &usbWrapper,
++      AccessoryModeStartQuery(boost::asio::io_context &ioService, IUSBWrapper &usbWrapper,
+                               IUSBEndpoint::Pointer usbEndpoint);
+ 
+       void start(Promise::Pointer promise) override;
+diff --git a/include/aasdk/USB/ConnectedAccessoriesEnumerator.hpp b/include/aasdk/USB/ConnectedAccessoriesEnumerator.hpp
+index 3b48dc1..1bdf236 100644
+--- a/include/aasdk/USB/ConnectedAccessoriesEnumerator.hpp
++++ b/include/aasdk/USB/ConnectedAccessoriesEnumerator.hpp
+@@ -21,6 +21,7 @@
+ #include <aasdk/USB/IUSBWrapper.hpp>
+ #include <aasdk/USB/IAccessoryModeQueryChainFactory.hpp>
+ #include <aasdk/USB/IConnectedAccessoriesEnumerator.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -29,7 +30,7 @@ namespace aasdk {
+     class ConnectedAccessoriesEnumerator
+         : public IConnectedAccessoriesEnumerator, public std::enable_shared_from_this<ConnectedAccessoriesEnumerator> {
+     public:
+-      ConnectedAccessoriesEnumerator(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService,
++      ConnectedAccessoriesEnumerator(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService,
+                                      IAccessoryModeQueryChainFactory &queryChainFactory);
+ 
+       void enumerate(Promise::Pointer promise) override;
+@@ -46,7 +47,7 @@ namespace aasdk {
+       void reset();
+ 
+       IUSBWrapper &usbWrapper_;
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       IAccessoryModeQueryChainFactory &queryChainFactory_;
+       IAccessoryModeQueryChain::Pointer queryChain_;
+       Promise::Pointer promise_;
+diff --git a/include/aasdk/USB/USBEndpoint.hpp b/include/aasdk/USB/USBEndpoint.hpp
+index 8d30656..a5ec3d0 100644
+--- a/include/aasdk/USB/USBEndpoint.hpp
++++ b/include/aasdk/USB/USBEndpoint.hpp
+@@ -22,6 +22,7 @@
+ #include <boost/asio.hpp>
+ #include <aasdk/USB/IUSBWrapper.hpp>
+ #include <aasdk/USB/IUSBEndpoint.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -31,7 +32,7 @@ namespace aasdk {
+                         public std::enable_shared_from_this<USBEndpoint>,
+                         boost::noncopyable {
+     public:
+-      USBEndpoint(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle,
++      USBEndpoint(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                   uint8_t endpointAddress = 0x00);
+ 
+       void controlTransfer(common::DataBuffer buffer, uint32_t timeout, Promise::Pointer promise) override;
+@@ -56,7 +57,7 @@ namespace aasdk {
+       static void transferHandler(libusb_transfer *transfer);
+ 
+       IUSBWrapper &usbWrapper_;
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       DeviceHandle handle_;
+       uint8_t endpointAddress_;
+       Transfers transfers_;
+diff --git a/include/aasdk/USB/USBHub.hpp b/include/aasdk/USB/USBHub.hpp
+index 1608aa2..1313713 100644
+--- a/include/aasdk/USB/USBHub.hpp
++++ b/include/aasdk/USB/USBHub.hpp
+@@ -21,6 +21,7 @@
+ #include <list>
+ #include <aasdk/USB/IUSBHub.hpp>
+ #include <aasdk/USB/IAccessoryModeQueryChainFactory.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -30,7 +31,7 @@ namespace aasdk {
+ 
+     class USBHub : public IUSBHub, public std::enable_shared_from_this<USBHub>, boost::noncopyable {
+     public:
+-      USBHub(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService,
++      USBHub(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService,
+              IAccessoryModeQueryChainFactory &queryChainFactory);
+ 
+       void start(Promise::Pointer promise) override;
+@@ -49,7 +50,7 @@ namespace aasdk {
+                                       void *uerData);
+ 
+       IUSBWrapper &usbWrapper_;
+-      boost::asio::io_service::strand strand_;
++      aasdk::Strand strand_;
+       IAccessoryModeQueryChainFactory &queryChainFactory_;
+       Promise::Pointer hotplugPromise_;
+       Pointer self_;
+diff --git a/src/Channel/Bluetooth/BluetoothService.cpp b/src/Channel/Bluetooth/BluetoothService.cpp
+index ace5fcb..ffcc6b3 100644
+--- a/src/Channel/Bluetooth/BluetoothService.cpp
++++ b/src/Channel/Bluetooth/BluetoothService.cpp
+@@ -20,10 +20,11 @@
+ #include "aasdk/Channel/Bluetooth/BluetoothService.hpp"
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::bluetooth {
+ 
+-  BluetoothService::BluetoothService(boost::asio::io_service::strand &strand,
++  BluetoothService::BluetoothService(aasdk::Strand &strand,
+                                      messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::BLUETOOTH) {
+ 
+diff --git a/src/Channel/Channel.cpp b/src/Channel/Channel.cpp
+index 63167b8..be8dfe8 100644
+--- a/src/Channel/Channel.cpp
++++ b/src/Channel/Channel.cpp
+@@ -17,9 +17,10 @@
+ 
+ #include "aasdk/IO/PromiseLink.hpp"
+ #include "aasdk/Channel/Channel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel {
+-  Channel::Channel(boost::asio::io_service::strand &strand,
++  Channel::Channel(aasdk::Strand &strand,
+                    messenger::IMessenger::Pointer messenger,
+                    messenger::ChannelId channelId)
+       : strand_(strand), messenger_(std::move(messenger)), channelId_(channelId) {
+diff --git a/src/Channel/Control/ControlServiceChannel.cpp b/src/Channel/Control/ControlServiceChannel.cpp
+index ff87bc9..7831aab 100644
+--- a/src/Channel/Control/ControlServiceChannel.cpp
++++ b/src/Channel/Control/ControlServiceChannel.cpp
+@@ -22,13 +22,14 @@
+ #include <aasdk/Channel/Control/IControlServiceChannelEventHandler.hpp>
+ #include <aasdk/Common/Log.hpp>
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+   namespace channel {
+     namespace control {
+ 
+-      ControlServiceChannel::ControlServiceChannel(boost::asio::io_service::strand &strand,
++      ControlServiceChannel::ControlServiceChannel(aasdk::Strand &strand,
+                                                    messenger::IMessenger::Pointer messenger)
+           : Channel(strand, messenger, messenger::ChannelId::CONTROL) {
+ 
+diff --git a/src/Channel/GenericNotification/GenericNotification.cpp b/src/Channel/GenericNotification/GenericNotification.cpp
+index 7c47cae..9d2d2d5 100644
+--- a/src/Channel/GenericNotification/GenericNotification.cpp
++++ b/src/Channel/GenericNotification/GenericNotification.cpp
+@@ -19,6 +19,7 @@
+ #include <aasdk/Channel/GenericNotification/GenericNotificationService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Generic Notification channel - not much is known at this point.
+@@ -27,7 +28,7 @@
+ 
+ namespace aasdk::channel::genericnotification {
+ 
+-  GenericNotificationService::GenericNotificationService(boost::asio::io_service::strand &strand,
++  GenericNotificationService::GenericNotificationService(aasdk::Strand &strand,
+                                                          messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::GENERIC_NOTIFICATION) {
+ 
+diff --git a/src/Channel/InputSource/InputSourceService.cpp b/src/Channel/InputSource/InputSourceService.cpp
+index d8ed75b..ce27795 100644
+--- a/src/Channel/InputSource/InputSourceService.cpp
++++ b/src/Channel/InputSource/InputSourceService.cpp
+@@ -20,11 +20,12 @@
+ #include "aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp"
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::inputsource {
+ 
+-  InputSourceService::InputSourceService(boost::asio::io_service::strand &strand,
++  InputSourceService::InputSourceService(aasdk::Strand &strand,
+                                          messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::INPUT_SOURCE) {
+ 
+diff --git a/src/Channel/MediaBrowser/MediaBrowserService.cpp b/src/Channel/MediaBrowser/MediaBrowserService.cpp
+index c757ba1..fa35d58 100644
+--- a/src/Channel/MediaBrowser/MediaBrowserService.cpp
++++ b/src/Channel/MediaBrowser/MediaBrowserService.cpp
+@@ -21,6 +21,7 @@
+ #include <aasdk/Channel/MediaBrowser/MediaBrowserService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Media Browser channel that could be used for integration onto another Raspberry Pi/Other Device to add an additional screen for notification and control purposes - such as updating the LCD screen on older Vauxhall/Opel/GM Cars
+@@ -28,7 +29,7 @@
+ 
+ namespace aasdk::channel::mediabrowser {
+ 
+-  MediaBrowserService::MediaBrowserService(boost::asio::io_service::strand &strand,
++  MediaBrowserService::MediaBrowserService(aasdk::Strand &strand,
+                                            messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::MEDIA_BROWSER) {
+ 
+diff --git a/src/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.cpp b/src/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.cpp
+index 1e9d311..cc86ee4 100644
+--- a/src/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.cpp
++++ b/src/Channel/MediaPlaybackStatus/MediaPlaybackStatusService.cpp
+@@ -20,6 +20,7 @@
+ #include "aasdk/Channel/MediaPlaybackStatus/IMediaPlaybackStatusServiceEventHandler.hpp"
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Media Playback Status channel that could be used for integration onto another Raspberry Pi/Other Device to add an additional screen for notification and control purposes - such as updating the LCD screen on older Vauxhall/Opel/GM Cars
+@@ -27,7 +28,7 @@
+ 
+ namespace aasdk::channel::mediaplaybackstatus {
+ 
+-  MediaPlaybackStatusService::MediaPlaybackStatusService(boost::asio::io_service::strand &strand,
++  MediaPlaybackStatusService::MediaPlaybackStatusService(aasdk::Strand &strand,
+                                                          messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::MEDIA_PLAYBACK_STATUS) {
+ 
+diff --git a/src/Channel/MediaSink/Audio/AudioMediaSinkService.cpp b/src/Channel/MediaSink/Audio/AudioMediaSinkService.cpp
+index 8792cf3..f630a54 100644
+--- a/src/Channel/MediaSink/Audio/AudioMediaSinkService.cpp
++++ b/src/Channel/MediaSink/Audio/AudioMediaSinkService.cpp
+@@ -20,6 +20,7 @@
+ #include <aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * TODO: Merge Audio and Video Sink Service - P4
+@@ -29,7 +30,7 @@
+  */
+ namespace aasdk::channel::mediasink::audio {
+ 
+-  AudioMediaSinkService::AudioMediaSinkService(boost::asio::io_service::strand &strand,
++  AudioMediaSinkService::AudioMediaSinkService(aasdk::Strand &strand,
+                                                messenger::IMessenger::Pointer messenger,
+                                                messenger::ChannelId channelId)
+       : Channel(strand, std::move(messenger), channelId) {
+diff --git a/src/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.cpp b/src/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.cpp
+index cb356df..bb935b4 100644
+--- a/src/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.cpp
++++ b/src/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.cpp
+@@ -16,9 +16,10 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include "aasdk/Channel/MediaSink/Audio/Channel/GuidanceAudioChannel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+-  GuidanceAudioChannel::GuidanceAudioChannel(boost::asio::io_service::strand &strand,
++  GuidanceAudioChannel::GuidanceAudioChannel(aasdk::Strand &strand,
+                                              messenger::IMessenger::Pointer messenger)
+       : AudioMediaSinkService(strand, std::move(messenger), messenger::ChannelId::MEDIA_SINK_GUIDANCE_AUDIO) {
+ 
+diff --git a/src/Channel/MediaSink/Audio/Channel/MediaAudioChannel.cpp b/src/Channel/MediaSink/Audio/Channel/MediaAudioChannel.cpp
+index bd18fdc..d4b1df9 100644
+--- a/src/Channel/MediaSink/Audio/Channel/MediaAudioChannel.cpp
++++ b/src/Channel/MediaSink/Audio/Channel/MediaAudioChannel.cpp
+@@ -16,10 +16,11 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include "aasdk/Channel/MediaSink/Audio/Channel/MediaAudioChannel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+ 
+-  MediaAudioChannel::MediaAudioChannel(boost::asio::io_service::strand &strand,
++  MediaAudioChannel::MediaAudioChannel(aasdk::Strand &strand,
+                                        messenger::IMessenger::Pointer messenger)
+       : AudioMediaSinkService(strand, std::move(messenger), messenger::ChannelId::MEDIA_SINK_MEDIA_AUDIO) {
+ 
+diff --git a/src/Channel/MediaSink/Audio/Channel/SystemAudioChannel.cpp b/src/Channel/MediaSink/Audio/Channel/SystemAudioChannel.cpp
+index 49851d4..d9cd30e 100644
+--- a/src/Channel/MediaSink/Audio/Channel/SystemAudioChannel.cpp
++++ b/src/Channel/MediaSink/Audio/Channel/SystemAudioChannel.cpp
+@@ -16,10 +16,11 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include "aasdk/Channel/MediaSink/Audio/Channel/SystemAudioChannel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+ 
+-  SystemAudioChannel::SystemAudioChannel(boost::asio::io_service::strand &strand,
++  SystemAudioChannel::SystemAudioChannel(aasdk::Strand &strand,
+                                          messenger::IMessenger::Pointer messenger)
+       : AudioMediaSinkService(strand, std::move(messenger), messenger::ChannelId::MEDIA_SINK_SYSTEM_AUDIO) {
+ 
+diff --git a/src/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.cpp b/src/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.cpp
+index 249561e..2d9fddd 100644
+--- a/src/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.cpp
++++ b/src/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.cpp
+@@ -16,10 +16,11 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include "aasdk/Channel/MediaSink/Audio/Channel/TelephonyAudioChannel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::audio::channel {
+ 
+-  TelephonyAudioChannel::TelephonyAudioChannel(boost::asio::io_service::strand &strand,
++  TelephonyAudioChannel::TelephonyAudioChannel(aasdk::Strand &strand,
+                                                messenger::IMessenger::Pointer messenger)
+       : AudioMediaSinkService(strand, std::move(messenger), messenger::ChannelId::MEDIA_SINK_TELEPHONY_AUDIO) {
+ 
+diff --git a/src/Channel/MediaSink/Video/Channel/VideoChannel.cpp b/src/Channel/MediaSink/Video/Channel/VideoChannel.cpp
+index 192f735..3d7b935 100644
+--- a/src/Channel/MediaSink/Video/Channel/VideoChannel.cpp
++++ b/src/Channel/MediaSink/Video/Channel/VideoChannel.cpp
+@@ -16,12 +16,13 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include "aasdk/Channel/MediaSink/Video/Channel/VideoChannel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasink::video::channel {
+ 
+-  VideoChannel::VideoChannel(boost::asio::io_service::strand &strand,
++  VideoChannel::VideoChannel(aasdk::Strand &strand,
+                              messenger::IMessenger::Pointer messenger)
+       : VideoMediaSinkService(strand, std::move(messenger), messenger::ChannelId::MEDIA_SINK_VIDEO) {
+ 
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp b/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp
+index 1958afb..6b14db7 100644
+--- a/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp
++++ b/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp
+@@ -20,6 +20,7 @@
+ #include <aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * TODO: Merge Audio and Video Sink Service - P4
+@@ -29,7 +30,7 @@
+  */
+ namespace aasdk::channel::mediasink::video {
+ 
+-  VideoMediaSinkService::VideoMediaSinkService(boost::asio::io_service::strand &strand,
++  VideoMediaSinkService::VideoMediaSinkService(aasdk::Strand &strand,
+                                                messenger::IMessenger::Pointer messenger,
+                                                messenger::ChannelId channelId)
+       : Channel(strand, std::move(messenger), channelId) {
+diff --git a/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp b/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp
+index 1b25ba7..5ea70c8 100644
+--- a/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp
++++ b/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp
+@@ -16,10 +16,11 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include "aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp"
++#include <aasdk/Common/Strand.hpp>
+ 
+ namespace aasdk::channel::mediasource::audio {
+ 
+-  MicrophoneAudioChannel::MicrophoneAudioChannel(boost::asio::io_service::strand &strand,
++  MicrophoneAudioChannel::MicrophoneAudioChannel(aasdk::Strand &strand,
+                                                  messenger::IMessenger::Pointer messenger)
+       : MediaSourceService(strand, std::move(messenger), messenger::ChannelId::MEDIA_SOURCE_MICROPHONE) {
+ 
+diff --git a/src/Channel/MediaSource/MediaSourceService.cpp b/src/Channel/MediaSource/MediaSourceService.cpp
+index ddface3..4ed67b8 100644
+--- a/src/Channel/MediaSource/MediaSourceService.cpp
++++ b/src/Channel/MediaSource/MediaSourceService.cpp
+@@ -21,11 +21,12 @@
+ #include "aasdk/Channel/MediaSource/MediaSourceService.hpp"
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::mediasource {
+ 
+-  MediaSourceService::MediaSourceService(boost::asio::io_service::strand &strand,
++  MediaSourceService::MediaSourceService(aasdk::Strand &strand,
+                                          messenger::IMessenger::Pointer messenger,
+                                          messenger::ChannelId channelId)
+       : Channel(strand, std::move(messenger), channelId) {
+diff --git a/src/Channel/NavigationStatus/NavigationStatusService.cpp b/src/Channel/NavigationStatus/NavigationStatusService.cpp
+index 3091d36..88aa209 100644
+--- a/src/Channel/NavigationStatus/NavigationStatusService.cpp
++++ b/src/Channel/NavigationStatus/NavigationStatusService.cpp
+@@ -20,6 +20,7 @@
+ #include "aasdk/Channel/NavigationStatus/NavigationStatusService.hpp"
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Navigation Status channel that could be used for integration onto another Raspberry Pi/Other Device to add an additional screen for notification and control purposes - such as updating the LCD screen on older Vauxhall/Opel/GM Cars
+@@ -27,7 +28,7 @@
+ 
+ namespace aasdk::channel::navigationstatus {
+ 
+-  NavigationStatusService::NavigationStatusService(boost::asio::io_service::strand &strand,
++  NavigationStatusService::NavigationStatusService(aasdk::Strand &strand,
+                                                    messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::NAVIGATION_STATUS) {
+ 
+diff --git a/src/Channel/PhoneStatus/PhoneStatusService.cpp b/src/Channel/PhoneStatus/PhoneStatusService.cpp
+index b567c33..ae0af09 100644
+--- a/src/Channel/PhoneStatus/PhoneStatusService.cpp
++++ b/src/Channel/PhoneStatus/PhoneStatusService.cpp
+@@ -21,6 +21,7 @@
+ #include <aasdk/Channel/PhoneStatus/PhoneStatusService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Phone Status channel that could be used for integration onto another Raspberry Pi/Other Device to add an additional screen for notification and control purposes.
+@@ -28,7 +29,7 @@
+ 
+ namespace aasdk::channel::phonestatus {
+ 
+-  PhoneStatusService::PhoneStatusService(boost::asio::io_service::strand &strand,
++  PhoneStatusService::PhoneStatusService(aasdk::Strand &strand,
+                                          messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::PHONE_STATUS) {
+ 
+diff --git a/src/Channel/Radio/RadioService.cpp b/src/Channel/Radio/RadioService.cpp
+index 61aee6e..c633c27 100644
+--- a/src/Channel/Radio/RadioService.cpp
++++ b/src/Channel/Radio/RadioService.cpp
+@@ -20,6 +20,7 @@
+ #include <aasdk/Channel/Radio/RadioService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Radio channel that could be used for integration onto another Raspberry Pi/Other Device to integrate with third party systems or head units to help control the radio if necessary.
+@@ -27,7 +28,7 @@
+ 
+ namespace aasdk::channel::radio {
+ 
+-  RadioService::RadioService(boost::asio::io_service::strand &strand,
++  RadioService::RadioService(aasdk::Strand &strand,
+                              messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::RADIO) {
+ 
+diff --git a/src/Channel/SensorSource/SensorSourceService.cpp b/src/Channel/SensorSource/SensorSourceService.cpp
+index 3af878a..ed34990 100644
+--- a/src/Channel/SensorSource/SensorSourceService.cpp
++++ b/src/Channel/SensorSource/SensorSourceService.cpp
+@@ -20,11 +20,12 @@
+ #include <aasdk/Channel/SensorSource/SensorSourceService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::sensorsource {
+ 
+-  SensorSourceService::SensorSourceService(boost::asio::io_service::strand &strand, messenger::IMessenger::Pointer messenger)
++  SensorSourceService::SensorSourceService(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::SENSOR) {
+ 
+   }
+diff --git a/src/Channel/VendorExtension/VendorExtensionService.cpp b/src/Channel/VendorExtension/VendorExtensionService.cpp
+index 7f47f06..6d94a7d 100644
+--- a/src/Channel/VendorExtension/VendorExtensionService.cpp
++++ b/src/Channel/VendorExtension/VendorExtensionService.cpp
+@@ -19,6 +19,7 @@
+ #include <aasdk/Channel/VendorExtension/VendorExtensionService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ /*
+  * This is a Vendor Extension channel to link to a known Vendor App on the Mobile Phone.
+@@ -26,7 +27,7 @@
+ 
+ namespace aasdk::channel::vendorextension {
+ 
+-  VendorExtensionService::VendorExtensionService(boost::asio::io_service::strand &strand,
++  VendorExtensionService::VendorExtensionService(aasdk::Strand &strand,
+                                                  messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::VENDOR_EXTENSION) {
+ 
+diff --git a/src/Channel/WifiProjection/WifiProjectionService.cpp b/src/Channel/WifiProjection/WifiProjectionService.cpp
+index c351585..c7e3991 100644
+--- a/src/Channel/WifiProjection/WifiProjectionService.cpp
++++ b/src/Channel/WifiProjection/WifiProjectionService.cpp
+@@ -20,11 +20,12 @@
+ #include <aasdk/Channel/WifiProjection/WifiProjectionService.hpp>
+ #include "aasdk/Common/Log.hpp"
+ #include <aasdk/Common/ModernLogger.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk::channel::wifiprojection {
+ 
+-  WifiProjectionService::WifiProjectionService(boost::asio::io_service::strand &strand,
++  WifiProjectionService::WifiProjectionService(aasdk::Strand &strand,
+                                                messenger::IMessenger::Pointer messenger)
+       : Channel(strand, std::move(messenger), messenger::ChannelId::WIFI_PROJECTION) {
+ 
+diff --git a/src/IO/IOContextWrapper.cpp b/src/IO/IOContextWrapper.cpp
+index 318cbdc..fb31225 100644
+--- a/src/IO/IOContextWrapper.cpp
++++ b/src/IO/IOContextWrapper.cpp
+@@ -16,6 +16,7 @@
+ // along with aasdk. If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include <aasdk/IO/IOContextWrapper.hpp>
++#include <aasdk/Common/Strand.hpp>
+ 
+ 
+ namespace aasdk {
+@@ -26,12 +27,12 @@ namespace aasdk {
+ 
+     }
+ 
+-    IOContextWrapper::IOContextWrapper(boost::asio::io_service &ioService)
++    IOContextWrapper::IOContextWrapper(boost::asio::io_context &ioService)
+         : ioService_(&ioService), strand_(nullptr) {
+ 
+     }
+ 
+-    IOContextWrapper::IOContextWrapper(boost::asio::io_service::strand &strand)
++    IOContextWrapper::IOContextWrapper(aasdk::Strand &strand)
+         : ioService_(nullptr), strand_(&strand) {
+ 
+     }
+diff --git a/src/Messenger/MessageInStream.cpp b/src/Messenger/MessageInStream.cpp
+index 997643d..b5eb60d 100644
+--- a/src/Messenger/MessageInStream.cpp
++++ b/src/Messenger/MessageInStream.cpp
+@@ -24,7 +24,7 @@
+ 
+ namespace aasdk::messenger {
+ 
+-  MessageInStream::MessageInStream(boost::asio::io_service &ioService, transport::ITransport::Pointer transport,
++  MessageInStream::MessageInStream(boost::asio::io_context &ioService, transport::ITransport::Pointer transport,
+                                    ICryptor::Pointer cryptor)
+       : strand_(ioService), transport_(std::move(transport)), cryptor_(std::move(cryptor)) {
+ 
+diff --git a/src/Messenger/MessageInStream.ut.cpp b/src/Messenger/MessageInStream.ut.cpp
+index 71f1d54..42188be 100644
+--- a/src/Messenger/MessageInStream.ut.cpp
++++ b/src/Messenger/MessageInStream.ut.cpp
+@@ -49,7 +49,7 @@ protected:
+                              std::bind(&ReceivePromiseHandlerMock::onReject, &receivePromiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     transport::ut::TransportMock transportMock_;
+     transport::ITransport::Pointer transport_;
+     CryptorMock cryptorMock_;
+diff --git a/src/Messenger/MessageOutStream.cpp b/src/Messenger/MessageOutStream.cpp
+index 03623f0..cb626ce 100644
+--- a/src/Messenger/MessageOutStream.cpp
++++ b/src/Messenger/MessageOutStream.cpp
+@@ -23,7 +23,7 @@
+ namespace aasdk {
+   namespace messenger {
+ 
+-    MessageOutStream::MessageOutStream(boost::asio::io_service &ioService, transport::ITransport::Pointer transport,
++    MessageOutStream::MessageOutStream(boost::asio::io_context &ioService, transport::ITransport::Pointer transport,
+                                        ICryptor::Pointer cryptor)
+         : strand_(ioService), transport_(std::move(transport)), cryptor_(std::move(cryptor)), offset_(0),
+           remainingSize_(0) {
+diff --git a/src/Messenger/MessageOutStream.ut.cpp b/src/Messenger/MessageOutStream.ut.cpp
+index d677bcf..529bce5 100644
+--- a/src/Messenger/MessageOutStream.ut.cpp
++++ b/src/Messenger/MessageOutStream.ut.cpp
+@@ -49,7 +49,7 @@ protected:
+                           std::bind(&SendPromiseHandlerMock::onReject, &sendPromiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     transport::ut::TransportMock transportMock_;
+     transport::ITransport::Pointer transport_;
+     CryptorMock cryptorMock_;
+diff --git a/src/Messenger/Messenger.cpp b/src/Messenger/Messenger.cpp
+index 077a237..3eb6130 100644
+--- a/src/Messenger/Messenger.cpp
++++ b/src/Messenger/Messenger.cpp
+@@ -21,7 +21,7 @@
+ 
+ namespace aasdk::messenger {
+ 
+-  Messenger::Messenger(boost::asio::io_service &ioService, IMessageInStream::Pointer messageInStream,
++  Messenger::Messenger(boost::asio::io_context &ioService, IMessageInStream::Pointer messageInStream,
+                        IMessageOutStream::Pointer messageOutStream)
+       : receiveStrand_(ioService), sendStrand_(ioService), messageInStream_(std::move(messageInStream)),
+         messageOutStream_(std::move(messageOutStream)) {
+diff --git a/src/Messenger/Messenger.ut.cpp b/src/Messenger/Messenger.ut.cpp
+index 03a8aba..e4125e7 100644
+--- a/src/Messenger/Messenger.ut.cpp
++++ b/src/Messenger/Messenger.ut.cpp
+@@ -51,7 +51,7 @@ protected:
+                           std::bind(&SendPromiseHandlerMock::onReject, &sendPromiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     MessageInStreamMock messageInStreamMock_;
+     IMessageInStream::Pointer messageInStream_;
+     MessageOutStreamMock messageOutStreamMock_;
+diff --git a/src/TCP/TCPEndpoint.ut.cpp b/src/TCP/TCPEndpoint.ut.cpp
+index 9f80293..f263882 100644
+--- a/src/TCP/TCPEndpoint.ut.cpp
++++ b/src/TCP/TCPEndpoint.ut.cpp
+@@ -46,7 +46,7 @@ protected:
+ 
+     TCPWrapperMock tcpWrapperMock_;
+     TCPEndpointPromiseHandlerMock promiseHandlerMock_;
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     ITCPEndpoint::SocketPointer socket_;
+     ITCPEndpoint::Promise::Pointer promise_;
+ };
+diff --git a/src/TCP/TCPWrapper.cpp b/src/TCP/TCPWrapper.cpp
+index 5ff59a0..a9964a0 100644
+--- a/src/TCP/TCPWrapper.cpp
++++ b/src/TCP/TCPWrapper.cpp
+@@ -38,7 +38,7 @@ namespace aasdk {
+ 
+     void TCPWrapper::asyncConnect(boost::asio::ip::tcp::socket &socket, const std::string &hostname, uint16_t port,
+                                   ConnectHandler handler) {
+-      socket.async_connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::address::from_string(hostname), port),
++      socket.async_connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(hostname), port),
+                            std::move(handler));
+     }
+ 
+@@ -46,7 +46,7 @@ namespace aasdk {
+     TCPWrapper::connect(boost::asio::ip::tcp::socket &socket, const std::string &hostname, uint16_t port) {
+       boost::system::error_code ec;
+       socket.set_option(boost::asio::ip::tcp::no_delay(true), ec);
+-      socket.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::address::from_string(hostname), port), ec);
++      socket.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(hostname), port), ec);
+       return ec;
+     }
+ 
+diff --git a/src/Transport/TCPTransport.cpp b/src/Transport/TCPTransport.cpp
+index 0bb6af1..29d0a47 100644
+--- a/src/Transport/TCPTransport.cpp
++++ b/src/Transport/TCPTransport.cpp
+@@ -21,7 +21,7 @@
+ namespace aasdk {
+   namespace transport {
+ 
+-    TCPTransport::TCPTransport(boost::asio::io_service &ioService, tcp::ITCPEndpoint::Pointer tcpEndpoint)
++    TCPTransport::TCPTransport(boost::asio::io_context &ioService, tcp::ITCPEndpoint::Pointer tcpEndpoint)
+         : Transport(ioService), tcpEndpoint_(std::move(tcpEndpoint)) {
+ 
+     }
+diff --git a/src/Transport/TCPTransport.ut.cpp b/src/Transport/TCPTransport.ut.cpp
+index fcc4bb6..fd81840 100644
+--- a/src/Transport/TCPTransport.ut.cpp
++++ b/src/Transport/TCPTransport.ut.cpp
+@@ -51,7 +51,7 @@ protected:
+                            std::bind(&TransportSendPromiseHandlerMock::onReject, &sendPromiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     tcp::ut::TCPEndpointMock tcpEndpointMock_;
+     TransportReceivePromiseHandlerMock receivePromiseHandlerMock_;
+     ITransport::ReceivePromise::Pointer receivePromise_;
+diff --git a/src/Transport/Transport.cpp b/src/Transport/Transport.cpp
+index 9b6e5f6..3f8029e 100644
+--- a/src/Transport/Transport.cpp
++++ b/src/Transport/Transport.cpp
+@@ -23,7 +23,7 @@
+ namespace aasdk {
+   namespace transport {
+ 
+-    Transport::Transport(boost::asio::io_service &ioService)
++    Transport::Transport(boost::asio::io_context &ioService)
+         : receiveStrand_(ioService), sendStrand_(ioService) {}
+ 
+     void Transport::receive(size_t size, ReceivePromise::Pointer promise) {
+diff --git a/src/Transport/USBTransport.cpp b/src/Transport/USBTransport.cpp
+index 636a854..a1eccf5 100644
+--- a/src/Transport/USBTransport.cpp
++++ b/src/Transport/USBTransport.cpp
+@@ -21,7 +21,7 @@
+ namespace aasdk {
+   namespace transport {
+ 
+-    USBTransport::USBTransport(boost::asio::io_service &ioService, usb::IAOAPDevice::Pointer aoapDevice)
++    USBTransport::USBTransport(boost::asio::io_context &ioService, usb::IAOAPDevice::Pointer aoapDevice)
+         : Transport(ioService), aoapDevice_(std::move(aoapDevice)) {}
+ 
+     void USBTransport::enqueueReceive(common::DataBuffer buffer) {
+diff --git a/src/Transport/USBTransport.ut.cpp b/src/Transport/USBTransport.ut.cpp
+index a17e8ba..cc310fa 100644
+--- a/src/Transport/USBTransport.ut.cpp
++++ b/src/Transport/USBTransport.ut.cpp
+@@ -55,7 +55,7 @@ protected:
+                           std::bind(&TransportSendPromiseHandlerMock::onReject, &sendPromiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     usb::ut::USBEndpointMock inEndpointMock_;
+     usb::ut::USBEndpointMock outEndpointMock_;
+     TransportReceivePromiseHandlerMock receivePromiseHandlerMock_;
+diff --git a/src/USB/AOAPDevice.cpp b/src/USB/AOAPDevice.cpp
+index c169ab1..6be3766 100644
+--- a/src/USB/AOAPDevice.cpp
++++ b/src/USB/AOAPDevice.cpp
+@@ -24,7 +24,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    AOAPDevice::AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle,
++    AOAPDevice::AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                            const libusb_interface_descriptor *interfaceDescriptor)
+         : usbWrapper_(usbWrapper), handle_(std::move(handle)), interfaceDescriptor_(interfaceDescriptor) {
+       if ((interfaceDescriptor->endpoint[0].bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN) {
+@@ -55,7 +55,7 @@ namespace aasdk {
+     }
+ 
+     IAOAPDevice::Pointer
+-    AOAPDevice::create(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle) {
++    AOAPDevice::create(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle) {
+       auto configDescriptorHandle = AOAPDevice::getConfigDescriptor(usbWrapper, handle);
+       auto interface = AOAPDevice::getInterface(configDescriptorHandle);
+       auto interfaceDescriptor = AOAPDevice::getInterfaceDescriptor(interface);
+diff --git a/src/USB/AOAPDevice.ut.cpp b/src/USB/AOAPDevice.ut.cpp
+index d9e344e..9b989e3 100644
+--- a/src/USB/AOAPDevice.ut.cpp
++++ b/src/USB/AOAPDevice.ut.cpp
+@@ -30,7 +30,7 @@ namespace ut
+ TEST(AOAPDevice_UnitTest, AOAPDevice_OutEndpointFirst)
+ {
+     USBWrapperMock usbWrapperMock;
+-    boost::asio::io_service ioService;
++    boost::asio::io_context ioService;
+     USBWrapperMock::DummyDeviceHandle dummyDeviceHandle;
+     DeviceHandle deviceHandle(reinterpret_cast<libusb_device_handle*>(&dummyDeviceHandle), [](auto*) {});
+ 
+@@ -52,7 +52,7 @@ TEST(AOAPDevice_UnitTest, AOAPDevice_OutEndpointFirst)
+ TEST(AOAPDevice_UnitTest, AOAPDevice_InEndpointFirst)
+ {
+     USBWrapperMock usbWrapperMock;
+-    boost::asio::io_service ioService;
++    boost::asio::io_context ioService;
+     USBWrapperMock::DummyDeviceHandle dummyDeviceHandle;
+     DeviceHandle deviceHandle(reinterpret_cast<libusb_device_handle*>(&dummyDeviceHandle), [](auto*) {});
+ 
+diff --git a/src/USB/AccessoryModeProtocolVersionQuery.cpp b/src/USB/AccessoryModeProtocolVersionQuery.cpp
+index 82115e0..1c373cb 100644
+--- a/src/USB/AccessoryModeProtocolVersionQuery.cpp
++++ b/src/USB/AccessoryModeProtocolVersionQuery.cpp
+@@ -24,7 +24,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    AccessoryModeProtocolVersionQuery::AccessoryModeProtocolVersionQuery(boost::asio::io_service &ioService,
++    AccessoryModeProtocolVersionQuery::AccessoryModeProtocolVersionQuery(boost::asio::io_context &ioService,
+                                                                          IUSBWrapper &usbWrapper,
+                                                                          IUSBEndpoint::Pointer usbEndpoint)
+         : AccessoryModeQuery(ioService, std::move(usbEndpoint)) {
+diff --git a/src/USB/AccessoryModeProtocolVersionQuery.ut.cpp b/src/USB/AccessoryModeProtocolVersionQuery.ut.cpp
+index b886112..3d48e12 100644
+--- a/src/USB/AccessoryModeProtocolVersionQuery.ut.cpp
++++ b/src/USB/AccessoryModeProtocolVersionQuery.ut.cpp
+@@ -65,7 +65,7 @@ protected:
+         ioService_.run();
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock usbWrapperMock_;
+     std::shared_ptr<USBEndpointMock> usbEndpointMock_;
+     IUSBEndpoint::Pointer usbEndpoint_;
+diff --git a/src/USB/AccessoryModeQuery.cpp b/src/USB/AccessoryModeQuery.cpp
+index a0bb34b..55d163f 100644
+--- a/src/USB/AccessoryModeQuery.cpp
++++ b/src/USB/AccessoryModeQuery.cpp
+@@ -22,7 +22,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    AccessoryModeQuery::AccessoryModeQuery(boost::asio::io_service &ioService, IUSBEndpoint::Pointer usbEndpoint)
++    AccessoryModeQuery::AccessoryModeQuery(boost::asio::io_context &ioService, IUSBEndpoint::Pointer usbEndpoint)
+         : strand_(ioService), usbEndpoint_(std::move(usbEndpoint)) {
+ 
+     }
+diff --git a/src/USB/AccessoryModeQueryChain.cpp b/src/USB/AccessoryModeQueryChain.cpp
+index cae1b94..6b2c8a4 100644
+--- a/src/USB/AccessoryModeQueryChain.cpp
++++ b/src/USB/AccessoryModeQueryChain.cpp
+@@ -24,7 +24,7 @@ namespace aasdk {
+   namespace usb {
+ 
+     AccessoryModeQueryChain::AccessoryModeQueryChain(IUSBWrapper &usbWrapper,
+-                                                     boost::asio::io_service &ioService,
++                                                     boost::asio::io_context &ioService,
+                                                      IAccessoryModeQueryFactory &queryFactory)
+         : usbWrapper_(usbWrapper), strand_(ioService), queryFactory_(queryFactory) {
+ 
+diff --git a/src/USB/AccessoryModeQueryChain.ut.cpp b/src/USB/AccessoryModeQueryChain.ut.cpp
+index 9bc4723..c37d9a0 100644
+--- a/src/USB/AccessoryModeQueryChain.ut.cpp
++++ b/src/USB/AccessoryModeQueryChain.ut.cpp
+@@ -48,7 +48,7 @@ protected:
+                       std::bind(&AccessoryModeQueryChainPromiseHandlerMock::onReject, &promiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock usbWrapperMock_;
+     AccessoryModeQueryFactoryMock queryFactoryMock_;
+     USBWrapperMock::DummyDeviceHandle dummyDeviceHandle_;
+diff --git a/src/USB/AccessoryModeQueryChainFactory.cpp b/src/USB/AccessoryModeQueryChainFactory.cpp
+index 3655442..1e81b1a 100644
+--- a/src/USB/AccessoryModeQueryChainFactory.cpp
++++ b/src/USB/AccessoryModeQueryChainFactory.cpp
+@@ -23,7 +23,7 @@ namespace aasdk {
+   namespace usb {
+ 
+     AccessoryModeQueryChainFactory::AccessoryModeQueryChainFactory(IUSBWrapper &usbWrapper,
+-                                                                   boost::asio::io_service &ioService,
++                                                                   boost::asio::io_context &ioService,
+                                                                    IAccessoryModeQueryFactory &queryFactory)
+         : usbWrapper_(usbWrapper), ioService_(ioService), queryFactory_(queryFactory) {
+ 
+diff --git a/src/USB/AccessoryModeQueryFactory.cpp b/src/USB/AccessoryModeQueryFactory.cpp
+index 467ec76..ef85559 100644
+--- a/src/USB/AccessoryModeQueryFactory.cpp
++++ b/src/USB/AccessoryModeQueryFactory.cpp
+@@ -26,7 +26,7 @@ namespace aasdk {
+   namespace usb {
+ 
+     AccessoryModeQueryFactory::AccessoryModeQueryFactory(usb::IUSBWrapper &usbWrapper,
+-                                                         boost::asio::io_service &ioService)
++                                                         boost::asio::io_context &ioService)
+         : usbWrapper_(usbWrapper), ioService_(ioService) {
+ 
+     }
+diff --git a/src/USB/AccessoryModeSendStringQuery.cpp b/src/USB/AccessoryModeSendStringQuery.cpp
+index f360069..b9579fe 100644
+--- a/src/USB/AccessoryModeSendStringQuery.cpp
++++ b/src/USB/AccessoryModeSendStringQuery.cpp
+@@ -23,7 +23,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    AccessoryModeSendStringQuery::AccessoryModeSendStringQuery(boost::asio::io_service &ioService,
++    AccessoryModeSendStringQuery::AccessoryModeSendStringQuery(boost::asio::io_context &ioService,
+                                                                IUSBWrapper &usbWrapper,
+                                                                IUSBEndpoint::Pointer usbEndpoint,
+                                                                AccessoryModeSendStringType sendStringType,
+diff --git a/src/USB/AccessoryModeSendStringQuery.ut.cpp b/src/USB/AccessoryModeSendStringQuery.ut.cpp
+index c418a9f..1d81a2c 100644
+--- a/src/USB/AccessoryModeSendStringQuery.ut.cpp
++++ b/src/USB/AccessoryModeSendStringQuery.ut.cpp
+@@ -46,7 +46,7 @@ protected:
+                       std::bind(&AccessoryModeQueryPromiseHandlerMock::onReject, &promiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock usbWrapperMock_;
+     std::shared_ptr<USBEndpointMock> usbEndpointMock_;
+     IUSBEndpoint::Pointer usbEndpoint_;
+diff --git a/src/USB/AccessoryModeStartQuery.cpp b/src/USB/AccessoryModeStartQuery.cpp
+index 7cb8680..59abb8e 100644
+--- a/src/USB/AccessoryModeStartQuery.cpp
++++ b/src/USB/AccessoryModeStartQuery.cpp
+@@ -23,7 +23,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    AccessoryModeStartQuery::AccessoryModeStartQuery(boost::asio::io_service &ioService, IUSBWrapper &usbWrapper,
++    AccessoryModeStartQuery::AccessoryModeStartQuery(boost::asio::io_context &ioService, IUSBWrapper &usbWrapper,
+                                                      IUSBEndpoint::Pointer usbEndpoint)
+         : AccessoryModeQuery(ioService, std::move(usbEndpoint)) {
+       data_.resize(8);
+diff --git a/src/USB/AccessoryModeStartQuery.ut.cpp b/src/USB/AccessoryModeStartQuery.ut.cpp
+index 5ee1364..91e9475 100644
+--- a/src/USB/AccessoryModeStartQuery.ut.cpp
++++ b/src/USB/AccessoryModeStartQuery.ut.cpp
+@@ -46,7 +46,7 @@ protected:
+                       std::bind(&AccessoryModeQueryPromiseHandlerMock::onReject, &promiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock usbWrapperMock_;
+     std::shared_ptr<USBEndpointMock> usbEndpointMock_;
+     IUSBEndpoint::Pointer usbEndpoint_;
+diff --git a/src/USB/ConnectedAccessoriesEnumerator.cpp b/src/USB/ConnectedAccessoriesEnumerator.cpp
+index 2a441a6..2dbca5f 100644
+--- a/src/USB/ConnectedAccessoriesEnumerator.cpp
++++ b/src/USB/ConnectedAccessoriesEnumerator.cpp
+@@ -22,7 +22,7 @@ namespace aasdk {
+   namespace usb {
+ 
+     ConnectedAccessoriesEnumerator::ConnectedAccessoriesEnumerator(IUSBWrapper &usbWrapper,
+-                                                                   boost::asio::io_service &ioService,
++                                                                   boost::asio::io_context &ioService,
+                                                                    IAccessoryModeQueryChainFactory &queryChainFactory)
+         : usbWrapper_(usbWrapper), strand_(ioService), queryChainFactory_(queryChainFactory) {
+ 
+diff --git a/src/USB/ConnectedAccessoriesEnumerator.ut.cpp b/src/USB/ConnectedAccessoriesEnumerator.ut.cpp
+index fc7b143..f7826fe 100644
+--- a/src/USB/ConnectedAccessoriesEnumerator.ut.cpp
++++ b/src/USB/ConnectedAccessoriesEnumerator.ut.cpp
+@@ -51,7 +51,7 @@ protected:
+                        std::bind(&ConnectedAccessoriesEnumeratorPromiseHandlerMock::onReject, &promiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock usbWrapperMock_;
+     AccessoryModeQueryChainFactoryMock queryChainFactoryMock_;
+     AccessoryModeQueryChainMock queryChainMock_;
+diff --git a/src/USB/USBEndpoint.cpp b/src/USB/USBEndpoint.cpp
+index d60acb6..cd124cc 100644
+--- a/src/USB/USBEndpoint.cpp
++++ b/src/USB/USBEndpoint.cpp
+@@ -24,7 +24,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    USBEndpoint::USBEndpoint(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle,
++    USBEndpoint::USBEndpoint(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                              uint8_t endpointAddress)
+         : usbWrapper_(usbWrapper), strand_(ioService), handle_(std::move(handle)), endpointAddress_(endpointAddress) {
+     }
+diff --git a/src/USB/USBEndpoint.ut.cpp b/src/USB/USBEndpoint.ut.cpp
+index 0e7a173..a0b31da 100644
+--- a/src/USB/USBEndpoint.ut.cpp
++++ b/src/USB/USBEndpoint.ut.cpp
+@@ -48,7 +48,7 @@ protected:
+     }
+ 
+     USBWrapperMock usbWrapperMock_;
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock::DummyDeviceHandle dummyDeviceHandle_;
+     DeviceHandle deviceHandle_;
+     USBEndpointPromiseHandlerMock promiseHandlerMock_;
+diff --git a/src/USB/USBHub.cpp b/src/USB/USBHub.cpp
+index 71c68a2..990097b 100644
+--- a/src/USB/USBHub.cpp
++++ b/src/USB/USBHub.cpp
+@@ -25,7 +25,7 @@
+ namespace aasdk {
+   namespace usb {
+ 
+-    USBHub::USBHub(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService,
++    USBHub::USBHub(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService,
+                    IAccessoryModeQueryChainFactory &queryChainFactory)
+         : usbWrapper_(usbWrapper), strand_(ioService), queryChainFactory_(queryChainFactory) {
+     }
+diff --git a/src/USB/USBHub.ut.cpp b/src/USB/USBHub.ut.cpp
+index 4440956..9b5bdb1 100644
+--- a/src/USB/USBHub.ut.cpp
++++ b/src/USB/USBHub.ut.cpp
+@@ -52,7 +52,7 @@ protected:
+                       std::bind(&USBHubPromiseHandlerMock::onReject, &promiseHandlerMock_, std::placeholders::_1));
+     }
+ 
+-    boost::asio::io_service ioService_;
++    boost::asio::io_context ioService_;
+     USBWrapperMock usbWrapperMock_;
+     AccessoryModeQueryChainFactoryMock queryChainFactoryMock_;
+     AccessoryModeQueryChainMock queryChainMock_;
+diff --git a/tools/simple/CMakeLists.txt b/tools/simple/CMakeLists.txt
+index fd230fb..16e44c3 100644
+--- a/tools/simple/CMakeLists.txt
++++ b/tools/simple/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.10)
++cmake_minimum_required(VERSION 3.16)
+ project(aasdk_simple_headunit)
+ 
+ set(CMAKE_CXX_STANDARD 17)

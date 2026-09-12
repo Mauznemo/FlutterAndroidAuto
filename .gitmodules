@@ -1,0 +1,6 @@
+[submodule "packages/android_auto_linux/linux/third_party/aasdk"]
+	path = packages/android_auto_linux/linux/third_party/aasdk
+	url = https://github.com/opencardev/aasdk.git
+	# The working tree always carries linux/patches/ applied on top of the pinned
+	# commit, so its dirtiness is expected and should not show up in git status.
+	ignore = dirty

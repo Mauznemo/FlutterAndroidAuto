@@ -18,8 +18,8 @@ implementation can be added later without touching the app-facing API.
 | Milestone | Title | State |
 |---|---|---|
 | M0 | Project setup, research, tooling | done |
-| M1 | Native build: vendor and modernise aasdk | not started |
-| M2 | C ABI core + Dart FFI + texture plumbing | not started |
+| M1 | Native build: vendor and modernise aasdk | **done** |
+| M2 | C ABI core + Dart FFI + texture plumbing | **next** |
 | M3 | USB transport, AOAP, SSL, service discovery | not started |
 | M4 | Video channel to Flutter texture | not started |
 | M5 | Input channel (touch, keys, rotary) | not started |
@@ -45,7 +45,7 @@ implementation can be added later without touching the app-facing API.
 - [x] Write `tools/setup-dev-machine.sh` (one shot host provisioning)
 - [x] Extend `CLAUDE.md` with the facts every later session needs
 - [x] **Decide the project licence**: GPL-3.0-or-later, confirmed 2026-09-12
-- [ ] Confirm an Android test phone is available and USB access works
+- [ ] Confirm an Android test phone is available and USB access works (blocks M3, not M2)
 
 ---
 
@@ -54,24 +54,39 @@ implementation can be added later without touching the app-facing API.
 Goal: `libaasdk.a` builds from source inside this repo on Ubuntu 26.04 and links
 against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
 
-- [ ] Install host build dependencies (`tools/setup-dev-machine.sh --build-deps`)
-- [ ] Add `opencardev/aasdk` as a git submodule under `packages/android_auto_linux/linux/third_party/aasdk`, pinned to a known commit
-- [ ] Try a stock build, capture the full error list into `docs/aasdk-port-notes.md`
-- [ ] Port `boost::asio::io_service` to `io_context` (95 files affected)
-  - [ ] `io_service` to `io_context`
-  - [ ] `io_service::strand` to `boost::asio::strand<boost::asio::io_context::executor_type>`
-  - [ ] `strand.wrap(h)` to `boost::asio::bind_executor(strand, h)`
-  - [ ] `ip::address::from_string` to `ip::make_address`
-  - [ ] Keep the diff as a patch series under `packages/android_auto_linux/linux/patches/` so the submodule stays clean
-- [ ] Build with `-DSKIP_BUILD_PROTOBUF=ON -DSKIP_BUILD_ABSL=ON -DAASDK_TEST=OFF` against system protobuf
-  - [ ] If the bundled `.proto` files need protoc > 3.21, fall back to the vendored protobuf build and record why
-- [ ] Verify the generated protobuf sources cover every channel we need (control, input, media sink/source, sensor, video, bluetooth, navigation, media playback, wifi projection)
-- [ ] Produce a static `libaasdk.a` plus the generated protobuf objects, position independent (`-fPIC`), so it can be linked into a shared plugin library
-- [ ] Add a standalone CMake smoke target that links aasdk and prints its version, to keep M1 regression-testable
+- [x] Install host build dependencies (`tools/setup-dev-machine.sh --build-deps`)
+- [x] Add `opencardev/aasdk` as a git submodule under `packages/android_auto_linux/linux/third_party/aasdk`, pinned to `9bf6adf`
+- [x] Try a stock build, capture the full error list into `docs/aasdk-port-notes.md`
+- [x] Port `boost::asio::io_service` to `io_context` (95 files affected)
+  - [x] `io_service` to `io_context`
+  - [x] `io_service::strand` to `aasdk::Strand`, a thin subclass of `boost::asio::strand<io_context::executor_type>` that keeps the old call style, see `docs/aasdk-port-notes.md`
+  - [x] `ip::address::from_string` to `ip::make_address`
+  - [x] `IOContextWrapper`'s `io_context->post/dispatch` to the free functions
+  - [x] `strand.context()` narrowed from `execution_context&` to `io_context&`
+  - [x] Keep the diff as a patch under `packages/android_auto_linux/linux/patches/` so the submodule stays clean
+- [x] Raise the three `cmake_minimum_required()` calls CMake 4 rejects
+- [x] Drop the `system` component from `find_package(Boost)`, gone in Boost 1.90
+- [x] Put aasdk's include directory on the `aasdk` target so `add_subdirectory()` consumers can use it
+- [x] Build with `-DSKIP_BUILD_PROTOBUF=ON -DSKIP_BUILD_ABSL=ON -DAASDK_TEST=OFF` against system protobuf 3.21
+- [x] Verify the generated protobuf covers every channel we need (254 `.pb.h` files: control, input, media sink/source, sensor, browser, playback, nav, phone, bluetooth, wifi projection, vendor, notification, radio)
+- [x] Decide static versus shared: shared, 1.6 MB + 2.1 MB stripped, not worth patching upstream to change
+- [x] Add a standalone smoke target that links aasdk and exercises the ported strand, to keep M1 regression-testable
+- [x] Verify the whole thing round-trips from a clean submodule: reset, apply patch, build, smoke test passes
 
-**Risk:** Boost 1.90 removed `io_service`. Confirmed unavoidable, see `docs/research.md`.
-**Fallback if the port fights back:** build a pinned Boost 1.86 into the repo, or drop
-Boost Asio for a small hand-rolled epoll reactor behind the same interfaces.
+Reproduce with `tools/build-aasdk.sh`, which fetches the submodule, applies the patch,
+builds and runs `packages/android_auto_linux/linux/smoke/aasdk_smoke.cpp`. Expected:
+
+```
+boost      : 1.90.0
+channel    : MEDIA_SINK_VIDEO
+strand     : dispatch, post and get_io_service all behave
+protobuf   : ServiceDiscoveryRequest round trips
+OK
+```
+
+The Boost 1.90 risk turned out to be real but contained: five distinct build failures,
+all mechanical, no need for the pinned-Boost or hand-rolled-reactor fallbacks. Full
+write up in `docs/aasdk-port-notes.md`.
 
 ---
 
