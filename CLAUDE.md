@@ -81,6 +81,7 @@ Three environment knobs, all off unless set:
 | `AA_LOG_LEVEL=DEBUG` | aasdk's own protocol log, the service discovery exchange in full, and libavcodec's diagnostics |
 | `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything |
 | `AA_VIDEO_DECODER=software` | forces the software decoder, to tell a driver problem from a decoder problem |
+| `AA_FAULT_TRANSPORT_AFTER=20` | kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
 
 Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
 
@@ -178,6 +179,35 @@ service discovery response just stops talking and drops out of accessory mode.
   hardware format is gone. That leaves the decoder with no output format at all. Fall
   back to whatever is offered.
 
+## Input, the only channel that flows outwards
+
+Everything else is the phone pushing and the head unit answering. Input is the head unit
+talking unprompted, and that makes three things different.
+
+- **Coordinates are projected video pixels.** Not logical pixels, not normalised. The
+  head unit tells the phone it has a touchscreen exactly the size of the video it asked
+  for. `AndroidAutoView` maps widget-local positions through the same `applyBoxFit`
+  arithmetic `FittedBox` paints with, so letterboxing stays consistent between what is
+  drawn and where taps land.
+- **Touch follows Android's `MotionEvent` rules**, because that is what the phone's input
+  stack expects: first finger `ACTION_DOWN`, extra fingers `ACTION_POINTER_DOWN` with
+  `action_index` naming the one that changed, last finger `ACTION_UP`. Flutter's
+  ever-growing pointer ids are remapped to small reused slots.
+- **Nothing acknowledges an input report.** A report sent before the phone has opened the
+  channel vanishes without a trace, so the send path refuses rather than sending into the
+  void.
+
+`InputChannel` is also the only channel called from Flutter's platform thread while an io
+thread can be tearing it down. Hence `std::atomic` flags, a mutex around `channel_`, and
+a `Channel()` helper that hands every caller its own reference. `VideoChannel` and
+`SupportChannels` have the same shape of race and have not been given the same treatment.
+
+**Movement is rate limited to one report per 16 ms.** Without it the head unit emits one
+USB bulk write per Flutter pointer event, measured at 382 a second on a desktop mouse.
+What comes back is a video stream of at most 60 fps, so extra samples cannot produce a
+distinguishable picture. Only movement is limited: a finger landing or lifting is an edge,
+not a sample, and has to go at once.
+
 ## Stopping and resuming a session
 
 The order matters and it is not obvious. `PLAN.md` under M3 has the full reasoning.
@@ -199,7 +229,29 @@ resumes on its own. That needs discovery to be re-armed after **every** handover
 `USBHub::handleDevice` ignores arrivals while its promise is null.
 
 **Reading aasdk USB errors:** `USB_TRANSFER`'s "Native Code" is a
-`libusb_transfer_status`, not a `libusb_error`. 2 is TIMED_OUT, 4 is STALL.
+`libusb_transfer_status`, not a `libusb_error`. 2 is TIMED_OUT, 4 is STALL. The patched
+`USBEndpoint` now prints the name, the endpoint and the byte counts, so this no longer
+has to be decoded by hand.
+
+## A dead transport does not mean the phone went away
+
+The case that cost an evening in M5, and the reason `searching` could hang forever.
+
+A failed bulk transfer (`LIBUSB_TRANSFER_ERROR` on a marginal link) kills the transport
+**while leaving the phone enumerated and still in accessory mode**. M3's recovery waits
+for `USBHub` to hand it a device, and the hub only fires on arrival, so nothing ever
+came: the device had never left. Stop then Start was the only way out, because stopping
+calls `ResetDevice()` and that is what makes the phone re-enumerate.
+
+So a connected session that loses its transport **bounces the phone itself** rather than
+waiting to be told about it. Right for both cases: if the cable really is out, the reset
+fails harmlessly on a device that has already gone, and re-arming discovery is what the
+replug needed anyway. Measured at 4.6 seconds from dead transport back to projecting.
+
+One dead transport is one event however many channels notice it. All seven do, within a
+millisecond, and they report their failures as messages on the **connected** state, which
+puts `reached_connected` back up in between. The recovery is debounced with a `recovering`
+flag; do not remove it or one failure bounces the phone once per channel.
 
 ## aasdk object lifetimes, the thing that keeps biting
 

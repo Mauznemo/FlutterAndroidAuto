@@ -22,8 +22,8 @@ implementation can be added later without touching the app-facing API.
 | M2 | C ABI core + Dart FFI + texture plumbing | **done** |
 | M3 | USB transport, AOAP, SSL, service discovery | **done** |
 | M4 | Video channel to Flutter texture | **done** |
-| M5 | Input channel (touch, keys, rotary) | **next** |
-| M6 | Audio output (media, system, speech) | not started |
+| M5 | Input channel (touch, keys, rotary) | **done** |
+| M6 | Audio output (media, system, speech) | **next** |
 | M7 | Microphone input | not started |
 | M8 | Sensors (night mode, GPS, driving status) | not started |
 | M9 | Metadata channels for native Flutter UI | not started |
@@ -357,15 +357,100 @@ one, and the second instance was only noticed because a human looked at the task
 
 ## M5. Input channel (touch, keys, rotary)
 
-- [ ] `InputService` channel setup, advertise touchscreen plus the buttons we support
-- [ ] Flutter `Listener` to normalised coordinates to `TouchEvent` (down/move/up)
-- [ ] Correct coordinate mapping when the Texture is letterboxed or scaled
-- [ ] Multi touch (the protocol carries pointer ids)
-- [ ] Hardware key events (back, home, play/pause, next, prev, call, mic)
-- [ ] Rotary encoder / D-pad support for non touch head units
-- [ ] Latency check: touch to visible reaction under 100 ms
+Goal: touching the projection does to the phone what touching the phone would.
 
-**Checkpoint:** the agent taps around the projected UI via `tools/ui.sh` and the phone responds.
+- [x] `InputService` channel setup, advertise touchscreen plus the buttons we support
+- [x] Flutter `Listener` to projected pixels to `TouchEvent` (down/move/up)
+- [x] Correct coordinate mapping when the Texture is letterboxed or scaled
+- [ ] Multi touch (the protocol carries pointer ids). Written and reviewed against
+      Android's `MotionEvent` rules, but **not verified**: this machine has one pointer
+      and `ydotool` cannot produce a second, so nothing here has had two fingers on it.
+- [x] Hardware key events (back, home, play/pause, next, prev, call, mic)
+- [x] Rotary encoder / D-pad support for non touch head units
+- [x] Rate limit movement, see "382 reports a second" below
+- [ ] Latency check: touch to visible reaction under 100 ms. Measured, but the target
+      turns out to be about the phone rather than about us, see below.
+
+**Checkpoint met.** Google Maps driven from inside the example app: the map pans with a
+drag, the zoom buttons work, and the phone bound all sixteen advertised keycodes
+(`19, 20, 21, 22, 23, 4, 3, 5, 6, 126, 127, 85, 87, 88, 84, 65536`) the moment the
+channel opened, which is the phone confirming it accepted the advertisement.
+
+Adding `keycodes_supported` to service discovery was the risk here, given M4's history
+of phones silently refusing a response they dislike. It was accepted first time.
+
+### Where input latency actually goes
+
+The plugin's own contribution is not the interesting part of it:
+
+| Leg | Time |
+|---|---|
+| Flutter pointer event to the report handed to USB | 0.30 ms mean, 1.00 ms worst |
+| Wire to decoded frame (M4's figure, unchanged) | 1.0 ms |
+
+Everything else is the phone deciding what to draw and encoding it. End to end, finger
+down to the phone's reaction appearing on the wire, measured against each trial's own
+idle frame size: **94, 95, 102, 105, 115, 119, 127, 138 ms** for a map drag. That is
+above the 100 ms the box asks for, but almost none of it is ours, and part of it is not
+even the phone: a synthetic drag steps every ~30 ms, so Android's touch slop threshold
+takes two or three steps to cross before the map will move at all.
+
+Tapping a button instead, to remove the slop, did not give a cleaner answer: Google Maps
+responds to a zoom tap in 139 ms once and not at all when already at maximum zoom, which
+is indistinguishable from a lost report without knowing the app's state. The honest
+statement is the table above plus "the rest is the phone", not a single number.
+
+### 382 reports a second
+
+The first version sent one report, and so one USB bulk write, per Flutter pointer event.
+On a desktop mouse that measured **382 a second**. Nothing needs that: what comes back is
+a video stream of at most 60 frames a second, so more than one touch sample per frame
+cannot produce a distinguishable picture.
+
+Movement is now coalesced to one report per 16 ms, newest position replacing the held
+one, so the phone always gets where the finger is rather than a stale sample. Finger
+down, finger up, keys and rotary are never delayed: they are edges, not samples.
+Measured after the change, 170 pointer events in a second became 49 reports.
+
+### The disconnect that looked like a cable
+
+Reported as: a few seconds of dragging on the map, then "the phone disconnected", and
+only Stop then Start would bring it back while the phone still showed Android Auto
+running. It was not the cable, and it was not really about dragging either.
+
+`LIBUSB_TRANSFER_ERROR` on the bulk IN endpoint kills the transport, **but leaves the
+phone enumerated and still in accessory mode**. The recovery M3 built waits for the USB
+hub to hand it a device, and the hub only fires on arrival. Nothing arrived, because
+nothing had left. So the session sat in `searching` forever, and the only way out was a
+stop, whose `ResetDevice()` is what bounced the phone into re-enumerating.
+
+A connected session that loses its transport now bounces the phone itself rather than
+waiting to be told about it. That is right for both cases: if the cable really is out,
+the reset fails harmlessly on a device that has already gone, and re-arming discovery is
+what the replug needed anyway. Verified with fault injection, four consecutive cycles,
+**4.6 seconds from dead transport to projecting again**, no user action.
+
+Two things made this findable, both worth keeping:
+
+- aasdk logged `Transfer Cancelled.` for *every* failed transfer. Cancelled is one of six
+  statuses, and telling a stall from a timeout from a device that has gone is the whole
+  diagnosis. It now prints what libusb actually said, with the endpoint and byte counts.
+  This is the same trap `USB_TRANSFER`'s native code already set once, recorded under M3.
+- `"The phone disconnected"` was **replacing** the underlying error rather than carrying
+  it, so every transport failure read identically in the UI.
+
+One dead transport is also one event, however many channels notice it. All seven do,
+within a millisecond, and they report their failures as messages on the *connected*
+state, which put `reached_connected` back up in between and started a second bounce. The
+recovery is now debounced.
+
+### Fault injection
+
+The failure above takes minutes of real use to appear once, and unplugging the cable
+tests the case that already worked. `AA_FAULT_TRANSPORT_AFTER=20` kills the transport
+after twenty seconds without touching USB, delivering the same error a failed bulk read
+delivers, so the recovery path can be exercised on demand.
+
 
 ---
 
