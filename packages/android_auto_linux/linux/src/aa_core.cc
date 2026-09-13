@@ -174,6 +174,9 @@ struct AaSession {
   // phone reports an error instead of looping forever.
   int recovery_attempts = 0;
   bool reached_connected = false;
+  // Whether a bounce is already in flight, see the note where it is set. Without it one
+  // dead transport bounces the phone once per channel.
+  bool recovering = false;
   // Outlives every protocol session built on it, see the note on ProtocolSession::Create.
   std::unique_ptr<aasdk::Strand> channel_strand;
 
@@ -322,6 +325,7 @@ int32_t aa_session_start(AaSession* session) {
     });
   }
   session->running = true;
+  session->recovering = false;
   session->decoder->Start();
 
   if (!session->usb) {
@@ -338,6 +342,8 @@ int32_t aa_session_start(AaSession* session) {
           session->protocol->Stop();
         }
         session->reached_connected = false;
+        // A device arrived, so whatever bounce was in flight has done its job.
+        session->recovering = false;
         session->protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
             session->decoder,
@@ -347,15 +353,43 @@ int32_t aa_session_start(AaSession* session) {
                 session->recovery_attempts = 0;
               }
 
-              // A session that was connected and then failed is almost always the cable
-              // coming out. That is not an error the user needs to act on, it is a wait:
-              // the hub is still armed, so plugging back in picks up where this left off.
+              // One dead transport is one event, however many channels notice it. They
+              // all do, within a millisecond of each other, and the channels report
+              // their failures as messages on the connected state, which puts
+              // reached_connected back up between them. Without this guard the first
+              // error starts a bounce and the next six each start another.
+              if (state == AA_STATE_ERROR && session->recovering) {
+                return;
+              }
+
+              // A session that was connected and then failed has lost the transport.
+              // Sometimes that is the cable coming out, and the phone will re-enumerate
+              // on its own when it goes back in. Often it is not: a single failed bulk
+              // transfer (LIBUSB_TRANSFER_ERROR on a marginal link, say) kills the
+              // transport while leaving the phone enumerated and still in accessory
+              // mode. Waiting for a hotplug then waits forever, because the device
+              // never left, which is why stopping and starting by hand was the only way
+              // out: stopping resets the device and that is what re-arms it.
+              //
+              // So bounce the phone rather than waiting to be told about it. This is
+              // right for both cases: if the cable really is out the reset fails
+              // harmlessly on a device that has already gone, and re-arming discovery
+              // is what the replug needs anyway.
               if (state == AA_STATE_ERROR && session->reached_connected) {
                 session->reached_connected = false;
                 session->recovery_attempts = 0;
+                // The original error comes along. It is usually the transport, but the
+                // description of what actually failed is the only thing that tells one
+                // transport failure from another, and throwing it away made them all
+                // look identical.
                 session->events.Emit(
                     AA_STATE_SEARCHING,
-                    "The phone disconnected. Waiting for it to come back.");
+                    "Lost the link to the phone, resetting it and reconnecting. " +
+                        message);
+                if (session->usb) {
+                  session->recovering = true;
+                  session->usb->RecoverAndRediscover();
+                }
                 return;
               }
 
@@ -372,6 +406,7 @@ int32_t aa_session_start(AaSession* session) {
                     "The phone did not answer, resetting it and trying again (" +
                         std::to_string(session->recovery_attempts) + " of " +
                         std::to_string(kMaxRecoveryAttempts) + ").");
+                session->recovering = true;
                 session->usb->RecoverAndRediscover();
                 return;
               }
@@ -474,6 +509,7 @@ int32_t aa_session_stop(AaSession* session) {
 
   session->io_context.restart();
   session->running = false;
+  session->recovering = false;
   // Nothing is left to draw, and the last frame is holding a dmabuf open. Let go of it.
   session->ring.Reset();
 

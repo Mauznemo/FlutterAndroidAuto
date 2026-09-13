@@ -5,6 +5,10 @@
 #include <aasdk/Transport/SSLWrapper.hpp>
 #include <aasdk/Transport/USBTransport.hpp>
 
+#include <cstdlib>
+
+#include <libusb.h>
+
 #include <aasdk/Common/Log.hpp>
 
 #include "../aa_core.h"
@@ -120,7 +124,8 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
       description_(std::move(description)),
       on_state_(std::move(on_state)),
       on_input_(std::move(on_input)),
-      decoder_(std::move(decoder)) {}
+      decoder_(std::move(decoder)),
+      fault_timer_(io_context) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
 
@@ -189,8 +194,44 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
 
   ReportState(AA_STATE_HANDSHAKING, "Phone found, negotiating protocol version.");
 
+  ArmFaultInjection();
   Listen();
   control_channel_->sendVersionRequest(MakeSendPromise("version request"));
+}
+
+void ProtocolSession::ArmFaultInjection() {
+  // Kills the transport after AA_FAULT_TRANSPORT_AFTER seconds, without touching USB.
+  //
+  // This reproduces the failure that matters most and is hardest to wait for: a bulk
+  // transfer failing while the phone stays enumerated and still in accessory mode. The
+  // recovery from it cannot be triggered by unplugging anything, because unplugging is
+  // the case that already worked, and in the wild it takes minutes of use to show up
+  // once and then hides again.
+  //
+  //   AA_FAULT_TRANSPORT_AFTER=20 tools/run-example.sh --bundle
+  //
+  // Unset, nothing is armed and this costs one getenv per connection.
+  const char* after = std::getenv("AA_FAULT_TRANSPORT_AFTER");
+  if (after == nullptr || *after == '\0') {
+    return;
+  }
+  const int seconds = std::atoi(after);
+  if (seconds <= 0) {
+    return;
+  }
+  AASDK_LOG(info) << "[Fault] killing the transport in " << seconds << "s";
+  fault_timer_.expires_after(std::chrono::seconds(seconds));
+  fault_timer_.async_wait([weak = weak_from_this()](const boost::system::error_code& ec) {
+    if (ec) {
+      return;
+    }
+    if (auto self = weak.lock()) {
+      // The same error a failed bulk read delivers, so the path under test is the real
+      // one rather than something that merely resembles it.
+      self->onChannelError(aasdk::error::Error(aasdk::error::ErrorCode::USB_TRANSFER,
+                                               LIBUSB_TRANSFER_ERROR));
+    }
+  });
 }
 
 void ProtocolSession::Listen() {
@@ -238,6 +279,7 @@ void ProtocolSession::Stop() {
     return;
   }
   stopped_ = true;
+  fault_timer_.cancel();
 
   if (messenger_) {
     messenger_->stop();

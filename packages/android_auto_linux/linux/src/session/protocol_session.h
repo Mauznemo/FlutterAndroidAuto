@@ -163,6 +163,8 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
 
  private:
   void SendHandshakeStep();
+  // Arms AA_FAULT_TRANSPORT_AFTER, see the note in the .cc file.
+  void ArmFaultInjection();
   void NoteShutdownAcknowledged();
   void Listen();
   void ReportState(int state, const std::string& message);
@@ -189,6 +191,9 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
 
   std::vector<std::string> opened_channels_;
   bool stopped_ = false;
+
+  // Fault injection only, see ArmFaultInjection.
+  boost::asio::steady_timer fault_timer_;
 
   std::mutex shutdown_mutex_;
   std::condition_variable shutdown_cv_;
