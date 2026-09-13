@@ -31,8 +31,19 @@ else
 fi
 
 echo "==> configuring"
+# Resolve protoc here rather than leaving it to aasdk's protobuf subproject, which uses
+# include(FindProtobuf) instead of find_package and loses it on a reconfigure, failing
+# with "protoc executable not found" even though it is installed. The plugin's own
+# CMakeLists already pins it the same way for the same reason.
+PROTOC="$(command -v protoc || true)"
+if [ -z "$PROTOC" ]; then
+  echo "protoc is not installed, run: tools/setup-dev-machine.sh --build-deps" >&2
+  exit 1
+fi
 cmake -S "$REPO/packages/android_auto_linux/linux/smoke" -B "$BUILD" -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release >/dev/null
+  -DCMAKE_BUILD_TYPE=Release \
+  -DProtobuf_PROTOC_EXECUTABLE="$PROTOC" \
+  -DPROTOBUF_PROTOC_EXECUTABLE="$PROTOC" >/dev/null
 
 echo "==> building"
 cmake --build "$BUILD" 2>&1 | grep -vE "^\[[0-9]+/[0-9]+\]" | grep -iE "error|warning: unused" || true
