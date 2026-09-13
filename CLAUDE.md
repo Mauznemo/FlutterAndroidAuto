@@ -112,6 +112,9 @@ to restore the old one argument `dispatch`/`post`, `get_io_service()` and an
 `io_context&` flavoured `context()`. That is what keeps the port a type substitution
 instead of a rewrite, so prefer extending it over touching call sites.
 
+## Committing
+Do NOT git commit unless you are toled to do so!
+
 ## Native layout (M2 onward)
 
 | File | What |
