@@ -906,19 +906,20 @@ index a0d597d..bb0cc69 100644
        void stop() override;
  
 diff --git a/include/aasdk/USB/AOAPDevice.hpp b/include/aasdk/USB/AOAPDevice.hpp
-index 59ca051..15d8f5d 100644
+index 59ca051..5a4c4f1 100644
 --- a/include/aasdk/USB/AOAPDevice.hpp
 +++ b/include/aasdk/USB/AOAPDevice.hpp
-@@ -29,7 +29,7 @@ namespace aasdk {
+@@ -29,7 +29,8 @@ namespace aasdk {
  
      class AOAPDevice : public IAOAPDevice, boost::noncopyable {
      public:
 -      AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle,
 +      AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
++                 ConfigDescriptorHandle configDescriptorHandle,
                   const libusb_interface_descriptor *interfaceDescriptor);
  
        ~AOAPDevice() override;
-@@ -39,7 +39,7 @@ namespace aasdk {
+@@ -39,7 +40,7 @@ namespace aasdk {
        IUSBEndpoint &getOutEndpoint() override;
  
        static IAOAPDevice::Pointer
@@ -927,6 +928,16 @@ index 59ca051..15d8f5d 100644
  
      private:
        static ConfigDescriptorHandle getConfigDescriptor(IUSBWrapper &usbWrapper, DeviceHandle handle);
+@@ -50,6 +51,9 @@ namespace aasdk {
+ 
+       IUSBWrapper &usbWrapper_;
+       DeviceHandle handle_;
++      // Owns the memory interfaceDescriptor_ points into. Do not remove: without it the
++      // descriptor is freed when create() returns, and the destructor reads it.
++      ConfigDescriptorHandle configDescriptorHandle_;
+       const libusb_interface_descriptor *interfaceDescriptor_;
+       IUSBEndpoint::Pointer inEndpoint_;
+       IUSBEndpoint::Pointer outEndpoint_;
 diff --git a/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp b/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp
 index 89452a2..553484f 100644
 --- a/include/aasdk/USB/AccessoryModeProtocolVersionQuery.hpp
@@ -1780,19 +1791,25 @@ index a17e8ba..cc310fa 100644
      usb::ut::USBEndpointMock outEndpointMock_;
      TransportReceivePromiseHandlerMock receivePromiseHandlerMock_;
 diff --git a/src/USB/AOAPDevice.cpp b/src/USB/AOAPDevice.cpp
-index c169ab1..6be3766 100644
+index c169ab1..71f78c3 100644
 --- a/src/USB/AOAPDevice.cpp
 +++ b/src/USB/AOAPDevice.cpp
-@@ -24,7 +24,7 @@
+@@ -24,9 +24,12 @@
  namespace aasdk {
    namespace usb {
  
 -    AOAPDevice::AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_service &ioService, DeviceHandle handle,
 +    AOAPDevice::AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
++                           ConfigDescriptorHandle configDescriptorHandle,
                             const libusb_interface_descriptor *interfaceDescriptor)
-         : usbWrapper_(usbWrapper), handle_(std::move(handle)), interfaceDescriptor_(interfaceDescriptor) {
+-        : usbWrapper_(usbWrapper), handle_(std::move(handle)), interfaceDescriptor_(interfaceDescriptor) {
++        : usbWrapper_(usbWrapper), handle_(std::move(handle)),
++          configDescriptorHandle_(std::move(configDescriptorHandle)),
++          interfaceDescriptor_(interfaceDescriptor) {
        if ((interfaceDescriptor->endpoint[0].bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN) {
-@@ -55,7 +55,7 @@ namespace aasdk {
+         inEndpoint_ = std::make_shared<USBEndpoint>(usbWrapper_, ioService, handle_,
+                                                     interfaceDescriptor_->endpoint[0].bEndpointAddress);
+@@ -55,7 +58,7 @@ namespace aasdk {
      }
  
      IAOAPDevice::Pointer
@@ -1801,6 +1818,16 @@ index c169ab1..6be3766 100644
        auto configDescriptorHandle = AOAPDevice::getConfigDescriptor(usbWrapper, handle);
        auto interface = AOAPDevice::getInterface(configDescriptorHandle);
        auto interfaceDescriptor = AOAPDevice::getInterfaceDescriptor(interface);
+@@ -70,7 +73,8 @@ namespace aasdk {
+         throw error::Error(error::ErrorCode::USB_CLAIM_INTERFACE, result);
+       }
+ 
+-      return std::make_unique<AOAPDevice>(usbWrapper, ioService, std::move(handle), interfaceDescriptor);
++      return std::make_unique<AOAPDevice>(usbWrapper, ioService, std::move(handle),
++                                          std::move(configDescriptorHandle), interfaceDescriptor);
+     }
+ 
+     ConfigDescriptorHandle AOAPDevice::getConfigDescriptor(IUSBWrapper &usbWrapper, DeviceHandle handle) {
 diff --git a/src/USB/AOAPDevice.ut.cpp b/src/USB/AOAPDevice.ut.cpp
 index d9e344e..9b989e3 100644
 --- a/src/USB/AOAPDevice.ut.cpp

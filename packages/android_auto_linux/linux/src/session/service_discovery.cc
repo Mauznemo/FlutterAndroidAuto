@@ -1,0 +1,182 @@
+#include "service_discovery.h"
+
+#include <aap_protobuf/service/Service.pb.h>
+#include <aap_protobuf/service/inputsource/InputSourceService.pb.h>
+#include <aap_protobuf/service/media/shared/message/AudioConfiguration.pb.h>
+#include <aap_protobuf/service/media/shared/message/MediaCodecType.pb.h>
+#include <aap_protobuf/service/media/sink/MediaSinkService.pb.h>
+#include <aap_protobuf/service/media/sink/message/AudioStreamType.pb.h>
+#include <aap_protobuf/service/media/sink/message/VideoCodecResolutionType.pb.h>
+#include <aap_protobuf/service/media/sink/message/VideoConfiguration.pb.h>
+#include <aap_protobuf/service/media/sink/message/VideoFrameRateType.pb.h>
+#include <aap_protobuf/service/media/source/MediaSourceService.pb.h>
+#include <aap_protobuf/service/sensorsource/SensorSourceService.pb.h>
+#include <aap_protobuf/service/sensorsource/message/Sensor.pb.h>
+#include <aap_protobuf/service/sensorsource/message/SensorType.pb.h>
+
+#include <aasdk/Messenger/ChannelId.hpp>
+
+namespace aa {
+namespace {
+
+namespace pb = aap_protobuf;
+namespace sink = aap_protobuf::service::media::sink;
+namespace shared = aap_protobuf::service::media::shared;
+
+int32_t ChannelNumber(aasdk::messenger::ChannelId id) {
+  return static_cast<int32_t>(id);
+}
+
+// The protocol only has names for a fixed set of resolutions, so the configured size
+// has to land on one of them.
+sink::message::VideoCodecResolutionType ResolutionFor(int32_t width, int32_t height) {
+  if (width == 800 && height == 480) {
+    return sink::message::VIDEO_800x480;
+  }
+  if (width == 1920 && height == 1080) {
+    return sink::message::VIDEO_1920x1080;
+  }
+  if (width == 2560 && height == 1440) {
+    return sink::message::VIDEO_2560x1440;
+  }
+  if (width == 3840 && height == 2160) {
+    return sink::message::VIDEO_3840x2160;
+  }
+  // 1280x720 is the safe default: every phone supports it, and an unusual size here
+  // fails in ways that are hard to attribute later.
+  return sink::message::VIDEO_1280x720;
+}
+
+void AddVideoService(const HeadUnitDescription& description,
+                     pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::MEDIA_SINK_VIDEO));
+
+  auto* sink_service = service->mutable_media_sink_service();
+  sink_service->set_available_type(shared::message::MEDIA_CODEC_VIDEO_H264_BP);
+  sink_service->set_display_id(0);
+
+  auto* video = sink_service->add_video_configs();
+  video->set_codec_resolution(ResolutionFor(description.width, description.height));
+  video->set_frame_rate(description.fps >= 60 ? sink::message::VIDEO_FPS_60
+                                              : sink::message::VIDEO_FPS_30);
+  video->set_density(static_cast<uint32_t>(description.dpi));
+  video->set_real_density(static_cast<uint32_t>(description.dpi));
+  // No margins: the host app decides how to letterbox the texture in Flutter, and
+  // asking the phone to letterbox as well would double up.
+  video->set_width_margin(0);
+  video->set_height_margin(0);
+  video->set_video_codec_type(shared::message::MEDIA_CODEC_VIDEO_H264_BP);
+}
+
+void AddAudioSink(pb::service::control::message::ServiceDiscoveryResponse* response,
+                  aasdk::messenger::ChannelId channel_id,
+                  sink::message::AudioStreamType stream_type, uint32_t sampling_rate,
+                  uint32_t channels) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(channel_id));
+
+  auto* sink_service = service->mutable_media_sink_service();
+  sink_service->set_available_type(shared::message::MEDIA_CODEC_AUDIO_PCM);
+  sink_service->set_audio_type(stream_type);
+
+  auto* audio = sink_service->add_audio_configs();
+  audio->set_sampling_rate(sampling_rate);
+  audio->set_number_of_bits(16);
+  audio->set_number_of_channels(channels);
+}
+
+void AddInputService(const HeadUnitDescription& description,
+                     pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::INPUT_SOURCE));
+
+  auto* input = service->mutable_input_source_service();
+  auto* touchscreen = input->add_touchscreen();
+  // Touch coordinates are in projected pixels, so the touchscreen the head unit claims
+  // to have is exactly the size of the video it asked for.
+  touchscreen->set_width(description.width);
+  touchscreen->set_height(description.height);
+  input->set_display_id(0);
+}
+
+void AddMicrophoneService(
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::MEDIA_SOURCE_MICROPHONE));
+
+  auto* source = service->mutable_media_source_service();
+  source->set_available_type(shared::message::MEDIA_CODEC_AUDIO_PCM);
+  auto* audio = source->mutable_audio_config();
+  audio->set_sampling_rate(16000);
+  audio->set_number_of_bits(16);
+  audio->set_number_of_channels(1);
+}
+
+void AddSensorService(pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::SENSOR));
+
+  auto* sensors = service->mutable_sensor_source_service();
+  // Only the two the host app can actually answer today. Driving status in particular
+  // is not optional: without it the phone assumes it cannot verify the car is parked
+  // and locks parts of the UI out.
+  sensors->add_sensors()->set_sensor_type(
+      pb::service::sensorsource::message::SENSOR_DRIVING_STATUS_DATA);
+  sensors->add_sensors()->set_sensor_type(
+      pb::service::sensorsource::message::SENSOR_NIGHT_MODE);
+}
+
+}  // namespace
+
+void BuildServiceDiscoveryResponse(
+    const HeadUnitDescription& description,
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  response->Clear();
+
+  if (description.enable_video) {
+    AddVideoService(description, response);
+  }
+  if (description.enable_input) {
+    AddInputService(description, response);
+  }
+  if (description.enable_media_audio) {
+    AddAudioSink(response, aasdk::messenger::ChannelId::MEDIA_SINK_MEDIA_AUDIO,
+                 sink::message::AUDIO_STREAM_MEDIA, 48000, 2);
+  }
+  if (description.enable_system_audio) {
+    AddAudioSink(response, aasdk::messenger::ChannelId::MEDIA_SINK_SYSTEM_AUDIO,
+                 sink::message::AUDIO_STREAM_SYSTEM_AUDIO, 16000, 1);
+  }
+  if (description.enable_speech_audio) {
+    AddAudioSink(response, aasdk::messenger::ChannelId::MEDIA_SINK_GUIDANCE_AUDIO,
+                 sink::message::AUDIO_STREAM_GUIDANCE, 16000, 1);
+  }
+  if (description.enable_microphone) {
+    AddMicrophoneService(response);
+  }
+  if (description.enable_sensors) {
+    AddSensorService(response);
+  }
+
+  response->set_display_name(description.head_unit_name);
+
+  // The make/model/year fields are marked deprecated in the schema, but phones still
+  // read them and leaving them empty makes some builds refuse to project. Deprecated
+  // is not the same as unused, so the warning is suppressed rather than obeyed.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  response->set_make("Flutter");
+  response->set_model(description.car_model);
+  response->set_year(description.car_year);
+  response->set_head_unit_make("Flutter");
+  response->set_head_unit_model(description.head_unit_name);
+  response->set_head_unit_software_build("1");
+  response->set_head_unit_software_version("1.0");
+  response->set_can_play_native_media_during_vr(false);
+#pragma GCC diagnostic pop
+
+  response->set_session_configuration(0);
+}
+
+}  // namespace aa

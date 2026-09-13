@@ -45,7 +45,17 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
 
   @override
   Future<void> start(AndroidAutoConfig config) async {
+    // A stopped session is restarted, not rebuilt. The native side keeps its USB
+    // discovery alive across stop and start on purpose, so throwing the session away
+    // here would defeat that.
     if (_session != nullptr) {
+      final result = _bindings.aa_session_start(_session);
+      if (result != 0) {
+        _emit(
+          AndroidAutoConnectionState.error,
+          'Could not restart the head unit session (code $result).',
+        );
+      }
       return;
     }
 
@@ -98,6 +108,17 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
 
   @override
   Future<void> stop() async {
+    // Stop, but keep the session. The native side reuses its USB discovery across
+    // stop and start, because tearing that down and rebuilding it races with libusb's
+    // hotplug callback. Destroying the session is dispose()'s job.
+    if (_session != nullptr) {
+      _bindings.aa_session_stop(_session);
+    }
+    _emit(AndroidAutoConnectionState.idle);
+  }
+
+  @override
+  Future<void> dispose() async {
     if (_session != nullptr) {
       _bindings.aa_session_stop(_session);
       _bindings.aa_session_destroy(_session);
@@ -107,7 +128,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     // events can arrive at the callable being torn down here.
     _callback?.close();
     _callback = null;
-    _emit(AndroidAutoConnectionState.idle);
+    await _events.close();
   }
 
   @override

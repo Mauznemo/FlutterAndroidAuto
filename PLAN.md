@@ -20,7 +20,7 @@ implementation can be added later without touching the app-facing API.
 | M0 | Project setup, research, tooling | done |
 | M1 | Native build: vendor and modernise aasdk | **done** |
 | M2 | C ABI core + Dart FFI + texture plumbing | **done** |
-| M3 | USB transport, AOAP, SSL, service discovery | **next** |
+| M3 | USB transport, AOAP, SSL, service discovery | **mostly done** |
 | M4 | Video channel to Flutter texture | not started |
 | M5 | Input channel (touch, keys, rotary) | not started |
 | M6 | Audio output (media, system, speech) | not started |
@@ -140,20 +140,57 @@ composited over it, and those widgets still receive input.
 Goal: plug in a phone, get to the point where the phone has accepted our head unit
 and announced its services.
 
-- [ ] Install the udev rule for AOAP devices (`tools/99-android-auto.rules`), no root needed at runtime
-- [ ] USB enumeration and hotplug via aasdk's `USBHub` / libusb hotplug
-- [ ] AOAP accessory mode switch (control requests 51/52/53), wait for re-enumeration as `18d1:2d00`-`2d05`
-- [ ] Open the AOAP bulk endpoints, wrap in aasdk `USBTransport`
-- [ ] SSL handshake with the head unit certificate
-  - [ ] Ship `headunit.crt` / `headunit.key` as plugin assets, allow the app to override the path
-- [ ] Version request/response, then `ServiceDiscoveryRequest`
-- [ ] Build the `ServiceDiscoveryResponse` describing our head unit (this is where we advertise video size, input, audio configs)
-- [ ] Log the negotiated channel list to Dart as a structured event
-- [ ] Surface connect/disconnect/error states through the Dart event stream
+- [x] Install the udev rule for AOAP devices (`tools/setup-dev-machine.sh --udev`), no root needed at runtime
+- [x] USB enumeration and hotplug via aasdk's `USBHub` and `ConnectedAccessoriesEnumerator`
+- [x] AOAP accessory mode switch, verified: the phone re-enumerated `18d1:4ee7` to `18d1:2d01`
+- [x] Open the AOAP bulk endpoints, wrap in aasdk `USBTransport`
+- [x] SSL handshake with the head unit certificate
+  - [ ] Certificate path override (`AaConfig.certificate_path` is accepted but ignored: aasdk hardcodes the certificate in `Cryptor.cpp`, so honouring it needs another patch)
+- [x] Version request/response, then `ServiceDiscoveryRequest`
+- [x] Build the `ServiceDiscoveryResponse` describing our head unit
+- [x] Log the negotiated channel list to Dart as a structured event
+- [x] Surface connect/disconnect/error states through the Dart event stream
+- [x] Graceful shutdown: send `ByeByeRequest` before dropping the link
+- [x] Answer the replies that keep a session alive: ping, audio focus, navigation focus
 - [ ] Reconnect cleanly after unplug and replug, 10 times in a row without a leak
 
-**Checkpoint:** logs show the phone's service discovery response, and Android Auto is
-"active" on the phone screen.
+**Checkpoint met, with one caveat.** The head unit reaches `connected` and reports
+`Channels advertised: MEDIA_SINK_VIDEO, INPUT_SOURCE, SENSOR`, verified against a Pixel
+with its screen off. Whether Android Auto shows as active on the phone itself has not
+been checked, because that needs the screen on.
+
+### What is not finished, and why it matters
+
+In-app stop then start recovers, but only about half the time inside a 20 second window.
+Physical unplug and replug has not been tested at all. Until both are solid the last box
+above stays open.
+
+The cause is structural rather than a single bug. aasdk was written for openauto, which
+builds its object graph once and exits the process when the phone goes away, so nothing
+in it is designed to be torn down and rebuilt in place. Five distinct crashes came out
+of this in one sitting, each a different instance of the same shape: an aasdk object
+holding a raw pointer or reference to something whose lifetime the caller controls, and
+outliving it.
+
+| What outlived what | Symptom |
+|---|---|
+| `AOAPDevice` held a freed libusb config descriptor | segfault in `~AOAPDevice` on the second connect |
+| `AOAPDevice` destructor ran after `libusb_exit` | segfault in `libusb_close` |
+| `USBHub`'s queued cancel ran after `libusb_exit` | segfault in `libusb_hotplug_deregister_callback` |
+| `USBHub`'s hotplug callback fired after the hub was destroyed | `std::bad_weak_ptr`, process terminated |
+| aasdk's `Channel` posted to a strand owned by a destroyed session | segfault in Boost.Asio |
+
+The first one is an upstream use after free and is fixed in
+`linux/patches/`. The rest are handled by giving the long lived pieces process
+lifetime: libusb, the USB connector and the channel strand are created once and never
+destroyed. See `src/session/usb_context.h` for the reasoning.
+
+A sixth crash was ours, not aasdk's: a send rejection handler capturing a raw `this`.
+
+**Decide before finishing M3:** either accept process lifetime for the whole USB and
+channel stack, which is effectively what openauto does and what the code now assumes, or
+invest in patching aasdk's ownership so a session really can be rebuilt. The former is
+cheap and already working; the latter is the honest fix and would need upstream changes.
 
 ---
 

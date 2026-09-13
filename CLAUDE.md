@@ -119,6 +119,30 @@ Only the raster thread touches GL, inside `populate()`, where Flutter's context 
 already current. A `GdkGLContext` shared with Flutter's is only needed once a producer
 thread creates GL objects itself, which is the M4 dmabuf path.
 
+## aasdk object lifetimes, the thing that keeps biting
+
+aasdk was written for openauto, which builds everything once and exits the process when
+the phone disconnects. Nothing in it survives being torn down and rebuilt in place: its
+objects hold raw pointers and references to things the caller owns, and they outlive
+them in ways no ordering fixes. Six crashes came out of this in one sitting, listed in
+`PLAN.md` under M3.
+
+The rules that came out of it, do not undo them:
+
+- **libusb, the `UsbConnector` and the channel strand are process lifetime.** Created
+  once, never destroyed. `src/session/usb_context.h` explains why in full.
+- **Never pass `shared_from_this()` to an aasdk channel as an event handler.** It makes
+  a reference cycle through the channel's promises, and the session then never dies, so
+  the USB interface is never released and every reconnect fails with `LIBUSB_ERROR_BUSY`.
+  Use `ControlEventRelay`, which holds a weak reference.
+- **Never capture a raw `this` in a promise handler.** Rejections arrive on io_context
+  threads long after the object is gone. Capture `weak_from_this()` and lock.
+- **Anything that outlives a session must not hold a pointer back into it.** The
+  connector is process lifetime, so `aa_session_destroy` calls `ClearHandlers()` first.
+
+When something crashes in a destructor or inside libusb's event thread, it is almost
+always one of these rather than a new problem.
+
 ## Native notes that keep coming back
 
 - `android_auto_linux` must keep `pluginClass` in its pubspec even though it is mostly

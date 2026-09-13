@@ -80,6 +80,7 @@ class AndroidAutoController extends ChangeNotifier {
   @override
   void dispose() {
     _subscription.cancel();
+    _platform.dispose();
     super.dispose();
   }
 }

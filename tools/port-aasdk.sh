@@ -12,8 +12,9 @@
 #
 # It also raises a couple of cmake_minimum_required() calls, because CMake 4 dropped
 # compatibility with anything below 3.5, stops asking CMake for the Boost.System
-# component that Boost 1.90 no longer ships, and puts aasdk's own include directory on
-# the aasdk target so a parent project can actually use it.
+# component that Boost 1.90 no longer ships, puts aasdk's own include directory on the
+# aasdk target so a parent project can actually use it, and fixes a use after free in
+# AOAPDevice that crashes on the second connect.
 #
 #   tools/port-aasdk.sh apply     transform the submodule working tree in place
 #   tools/port-aasdk.sh patch     regenerate linux/patches/ from the working tree
@@ -127,6 +128,61 @@ port_io_context_wrapper() {
     "$f"
 }
 
+# AOAPDevice keeps a pointer into a libusb config descriptor that it does not own. The
+# descriptor is a local in create(), so it is freed the moment create() returns, and
+# ~AOAPDevice then reads bInterfaceNumber out of freed memory to release the interface.
+#
+# It usually survives the first time, because the freed block still holds its old
+# contents. Connect and disconnect a couple of times and the allocator hands that memory
+# to someone else, and the app dies in ~AOAPDevice. Give the device ownership of the
+# descriptor instead.
+port_aoap_device_lifetime() {
+  python3 - "$AASDK" <<'PYEOF'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+
+header = root / "include/aasdk/USB/AOAPDevice.hpp"
+text = header.read_text()
+if "configDescriptorHandle_" not in text:
+    text = text.replace(
+        """      AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                 const libusb_interface_descriptor *interfaceDescriptor);""",
+        """      AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                 ConfigDescriptorHandle configDescriptorHandle,
+                 const libusb_interface_descriptor *interfaceDescriptor);""")
+    text = text.replace(
+        """      DeviceHandle handle_;
+      const libusb_interface_descriptor *interfaceDescriptor_;""",
+        """      DeviceHandle handle_;
+      // Owns the memory interfaceDescriptor_ points into. Do not remove: without it the
+      // descriptor is freed when create() returns, and the destructor reads it.
+      ConfigDescriptorHandle configDescriptorHandle_;
+      const libusb_interface_descriptor *interfaceDescriptor_;""")
+    header.write_text(text)
+
+source = root / "src/USB/AOAPDevice.cpp"
+text = source.read_text()
+if "configDescriptorHandle_" not in text:
+    text = text.replace(
+        """    AOAPDevice::AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                           const libusb_interface_descriptor *interfaceDescriptor)
+        : usbWrapper_(usbWrapper), handle_(std::move(handle)), interfaceDescriptor_(interfaceDescriptor) {""",
+        """    AOAPDevice::AOAPDevice(IUSBWrapper &usbWrapper, boost::asio::io_context &ioService, DeviceHandle handle,
+                           ConfigDescriptorHandle configDescriptorHandle,
+                           const libusb_interface_descriptor *interfaceDescriptor)
+        : usbWrapper_(usbWrapper), handle_(std::move(handle)),
+          configDescriptorHandle_(std::move(configDescriptorHandle)),
+          interfaceDescriptor_(interfaceDescriptor) {""")
+    text = text.replace(
+        """      return std::make_unique<AOAPDevice>(usbWrapper, ioService, std::move(handle), interfaceDescriptor);""",
+        """      return std::make_unique<AOAPDevice>(usbWrapper, ioService, std::move(handle),
+                                          std::move(configDescriptorHandle), interfaceDescriptor);""")
+    source.write_text(text)
+PYEOF
+}
+
 # aasdk exposes its own headers through a directory scoped include_directories(), which
 # does not reach a parent project's targets. Anyone adding aasdk with add_subdirectory,
 # which is exactly how the Flutter plugin consumes it, cannot find aasdk/... headers.
@@ -183,6 +239,10 @@ cmd_apply() {
         }
       }' "$f" > "$f.ported" && mv "$f.ported" "$f"
   done
+
+  # Has to run after the substitutions above: it matches signatures that mention
+  # io_context, which only exist once io_service has been renamed.
+  port_aoap_device_lifetime
 
   echo "ported $(echo "$files" | wc -l) files"
   echo "remaining io_service references: $(grep -rc 'io_service' "$AASDK/include" "$AASDK/src" 2>/dev/null | grep -v ':0$' | wc -l) files"

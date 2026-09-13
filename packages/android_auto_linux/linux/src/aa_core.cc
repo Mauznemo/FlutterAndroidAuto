@@ -2,6 +2,10 @@
 
 #include <boost/asio.hpp>
 
+#include <aasdk/Common/Strand.hpp>
+
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -12,6 +16,9 @@
 #include "event_bus.h"
 #include "frame_ring.h"
 #include "present/gl_adapter.h"
+#include "session/protocol_session.h"
+#include "session/service_discovery.h"
+#include "session/usb_connector.h"
 #include "test_pattern.h"
 
 namespace {
@@ -41,11 +48,39 @@ struct AaSession {
 
   explicit AaSession(AaEventCallback callback) : events(callback) {}
 
+  // How this head unit describes itself during service discovery.
+  aa::HeadUnitDescription Describe() const {
+    aa::HeadUnitDescription description;
+    description.width = config.width;
+    description.height = config.height;
+    description.fps = config.fps;
+    description.dpi = config.dpi;
+    description.head_unit_name = config.head_unit_name;
+    description.car_model = config.car_model;
+    description.car_year = config.car_year;
+    // Only video, input and sensors are advertised so far. Audio goes on in M6, the
+    // microphone in M7. Advertising a channel with no handler gets the connection
+    // dropped, so these stay off until their milestone lands.
+    description.enable_video = true;
+    description.enable_input = true;
+    description.enable_sensors = true;
+    description.enable_media_audio = false;
+    description.enable_system_audio = false;
+    description.enable_speech_audio = false;
+    description.enable_microphone = false;
+    return description;
+  }
+
   Config config;
   aa::EventBus events;
   aa::FrameRing ring;
   std::unique_ptr<aa::GlAdapter> gl;
   std::unique_ptr<aa::TestPattern> pattern;
+
+  std::unique_ptr<aa::UsbConnector> usb;
+  std::shared_ptr<aa::ProtocolSession> protocol;
+  // Outlives every protocol session built on it, see the note on ProtocolSession::Create.
+  std::unique_ptr<aasdk::Strand> channel_strand;
 
   // aasdk runs everything on this. Two threads is enough for the transport plus the
   // channel dispatch, and keeping it small makes the ordering easier to reason about.
@@ -90,6 +125,23 @@ void aa_session_destroy(AaSession* session) {
   // NativeCallable the Dart side is about to tear down.
   session->events.Close();
   session->gl.reset();
+  if (session->usb) {
+    // The connector outlives this session, so cut its link back to it first.
+    session->usb->ClearHandlers();
+  }
+  // Deliberately not destroyed. USBHub registers a libusb hotplug callback that holds a
+  // raw pointer back to itself and calls shared_from_this() when a device arrives; if
+  // the hub is gone by then, that throws std::bad_weak_ptr from inside libusb's event
+  // thread and terminates the process. Deregistration is asynchronous, so there is no
+  // moment at which destroying it is provably safe.
+  //
+  // libusb is already process wide for the same reason (see usb_context.h), so one
+  // connector outliving its session costs a few kilobytes and removes the last crash of
+  // this kind. A process has one USB bus and one head unit.
+  session->usb.release();
+  // Same reasoning: aasdk's Channel holds this by reference and posts to it from
+  // handlers that outlive the session that created them.
+  session->channel_strand.release();
   delete session;
 }
 
@@ -117,15 +169,57 @@ int32_t aa_session_start(AaSession* session) {
 
   const unsigned int thread_count = 2;
   for (unsigned int i = 0; i < thread_count; ++i) {
-    session->io_threads.emplace_back([session]() { session->io_context.run(); });
+    session->io_threads.emplace_back([session]() {
+      // aasdk throws aasdk::error::Error out of its handlers for things like a USB
+      // interface that will not claim. An exception escaping io_context::run() on a
+      // plain std::thread calls std::terminate and takes the whole app with it, which
+      // is not an acceptable response to a phone being unplugged at a bad moment.
+      for (;;) {
+        try {
+          session->io_context.run();
+          return;
+        } catch (const aasdk::error::Error& error) {
+          session->events.Emit(AA_STATE_ERROR,
+                               std::string("Transport error: ") + error.what());
+        } catch (const std::exception& error) {
+          session->events.Emit(AA_STATE_ERROR,
+                               std::string("Unexpected native error: ") + error.what());
+        }
+      }
+    });
   }
   session->running = true;
 
-  // M3 replaces this with real USB discovery. Reporting searching here keeps the Dart
-  // state machine honest in the meantime.
-  session->events.Emit(AA_STATE_SEARCHING,
-                       "Transport not implemented yet (milestone M3). The video path is "
-                       "live, so the test pattern works.");
+  if (!session->usb) {
+    session->usb = std::make_unique<aa::UsbConnector>(session->io_context);
+  }
+  if (!session->channel_strand) {
+    session->channel_strand = std::make_unique<aasdk::Strand>(session->io_context);
+  }
+  const std::string usb_error = session->usb->Start(
+      [session](aasdk::usb::IAOAPDevice::Pointer device) {
+        // A phone reached accessory mode. Hand it to a fresh protocol session; any
+        // previous one belongs to a connection that has already gone away.
+        if (session->protocol) {
+          session->protocol->Stop();
+        }
+        session->protocol = aa::ProtocolSession::Create(
+            session->io_context, *session->channel_strand, session->Describe(),
+            [session](int state, const std::string& message) {
+              session->events.Emit(static_cast<AaState>(state), message);
+            });
+        session->protocol->Start(std::move(device));
+      },
+      [session](const std::string& message) {
+        session->events.Emit(AA_STATE_ERROR, message);
+      });
+
+  if (!usb_error.empty()) {
+    session->events.Emit(AA_STATE_ERROR, usb_error);
+    return -3;
+  }
+
+  session->events.Emit(AA_STATE_SEARCHING, "Looking for a phone on USB.");
   return 0;
 }
 
@@ -136,18 +230,61 @@ int32_t aa_session_stop(AaSession* session) {
   if (session->pattern) {
     session->pattern->Stop();
   }
+  // Ask, but do not yet destroy. Both of these only queue cancellations onto the
+  // io_context, and those queued handlers still need libusb and the USB device to be
+  // alive when they run.
+  if (session->protocol) {
+    // Say goodbye first and give the phone a moment to hear it. Dropping the link
+    // without this leaves the phone's accessory session open, and the USB interface
+    // stays claimed on its side long enough to break the next connection.
+    session->protocol->Shutdown();
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    session->protocol->Stop();
+  }
+  if (session->usb) {
+    session->usb->Stop();
+  }
   if (!session->running) {
+    session->protocol.reset();
     return 0;
   }
 
+  // Drain rather than abandon. Dropping the work guard lets run() return once the
+  // queued handlers are done, and those handlers hold the last references to the
+  // session objects. Calling io_context::stop() here instead would leave them queued
+  // and undestroyed, so the USB interface would still be claimed on the next start and
+  // the reconnect would fail with LIBUSB_ERROR_BUSY.
   session->work_guard.reset();
-  session->io_context.stop();
+
+  // The drain must not be able to hang the caller, which is Flutter's platform thread.
+  // A watchdog stops the io_context hard if the queued handlers have not finished in
+  // time, at the cost of the clean release this is trying to achieve.
+  std::atomic<bool> joined{false};
+  std::thread watchdog([&session, &joined]() {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!joined.load() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (!joined.load()) {
+      session->io_context.stop();
+    }
+  });
+
   for (auto& thread : session->io_threads) {
     if (thread.joinable()) {
       thread.join();
     }
   }
+  joined = true;
+  watchdog.join();
+
   session->io_threads.clear();
+
+  // The protocol session is rebuilt on every connection, so drop it. The USB connector
+  // is not: see the note on UsbConnector::Start about why its aasdk objects have to
+  // outlive the hotplug callback libusb holds.
+  session->protocol.reset();
+
   session->io_context.restart();
   session->running = false;
 

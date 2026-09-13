@@ -20,6 +20,10 @@ list(APPEND PLUGIN_SOURCES
   "src/test_pattern.cc"
   "src/present/gl_adapter.cc"
   "src/present/texture_registry.cc"
+  "src/session/usb_context.cc"
+  "src/session/usb_connector.cc"
+  "src/session/service_discovery.cc"
+  "src/session/protocol_session.cc"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -61,6 +65,12 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(EPOXY REQUIRED IMPORTED_TARGET epoxy)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::EPOXY)
+
+# aasdk's public headers include <libusb.h>, but aasdk only puts libusb on the include
+# path with a directory scoped include_directories(), which does not reach this target.
+# Same shape of bug as the one patched in docs/aasdk-port-notes.md.
+pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
+target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBUSB)
 
 # === aasdk ===
 #

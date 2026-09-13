@@ -138,4 +138,10 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
 
   /// Stops the pattern started by [startTestPattern].
   Future<void> stopTestPattern() async {}
+
+  /// Releases everything the implementation holds.
+  ///
+  /// Distinct from [stop]: a stopped session can be started again, a disposed one
+  /// cannot. Host apps normally call this only when shutting down.
+  Future<void> dispose() async {}
 }
