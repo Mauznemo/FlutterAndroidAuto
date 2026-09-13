@@ -24,6 +24,9 @@ list(APPEND PLUGIN_SOURCES
   "src/session/usb_connector.cc"
   "src/session/service_discovery.cc"
   "src/session/protocol_session.cc"
+  "src/session/support_channels.cc"
+  "src/session/video_channel.cc"
+  "src/video/video_decoder.cc"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -71,6 +74,19 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::EPOXY)
 # Same shape of bug as the one patched in docs/aasdk-port-notes.md.
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBUSB)
+
+# === video decode ===
+#
+# libavcodec does the H.264, libavutil owns the VA-API device and the DRM prime export
+# that makes the zero copy path possible, libswscale converts to RGBA on the software
+# fallback. libavformat is deliberately not here: there is no container to demux, the
+# phone sends raw Annex-B.
+pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBAV)
+
+# drm_fourcc.h is a header of macros with no library behind it, and it ships with the
+# kernel headers rather than with libdrm, so there is nothing to find_package and
+# nothing extra for an end user to install.
 
 # === aasdk ===
 #

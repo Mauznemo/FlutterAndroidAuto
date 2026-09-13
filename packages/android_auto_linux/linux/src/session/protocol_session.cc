@@ -5,7 +5,11 @@
 #include <aasdk/Transport/SSLWrapper.hpp>
 #include <aasdk/Transport/USBTransport.hpp>
 
+#include <aasdk/Common/Log.hpp>
+
 #include "../aa_core.h"
+#include "support_channels.h"
+#include "video_channel.h"
 
 namespace aa {
 namespace {
@@ -99,18 +103,21 @@ void ControlEventRelay::onChannelError(const aasdk::error::Error& error) {
 
 std::shared_ptr<ProtocolSession> ProtocolSession::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
-    HeadUnitDescription description, StateHandler on_state) {
+    HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
+    StateHandler on_state) {
   return std::make_shared<ProtocolSession>(io_context, strand, std::move(description),
-                                           std::move(on_state));
+                                           std::move(decoder), std::move(on_state));
 }
 
 ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
                                  aasdk::Strand& strand, HeadUnitDescription description,
+                                 std::shared_ptr<VideoDecoder> decoder,
                                  StateHandler on_state)
     : io_context_(io_context),
       strand_(strand),
       description_(std::move(description)),
-      on_state_(std::move(on_state)) {}
+      on_state_(std::move(on_state)),
+      decoder_(std::move(decoder)) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
 
@@ -133,6 +140,32 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
   control_channel_ =
       std::make_shared<aasdk::channel::control::ControlServiceChannel>(strand_, messenger_);
   relay_ = std::make_shared<ControlEventRelay>(weak_from_this());
+
+  // Armed now rather than after service discovery. The messenger buffers a message that
+  // arrives for a channel with no outstanding receive, so either order works, but the
+  // phone opens the video channel the instant it has our response and there is nothing
+  // to gain by being late.
+  if (description_.enable_video && decoder_) {
+    video_channel_ = VideoChannel::Create(
+        io_context_, strand_, messenger_, decoder_,
+        [weak = weak_from_this()](const std::string& message) {
+          if (auto self = weak.lock()) {
+            self->ReportState(AA_STATE_CONNECTED, message);
+          }
+        });
+    video_channel_->Start();
+  }
+
+  // Everything else the phone opens. It will not project at all unless these answer,
+  // see the header of support_channels.h.
+  support_channels_ = SupportChannels::Create(
+      io_context_, strand_, messenger_, description_,
+      [weak = weak_from_this()](const std::string& message) {
+        if (auto self = weak.lock()) {
+          self->ReportState(AA_STATE_CONNECTED, message);
+        }
+      });
+  support_channels_->Start();
 
   ReportState(AA_STATE_HANDSHAKING, "Phone found, negotiating protocol version.");
 
@@ -199,6 +232,20 @@ void ProtocolSession::Stop() {
   // Drop everything that reaches the USB device. The device's destructor is what
   // releases the USB interface, and until that runs the next connection attempt fails
   // with LIBUSB_ERROR_BUSY.
+  if (video_channel_) {
+    video_channel_->Stop();
+    video_channel_.reset();
+  }
+  if (support_channels_) {
+    support_channels_->Stop();
+    support_channels_.reset();
+  }
+  // The decoder is not stopped here. It belongs to the head unit rather than to this
+  // connection, and it is flushed rather than torn down so a reconnect does not pay for
+  // opening VA-API again.
+  if (decoder_) {
+    decoder_->Flush();
+  }
   control_channel_.reset();
   messenger_.reset();
   transport_.reset();
@@ -286,6 +333,11 @@ void ProtocolSession::onHandshake(const aasdk::common::DataConstBuffer& payload)
 
 void ProtocolSession::onServiceDiscoveryRequest(
     const control_pb::ServiceDiscoveryRequest& request) {
+  // The icons in the request are tens of kilobytes of PNG and would bury everything
+  // else, so only the fields worth reading are logged.
+  AASDK_LOG(debug) << "[ServiceDiscovery] request from " << request.device_name() << " ("
+                   << request.label_text()
+                   << "), phone info: " << request.phone_info().ShortDebugString();
   ReportState(AA_STATE_HANDSHAKING,
               "Service discovery from " +
                   (request.device_name().empty() ? std::string("phone")

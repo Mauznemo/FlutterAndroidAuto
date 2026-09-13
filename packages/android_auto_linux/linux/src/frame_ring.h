@@ -9,6 +9,7 @@
 #define ANDROID_AUTO_LINUX_FRAME_RING_H_
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -18,15 +19,44 @@ enum class FrameKind {
   // Nothing published yet.
   kNone,
   // Tightly packed 8 bit RGBA in host memory. Used by the M2 test pattern and by the
-  // software decode fallback when the driver will not give us a dmabuf.
+  // software decode fallback when there is no hardware path.
   kCpuRgba,
-  // A DRM prime file descriptor. The zero copy path, and the one that survives the move
+  // DRM prime file descriptors. The zero copy path, and the one that survives the move
   // to Vulkan, since a dmabuf imports into both EGL and Vulkan.
   kDmabuf,
 };
 
+// One separately importable image inside a dmabuf frame.
+//
+// DRM calls these layers rather than planes, and the distinction matters here: VA-API
+// exports an NV12 surface as two layers, a full size single channel luma image and a
+// half size two channel chroma image, usually pointing into the same buffer at
+// different offsets. Each one imports on its own, as its own texture, which is exactly
+// the shape both EGL and Vulkan want. A "plane" in the libavutil sense would not be.
+struct FrameLayer {
+  int fd = -1;
+  uint32_t offset = 0;
+  uint32_t pitch = 0;
+  uint64_t modifier = 0;
+  // DRM fourcc of this layer on its own, so DRM_FORMAT_R8 or DRM_FORMAT_GR88 for the
+  // two halves of an NV12 frame, not DRM_FORMAT_NV12.
+  uint32_t fourcc = 0;
+  int32_t width = 0;
+  int32_t height = 0;
+};
+
+// Which matrix takes the frame's YUV back to RGB. H.264 carries this in the VUI, and
+// getting it wrong is a subtle colour shift rather than an obvious failure, so it is
+// carried through the seam rather than assumed at the far end.
+enum class ColorSpace {
+  kBt601,
+  kBt709,
+};
+
 // What a producer hands over. Deliberately free of graphics API types.
 struct Frame {
+  static constexpr int kMaxLayers = 3;
+
   FrameKind kind = FrameKind::kNone;
   int32_t width = 0;
   int32_t height = 0;
@@ -35,11 +65,12 @@ struct Frame {
   const uint8_t* pixels = nullptr;
   int32_t stride = 0;
 
-  // kDmabuf. Unused until M4.
-  int fd = -1;
-  uint64_t modifier = 0;
-  uint32_t offset = 0;
-  uint32_t fourcc = 0;
+  // kDmabuf
+  int32_t layer_count = 0;
+  FrameLayer layers[kMaxLayers];
+  ColorSpace color_space = ColorSpace::kBt601;
+  // Whether luma spans 0..255 rather than the broadcast 16..235.
+  bool full_range = false;
 };
 
 // A three slot rotation between one producer thread and Flutter's raster thread.
@@ -49,35 +80,65 @@ struct Frame {
 // there is always a third to write into. The lock is only ever held to move an index,
 // never across an upload, which keeps the raster thread off the producer's critical
 // path.
+//
+// Producers come in two shapes and the ring serves both. The test pattern copies its
+// pixels into a slot the ring owns (AcquireWriteSlot, SlotPixels, Publish). The decoder
+// already has a buffer, on the GPU in the dmabuf case, and only hands over a
+// description of it plus something that keeps it alive (PublishFrame).
 class FrameRing {
  public:
   static constexpr int kSlots = 3;
 
-  // Resizes the backing buffers. Safe to call when the video resolution changes; any
-  // frame currently checked out stays valid until it is released.
+  // Resizes the backing buffers used by the copy-in path. Safe to call when the video
+  // resolution changes; any frame currently checked out stays valid until it is
+  // released.
   void Configure(int32_t width, int32_t height);
 
-  // Producer side. Returns the slot to write into, or -1 if every slot is busy, which
-  // means the consumer is running late and this frame should be dropped.
+  // Copy-in producer side. Returns the slot to write into, or -1 if every slot is busy,
+  // which means the consumer is running late and this frame should be dropped.
   int AcquireWriteSlot();
   uint8_t* SlotPixels(int slot);
   void Publish(int slot);
+
+  // Publish-by-reference producer side, for a frame whose memory the producer owns.
+  //
+  // `keepalive` holds whatever the descriptor points at, an AVFrame in practice. It is
+  // released only when the slot is reused, so the consumer can never be handed
+  // descriptors whose buffer has already gone. Returns false when every slot is in use
+  // and the frame was dropped.
+  bool PublishFrame(const Frame& frame, std::shared_ptr<void> keepalive);
 
   // Consumer side. Returns false when there is no new frame. The returned Frame stays
   // valid until ReleaseRead.
   bool AcquireRead(Frame* out);
   void ReleaseRead();
 
-  int32_t width() const { return width_; }
-  int32_t height() const { return height_; }
-  // Frames published since the last call. Diagnostics only.
-  uint64_t published_count() const { return published_count_; }
-  uint64_t dropped_count() const { return dropped_count_; }
+  // Forgets everything published so far and drops the producer's buffers. Called when a
+  // video stream ends, so the last frame of a finished session does not sit in the
+  // texture holding a dmabuf open.
+  void Reset();
+
+  int32_t width() const;
+  int32_t height() const;
+  // Diagnostics only.
+  uint64_t published_count() const;
+  uint64_t dropped_count() const;
 
  private:
+  struct Slot {
+    // Only used by the copy-in path. Empty for frames published by reference.
+    std::vector<uint8_t> storage;
+    Frame frame;
+    std::shared_ptr<void> keepalive;
+    bool writing = false;
+  };
+
+  // Takes the slot the producer should write into, or -1 when they are all busy.
+  // Caller holds the lock.
+  int TakeFreeSlotLocked();
+
   mutable std::mutex mutex_;
-  std::vector<uint8_t> storage_[kSlots];
-  bool writing_[kSlots] = {false, false, false};
+  Slot slots_[kSlots];
   int published_ = -1;
   int reading_ = -1;
   int32_t width_ = 0;

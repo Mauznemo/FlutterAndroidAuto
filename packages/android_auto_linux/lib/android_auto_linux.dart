@@ -44,6 +44,27 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  Future<AndroidAutoVideoInfo?> get videoInfo async {
+    if (_session == nullptr) {
+      return null;
+    }
+    final width = _bindings.aa_session_video_width(_session);
+    final height = _bindings.aa_session_video_height(_session);
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    final backend = _bindings.aa_session_video_backend(_session);
+    var decoder = 'none';
+    if (backend != nullptr) {
+      decoder = backend.cast<Utf8>().toDartString();
+      // Allocated on the core's heap, so it goes back the same way every other string
+      // crossing this boundary does.
+      _bindings.aa_string_free(backend);
+    }
+    return AndroidAutoVideoInfo(width: width, height: height, decoder: decoder);
+  }
+
+  @override
   Future<void> start(AndroidAutoConfig config) async {
     // A stopped session is restarted, not rebuilt. The native side keeps its USB
     // discovery alive across stop and start on purpose, so throwing the session away

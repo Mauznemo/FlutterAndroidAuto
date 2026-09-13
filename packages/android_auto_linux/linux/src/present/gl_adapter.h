@@ -41,6 +41,14 @@ class GlAdapter {
   // Unregisters the texture. Must run on the platform thread.
   void Shutdown();
 
+  // Whether a dmabuf can be turned into something Flutter will sample.
+  //
+  // Only the raster thread can answer this, because the answer depends on the context
+  // Flutter made current there, so the answer is optimistic until the first populate
+  // has run. The decoder asks before choosing a backend: false sends it to software
+  // decode rather than to a stream of frames nothing can display. Safe from any thread.
+  static bool DmabufSupported();
+
  private:
   FrameRing* ring_;
   // Actually an AaVideoTexture*, kept opaque so the header stays free of GObject and

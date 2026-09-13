@@ -45,6 +45,7 @@ tools/ui.sh click <x> <y>      # also: move, rclick, drag, scroll
 tools/ui.sh key ctrl+s         # also: esc, enter, tab, f1..f12
 tools/ui.sh paste "text"       # use this, not `type`, see below
 tools/run-example.sh --bg      # build and launch the test bench detached
+tools/run-example.sh --bundle  # run the built binary directly, line buffered logs
 ```
 
 Three things that will bite otherwise:
@@ -55,7 +56,12 @@ Three things that will bite otherwise:
   `ui.sh type` mangles y/z and symbols. Use `ui.sh paste` for exact text.
 - **Never run `pkill -f <pattern>`**, it matches the agent's own shell command line and
   kills the session. Resolve the pid first with `pgrep` into a variable built by
-  concatenation, then `kill` it.
+  concatenation, then `kill` it. `pgrep -x android_auto_example` never matches either:
+  the name is over 15 characters. Match on `bundle/android_auto_ex""ample` instead.
+- **Never leave two copies of the example app running.** They fight over the phone and
+  the result looks exactly like a protocol bug: handshakes that half complete, reads that
+  time out, a phone that goes silent. `tools/run-example.sh` kills the old one first, so
+  use it rather than launching the bundle by hand.
 
 ## Build and run
 
@@ -63,6 +69,18 @@ Three things that will bite otherwise:
 cd example && flutter pub get && flutter build linux --debug
 tools/run-example.sh --bg
 ```
+
+`--bg` runs through `flutter run`, which block buffers the app's stdout: native logging
+arrives in 8 KB lumps, minutes late, which is useless for watching a protocol exchange.
+Use `--bundle` for that, which runs the built binary directly and line buffers.
+
+Three environment knobs, all off unless set:
+
+| Knob | What it does |
+|---|---|
+| `AA_LOG_LEVEL=DEBUG` | aasdk's own protocol log, the service discovery exchange in full, and libavcodec's diagnostics |
+| `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything |
+| `AA_VIDEO_DECODER=software` | forces the software decoder, to tell a driver problem from a decoder problem |
 
 Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
 
@@ -104,7 +122,10 @@ instead of a rewrite, so prefer extending it over touching call sites.
 | `linux/src/present/gl_adapter.*` | **the only file allowed to name a GL type** |
 | `linux/src/present/texture_registry.*` | the `FlTextureRegistrar` the GTK entry point captured |
 | `linux/src/event_bus.*` | native to Dart events |
-| `linux/src/test_pattern.*` | M2 scaffolding, delete once M4 lands |
+| `linux/src/video/video_decoder.*` | H.264 to frames on its own thread, VA-API or software |
+| `linux/src/session/video_channel.*` | the MEDIA_SINK_VIDEO channel |
+| `linux/src/session/support_channels.*` | the channels that must answer for video to flow at all |
+| `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 
 After changing `aa_core.h`, regenerate the Dart bindings:
 
@@ -116,8 +137,43 @@ cd packages/android_auto_linux && dart run ffigen --config ffigen.yaml
 FFI as plain integers, so their orders must stay in step.
 
 Only the raster thread touches GL, inside `populate()`, where Flutter's context is
-already current. A `GdkGLContext` shared with Flutter's is only needed once a producer
-thread creates GL objects itself, which is the M4 dmabuf path.
+already current. That stayed true through M4: the dmabuf is imported as an `EGLImage` and
+converted to RGBA by a shader inside `populate()`, so there is still no second GL context
+and no cross-context fence to get right.
+
+Two rules that cost real time in M4:
+
+- **Every `glBindTexture` lands on whichever texture unit is active.** The NV12 converter
+  binds luma on unit 0, chroma on unit 1 and the output texture on unit 2, in that order.
+  Binding the output while unit 1 was current replaced the chroma plane with the previous
+  frame: a perfect picture in entirely the wrong colours.
+- `populate()` runs inside Flutter's own rasterisation, so `GlStateGuard` saves and
+  restores everything the converter touches. Impeller re-binds most of what it uses, but
+  "most" is not a contract.
+
+## What Android Auto demands before it will project
+
+Learned the hard way in M4, and none of it reports an error. A phone that dislikes the
+service discovery response just stops talking and drops out of accessory mode.
+
+- **Advertise every channel, not only the implemented ones.** A head unit offering video,
+  input and sensors is one Android Auto refuses to project to. The three audio sinks and
+  the microphone have to be there too. `src/session/support_channels.cc` answers them and
+  discards what they carry until M6 and M7 make them real. The older rule still holds on
+  top of this: an advertised channel that is never serviced gets the connection dropped.
+- **The sensor channel is load bearing.** The phone locks most of its interface until the
+  head unit answers the driving status subscription.
+- **Fill in the fields the schema calls optional.** `vehicle_id` and `driver_position`
+  were `required` in the schema openauto was built against and phones still validate
+  against that shape. Do not set `session_configuration` at all: an explicit zero is not
+  the same as an absent field on the wire.
+- **Android Auto's H.264 is Baseline profile, which no GPU decodes.** The decoder sets
+  `constraint_set1_flag` in the SPS to make it Constrained Baseline. Without that, VA-API
+  setup fails and *every* packet afterwards returns `AVERROR_INVALIDDATA`, which reads
+  exactly like corrupt video rather than a driver limitation.
+- A libavcodec `get_format` callback must never return `AV_PIX_FMT_NONE` when the
+  hardware format is gone. That leaves the decoder with no output format at all. Fall
+  back to whatever is offered.
 
 ## Stopping and resuming a session
 
@@ -180,3 +236,8 @@ always one of these rather than a new problem.
 - Clang on this machine targets the newest installed GCC. Without a matching
   `libstdc++-N-dev` every C++ compile dies with `'limits' file not found`, which looks
   like a project bug and is not. `tools/setup-dev-machine.sh --build-deps` installs it.
+- The video path needs `libavcodec`, `libavutil` and `libswscale` (no libavformat, there
+  is no container to demux). `drm_fourcc.h` comes from the kernel headers, not libdrm, so
+  there is nothing extra for an end user to install.
+- Android Auto logs nothing to `logcat` on a production phone, so do not go looking.
+  `adb` is still useful for telling a locked phone from an unresponsive one.

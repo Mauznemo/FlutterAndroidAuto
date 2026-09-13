@@ -2,9 +2,12 @@
 
 #include <boost/asio.hpp>
 
+#include <aasdk/Common/Log.hpp>
+#include <aasdk/Common/ModernLogger.hpp>
 #include <aasdk/Common/Strand.hpp>
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +23,7 @@
 #include "session/service_discovery.h"
 #include "session/usb_connector.h"
 #include "test_pattern.h"
+#include "video/video_decoder.h"
 
 namespace {
 
@@ -28,6 +32,73 @@ constexpr int kMaxRecoveryAttempts = 3;
 
 std::string CopyOrEmpty(const char* value) {
   return value == nullptr ? std::string() : std::string(value);
+}
+
+// Narrows or widens the advertised channel set, from AA_SERVICES in the environment.
+//
+// A phone that dislikes anything in the service discovery response rejects the whole
+// thing without saying which part, so the only way to find the offending entry is to
+// take channels away until it stops complaining. Rebuilding between attempts makes that
+// a ten minute loop per guess; this makes it a restart.
+//
+//   AA_SERVICES=video                    just the projection
+//   AA_SERVICES=video,input,sensor       the default
+//   AA_SERVICES=all                      everything, including channels with no handler
+//
+// Unset leaves `description` as the code built it.
+void ApplyServiceOverride(aa::HeadUnitDescription* description) {
+  const char* services = std::getenv("AA_SERVICES");
+  if (services == nullptr || *services == '\0') {
+    return;
+  }
+  const std::string list(services);
+  const bool all = list == "all";
+  auto enabled = [&list, all](const char* name) {
+    if (all) {
+      return true;
+    }
+    const size_t at = list.find(name);
+    if (at == std::string::npos) {
+      return false;
+    }
+    // Guard against "audio" matching inside "media_audio": a name only counts when it
+    // is a whole comma separated entry.
+    const bool starts = at == 0 || list[at - 1] == ',';
+    const size_t end = at + std::strlen(name);
+    const bool ends = end == list.size() || list[end] == ',';
+    return starts && ends;
+  };
+
+  description->enable_video = enabled("video");
+  description->enable_input = enabled("input");
+  description->enable_sensors = enabled("sensor");
+  description->enable_media_audio = enabled("media_audio");
+  description->enable_system_audio = enabled("system_audio");
+  description->enable_speech_audio = enabled("speech_audio");
+  description->enable_microphone = enabled("microphone");
+}
+
+// Turns aasdk's own logging up, from AA_LOG_LEVEL in the environment.
+//
+// aasdk already has a console sink wired up and sits at INFO, where it says almost
+// nothing. Nearly every useful line about what the phone is actually doing, which
+// message arrived on which channel, is at DEBUG. That is far too loud to leave on once
+// video is flowing, so it is opt in:
+//
+//   AA_LOG_LEVEL=DEBUG tools/run-example.sh
+//
+// Accepted values are TRACE, DEBUG, INFO, WARN, ERROR and FATAL.
+void ApplyAasdkLogLevel() {
+  const char* level = std::getenv("AA_LOG_LEVEL");
+  if (level == nullptr || *level == '\0') {
+    return;
+  }
+  std::string upper(level);
+  for (char& character : upper) {
+    character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+  }
+  aasdk::common::ModernLogger::getInstance().setLevel(
+      aasdk::common::ModernLogger::stringToLevel(upper));
 }
 
 }  // namespace
@@ -61,16 +132,22 @@ struct AaSession {
     description.head_unit_name = config.head_unit_name;
     description.car_model = config.car_model;
     description.car_year = config.car_year;
-    // Only video, input and sensors are advertised so far. Audio goes on in M6, the
-    // microphone in M7. Advertising a channel with no handler gets the connection
-    // dropped, so these stay off until their milestone lands.
+    // Everything, including the channels whose real implementations are still ahead.
+    //
+    // This is not a choice. A head unit that advertises only video, input and sensors
+    // is one Android Auto refuses to project to at all: it reads the response, says
+    // nothing, and drops out of accessory mode a second later. Offering the audio sinks
+    // and the microphone as well is what makes it open the channels and start encoding,
+    // so src/session/support_channels.cc answers them and discards what they carry
+    // until M6 and M7 make them real.
     description.enable_video = true;
     description.enable_input = true;
     description.enable_sensors = true;
-    description.enable_media_audio = false;
-    description.enable_system_audio = false;
-    description.enable_speech_audio = false;
-    description.enable_microphone = false;
+    description.enable_media_audio = true;
+    description.enable_system_audio = true;
+    description.enable_speech_audio = true;
+    description.enable_microphone = true;
+    ApplyServiceOverride(&description);
     return description;
   }
 
@@ -79,6 +156,9 @@ struct AaSession {
   aa::FrameRing ring;
   std::unique_ptr<aa::GlAdapter> gl;
   std::unique_ptr<aa::TestPattern> pattern;
+  // Built once and kept across connections: opening VA-API costs tens of milliseconds
+  // and a phone that comes and goes should not pay it every time.
+  std::shared_ptr<aa::VideoDecoder> decoder;
 
   std::unique_ptr<aa::UsbConnector> usb;
   std::shared_ptr<aa::ProtocolSession> protocol;
@@ -104,6 +184,7 @@ extern "C" {
 void aa_string_free(char* message) { free(message); }
 
 AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
+  ApplyAasdkLogLevel();
   auto* session = new AaSession(on_event);
   if (config != nullptr) {
     session->config.width = config->width > 0 ? config->width : 1280;
@@ -120,6 +201,26 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
   session->gl = std::make_unique<aa::GlAdapter>(&session->ring);
   session->pattern = std::make_unique<aa::TestPattern>(
       &session->ring, [session]() { session->gl->NotifyFrameAvailable(); });
+
+  session->decoder = std::make_shared<aa::VideoDecoder>(
+      [session](const aa::Frame& frame, std::shared_ptr<void> keepalive) {
+        // Real video supersedes the test pattern rather than fighting it for slots.
+        if (session->pattern->running()) {
+          session->pattern->Stop();
+        }
+        if (session->ring.PublishFrame(frame, std::move(keepalive))) {
+          session->gl->NotifyFrameAvailable();
+        }
+      },
+      [session](const std::string& message) {
+        // Video news is not a lifecycle change, so it keeps whatever state the session
+        // is already in rather than inventing one.
+        session->events.Emit(session->events.last_state(), message);
+      });
+  // The present adapter is the only thing that knows whether a dmabuf can be imported,
+  // and it only knows once Flutter has drawn once. Asking it lazily, per open, is what
+  // lets a machine without the EGL extension end up on software decode by itself.
+  session->decoder->SetDmabufProbe([]() { return aa::GlAdapter::DmabufSupported(); });
   return session;
 }
 
@@ -131,6 +232,9 @@ void aa_session_destroy(AaSession* session) {
   // Close the bus before dropping anything else, so a straggling event cannot reach a
   // NativeCallable the Dart side is about to tear down.
   session->events.Close();
+  if (session->decoder) {
+    session->decoder->Stop();
+  }
   session->gl.reset();
   if (session->usb) {
     // The connector outlives this session, so cut its link back to it first.
@@ -196,6 +300,7 @@ int32_t aa_session_start(AaSession* session) {
     });
   }
   session->running = true;
+  session->decoder->Start();
 
   if (!session->usb) {
     session->usb = std::make_unique<aa::UsbConnector>(session->io_context);
@@ -213,6 +318,7 @@ int32_t aa_session_start(AaSession* session) {
         session->reached_connected = false;
         session->protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
+            session->decoder,
             [session](int state, const std::string& message) {
               if (state == AA_STATE_CONNECTED) {
                 session->reached_connected = true;
@@ -270,6 +376,9 @@ int32_t aa_session_stop(AaSession* session) {
   }
   if (session->pattern) {
     session->pattern->Stop();
+  }
+  if (session->decoder) {
+    session->decoder->Stop();
   }
   // Ask, but do not yet destroy. Both of these only queue cancellations onto the
   // io_context, and those queued handlers still need libusb and the USB device to be
@@ -339,6 +448,8 @@ int32_t aa_session_stop(AaSession* session) {
 
   session->io_context.restart();
   session->running = false;
+  // Nothing is left to draw, and the last frame is holding a dmabuf open. Let go of it.
+  session->ring.Reset();
 
   session->events.Emit(AA_STATE_IDLE);
   return 0;
@@ -349,6 +460,27 @@ int64_t aa_session_texture_id(AaSession* session) {
     return -1;
   }
   return session->gl->texture_id();
+}
+
+int32_t aa_session_video_width(AaSession* session) {
+  if (session == nullptr || !session->decoder) {
+    return 0;
+  }
+  return session->decoder->frame_width();
+}
+
+int32_t aa_session_video_height(AaSession* session) {
+  if (session == nullptr || !session->decoder) {
+    return 0;
+  }
+  return session->decoder->frame_height();
+}
+
+char* aa_session_video_backend(AaSession* session) {
+  const std::string name =
+      session == nullptr || !session->decoder ? std::string("none")
+                                              : session->decoder->backend_name();
+  return strdup(name.c_str());
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

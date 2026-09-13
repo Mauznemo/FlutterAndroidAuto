@@ -81,9 +81,21 @@ AA_EXPORT int32_t aa_session_stop(AaSession* session);
 // The texture is registered lazily on the first frame.
 AA_EXPORT int64_t aa_session_texture_id(AaSession* session);
 
-// Milestone M2 scaffolding: drives the texture pipeline from a generated pattern so
-// the Flutter side can be proven end to end before a phone is ever involved. M4
-// replaces this with the real H.264 path.
+// Size of the video the phone is actually sending, or 0 before the first frame.
+//
+// This is not necessarily the size asked for in AaConfig. The phone picks from the
+// video configurations service discovery advertised, and it may change mid session
+// without the texture being rebuilt, so the host app reads it rather than assuming.
+AA_EXPORT int32_t aa_session_video_width(AaSession* session);
+AA_EXPORT int32_t aa_session_video_height(AaSession* session);
+
+// Which decoder is running: "VA-API", "software", or "none" before the first frame.
+// The returned string is heap allocated and must be handed back to aa_string_free.
+AA_EXPORT char* aa_session_video_backend(AaSession* session);
+
+// Drives the texture pipeline from a generated pattern instead of a phone, so a host
+// app can lay its overlay out before any hardware is involved. Started life as M2
+// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
 AA_EXPORT int32_t aa_session_start_test_pattern(AaSession* session);
 AA_EXPORT int32_t aa_session_stop_test_pattern(AaSession* session);
 

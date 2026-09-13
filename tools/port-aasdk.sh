@@ -13,9 +13,10 @@
 # It also raises a couple of cmake_minimum_required() calls, because CMake 4 dropped
 # compatibility with anything below 3.5, stops asking CMake for the Boost.System
 # component that Boost 1.90 no longer ships, puts aasdk's own include directory on the
-# aasdk target so a parent project can actually use it, and fixes two crashes: a use
-# after free in AOAPDevice, unguarded promise dereferences in the message streams, and
-# bulk endpoints left halted by a previous session.
+# aasdk target so a parent project can actually use it, adds the includes
+# IInputSourceServiceEventHandler.hpp forgot, and fixes two crashes: a use after free in
+# AOAPDevice, unguarded promise dereferences in the message streams, and bulk endpoints
+# left halted by a previous session.
 #
 # Note on reading aasdk's USB_TRANSFER errors: "Native Code" is a libusb_transfer_status,
 # so 2 is TIMED_OUT and 4 is STALL. It is not a libusb_error.
@@ -274,6 +275,18 @@ port_target_includes() {
     "$AASDK/CMakeLists.txt"
 }
 
+# IInputSourceServiceEventHandler.hpp names error::Error and std::shared_ptr without
+# including either. It only compiles upstream because every other aasdk header happens
+# to be included first; a translation unit that reaches for the input channel on its own
+# fails outright. Same shape of bug as the missing target include directory above.
+port_input_source_includes() {
+  local f="$AASDK/include/aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp"
+  [ -f "$f" ] || return 0
+  grep -q 'aasdk/Error/Error.hpp' "$f" && return 0
+  sed -i 's|#include <stdint.h>|#include <stdint.h>\n#include <memory>|' "$f"
+  sed -i 's|#include <aap_protobuf/service/media/sink/message/KeyBindingRequest.pb.h>|#include <aap_protobuf/service/media/sink/message/KeyBindingRequest.pb.h>\n#include "aasdk/Error/Error.hpp"|' "$f"
+}
+
 # CMake 4 removed compatibility with cmake_minimum_required(VERSION < 3.5).
 port_cmake_minimum() {
   local f
@@ -289,6 +302,7 @@ cmd_apply() {
   port_cmake_minimum
   port_boost_components
   port_target_includes
+  port_input_source_includes
   port_io_context_wrapper
 
   local files

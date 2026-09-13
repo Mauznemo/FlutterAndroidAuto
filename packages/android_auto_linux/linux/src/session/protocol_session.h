@@ -31,11 +31,14 @@
 #include <aasdk/Transport/ITransport.hpp>
 #include <aasdk/USB/IAOAPDevice.hpp>
 
+#include "../video/video_decoder.h"
 #include "service_discovery.h"
 
 namespace aa {
 
 class ProtocolSession;
+class SupportChannels;
+class VideoChannel;
 
 // Forwards control channel events to a ProtocolSession without keeping it alive.
 //
@@ -90,13 +93,18 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // it by reference and posts to it from promise handlers that can run after the
   // session is gone, so a strand owned by the session is a use after free waiting to
   // happen. The owner keeps one for the life of the process.
+  //
+  // `decoder` outlives the session: it belongs to the head unit, not to one
+  // connection, so a phone reconnecting does not pay for opening VA-API again.
   static std::shared_ptr<ProtocolSession> Create(boost::asio::io_context& io_context,
                                                  aasdk::Strand& strand,
                                                  HeadUnitDescription description,
+                                                 std::shared_ptr<VideoDecoder> decoder,
                                                  StateHandler on_state);
 
   ProtocolSession(boost::asio::io_context& io_context, aasdk::Strand& strand,
-                  HeadUnitDescription description, StateHandler on_state);
+                  HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
+                  StateHandler on_state);
   ~ProtocolSession();
 
   // Begins the handshake with a device that has already reached accessory mode.
@@ -166,6 +174,9 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   aasdk::messenger::IMessenger::Pointer messenger_;
   aasdk::channel::control::IControlServiceChannel::Pointer control_channel_;
   std::shared_ptr<ControlEventRelay> relay_;
+  std::shared_ptr<VideoDecoder> decoder_;
+  std::shared_ptr<VideoChannel> video_channel_;
+  std::shared_ptr<SupportChannels> support_channels_;
 
   std::vector<std::string> opened_channels_;
   bool stopped_ = false;

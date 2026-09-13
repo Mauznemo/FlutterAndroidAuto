@@ -21,8 +21,8 @@ implementation can be added later without touching the app-facing API.
 | M1 | Native build: vendor and modernise aasdk | **done** |
 | M2 | C ABI core + Dart FFI + texture plumbing | **done** |
 | M3 | USB transport, AOAP, SSL, service discovery | **done** |
-| M4 | Video channel to Flutter texture | **next** |
-| M5 | Input channel (touch, keys, rotary) | not started |
+| M4 | Video channel to Flutter texture | **done** |
+| M5 | Input channel (touch, keys, rotary) | **next** |
 | M6 | Audio output (media, system, speech) | not started |
 | M7 | Microphone input | not started |
 | M8 | Sensors (night mode, GPS, driving status) | not started |
@@ -248,25 +248,112 @@ never dies, the USB interface is never released, and every reconnect fails with
 
 Goal: the phone's projected screen appears inside the Flutter app.
 
-- [ ] `VideoService` channel: accept setup, config, start/stop indications
-- [ ] H.264 Annex-B depacketisation from the AA media stream
-- [ ] Decoder abstraction with two backends
-  - [ ] VA-API via `libavcodec` with `AV_HWDEVICE_TYPE_VAAPI`, frames exported as dmabuf
-  - [ ] Software `libavcodec` fallback, `AV_PIX_FMT_YUV420P`
-- [ ] Zero copy path: dmabuf to `EGLImage` to GL texture (`EGL_EXT_image_dma_buf_import`)
-- [ ] Fallback path: YUV to RGBA on the GPU with a small shader, or `FlPixelBufferTexture`
-- [ ] Audit that nothing above the present seam names a GL type, so `vk_adapter` stays a
+- [x] `VideoService` channel: accept setup, config, start/stop indications
+- [x] H.264 Annex-B depacketisation from the AA media stream
+- [x] Decoder abstraction with two backends
+  - [x] VA-API via `libavcodec` with `AV_HWDEVICE_TYPE_VAAPI`, frames exported as dmabuf
+  - [x] Software `libavcodec` fallback, `AV_PIX_FMT_YUV420P` to RGBA with libswscale
+- [x] Zero copy path: dmabuf to `EGLImage` to GL texture (`EGL_EXT_image_dma_buf_import`)
+- [x] NV12 to RGBA on the GPU with a small shader, because Flutter only takes `GL_RGBA8`
+- [x] Audit that nothing above the present seam names a GL type, so `vk_adapter` stays a
       contained addition when Linux moves to Impeller Vulkan
-- [ ] Frame pacing: mark texture frame available on the Flutter raster thread, drop late frames
-- [ ] Send `VideoFocus` requests so the phone knows the head unit is showing the projection
-- [ ] Support 480p, 720p, 1080p and 30/60 fps, chosen from `AndroidAutoConfig`
-- [ ] Handle resolution changes mid-session without tearing down the texture
-- [ ] Measure end to end latency and log it
+- [x] Frame pacing: mark texture frame available from the producer, drop late frames
+- [x] Send `VideoFocus` requests so the phone knows the head unit is showing the projection
+- [x] Support 720p30 and 1080p60, both verified against the phone. 800x480 and the
+      portrait sizes are mapped in `service_discovery.cc` but have not been tried.
+- [ ] Handle resolution changes mid-session without tearing down the texture. The code
+      does it by construction (the ring carries the size per frame, the output texture is
+      reallocated in place and keeps its id), but the only size change tested so far went
+      through a restart, so this is unproven rather than done.
+- [x] Measure end to end latency and log it
 
-**Checkpoint:** a screenshot of the phone's Android Auto UI inside the example app,
-with a Flutter status bar drawn over it.
+**Checkpoint met.** Google Maps projected from a Pixel 8 Pro, 1280x720, inside the
+example app, with the Flutter status bar drawn over it and overlay clicks still counting.
+Stop and start resumes video. Measured wire to frame: **0.9 to 1.1 ms on VA-API**, 2.9 ms
+on the software fallback.
 
----
+### What M3 actually left behind
+
+M3's checkpoint was "reaches connected", and the head unit reported connected because it
+had sent its service discovery response. The phone had never accepted it. It opened no
+channel, sent nothing, and dropped out of accessory mode a second later. So the first
+half of M4 was not video work at all: it was finishing M3.
+
+Two things were wrong with the service discovery response, and neither reports an error.
+A phone that dislikes it simply stops talking.
+
+**Fields that are optional in the schema and required in practice.** The response left
+`vehicle_id` and `driver_position` unset. Both were `required` in the schema openauto was
+built against, and the phone still validates against that shape. `session_configuration`
+was being set to an explicit zero, which is not the same as absent on the wire; it is now
+left out. `headunit_info` is sent as well as the deprecated make/model/year fields, so
+either generation of phone finds what it is looking for.
+
+**Advertising only the channels that are implemented does not work.** Android Auto does
+not treat service discovery as a menu. A head unit offering video, input and sensors is
+one it refuses to project to. Offering the three audio sinks and the microphone as well
+is what makes it open every channel and start encoding. This was measured by bisection,
+not guessed: `AA_SERVICES=video` and `AA_SERVICES=video,input,sensor` both get silence,
+`AA_SERVICES=all` gets a projection.
+
+That inverts the rule M3 recorded. It is still true that a channel which is advertised
+and then never serviced gets the connection dropped, so `src/session/support_channels.cc`
+answers all of them: the audio sinks accept and acknowledge the stream and discard the
+PCM, the microphone accepts the channel and captures nothing, input answers key binding
+requests, and the sensor channel answers the subscription and reports "parked" and "day".
+That last one is not politeness. The phone locks most of its interface until the head unit
+has told it the driving status.
+
+Each becomes a real service in its own milestone. None of it is meant to survive that.
+
+### Android Auto's H.264 is a profile no GPU decodes
+
+The phone advertises and encodes Baseline profile: `profile_idc` 66 with no constraint
+flags. No VA-API driver implements it. Baseline allows arbitrary slice ordering, flexible
+macroblock ordering and redundant slices, which no encoder has emitted this century, so
+drivers expose only the Constrained Baseline subset that leaves them out. libavcodec used
+to paper over the difference and no longer does, so the stream fails hardware setup:
+
+```
+[h264] Codec h264 profile 66 not supported for hardware decode.
+[h264] Failed setup for format vaapi: hwaccel initialisation returned error.
+```
+
+The decoder now sets `constraint_set1_flag` in the SPS, which says "this really is the
+constrained subset". For a stream from Android's MediaCodec encoder that is true.
+`AA_VIDEO_DECODER=software` is the way out if a phone ever proves it is not.
+
+That failure was invisible before, and worth remembering for the next hardware path: a
+`get_format` callback that returns `AV_PIX_FMT_NONE` when the hardware format is gone
+leaves the decoder with no output format at all, and **every** packet afterwards comes
+back as `AVERROR_INVALIDDATA`. A driver limitation reads exactly like corrupt video.
+`ChooseFormat` falls back to whatever libavcodec offers instead, and the reported backend
+comes from the frame that came out rather than the one that was asked for.
+
+### The colours were wrong for one line's worth of reason
+
+Every `glBindTexture` lands on whichever texture unit is active. The converter imported
+the luma plane on unit 0 and the chroma plane on unit 1, then resized the output texture
+while unit 1 was still current, which replaced the chroma plane with the previous frame.
+The picture decoded and displayed perfectly, in entirely the wrong colours. The output
+texture now gets a unit of its own and is bound before the planes, not after.
+
+### Debugging affordances added along the way
+
+Chasing a phone that answers silence needs visibility that did not exist. All of it is
+off unless asked for.
+
+| Knob | What it does |
+|---|---|
+| `AA_LOG_LEVEL=DEBUG` | aasdk's own protocol log, plus the service discovery exchange in full and libavcodec's diagnostics |
+| `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild, which is the only way to bisect a response the phone will not comment on |
+| `AA_VIDEO_DECODER=software` | forces the fallback, which is how a driver problem gets told apart from a decoder problem |
+| `tools/run-example.sh --bundle` | runs the built binary directly, line buffered. `flutter run` block buffers the app's stdout, so protocol logs arrive in 8 KB lumps minutes late |
+
+`tools/run-example.sh` now also kills any instance already running. Two head units
+fighting over one phone produce symptoms indistinguishable from a protocol bug: handshakes
+that half complete, reads that time out, a phone that goes quiet. An hour went into that
+one, and the second instance was only noticed because a human looked at the taskbar.
 
 ## M5. Input channel (touch, keys, rotary)
 

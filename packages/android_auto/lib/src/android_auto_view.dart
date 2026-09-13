@@ -46,11 +46,16 @@ class AndroidAutoView extends StatelessWidget {
         if (textureId == null) {
           return placeholder ?? const SizedBox.expand();
         }
+        // The phone's actual size when it is known, the requested one until then. They
+        // usually agree, and when they do not it is the phone that is right.
+        final info = controller.videoInfo;
+        final width = (info?.width ?? controller.config.width).toDouble();
+        final height = (info?.height ?? controller.config.height).toDouble();
         return FittedBox(
           fit: fit,
           child: SizedBox(
-            width: controller.config.width.toDouble(),
-            height: controller.config.height.toDouble(),
+            width: width,
+            height: height,
             child: Texture(textureId: textureId),
           ),
         );

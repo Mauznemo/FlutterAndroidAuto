@@ -86,6 +86,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
 
   Widget _statusBar() {
     final textureId = _controller.textureId;
+    final video = _controller.videoInfo;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       color: Colors.black.withValues(alpha: 0.55),
@@ -101,6 +102,12 @@ class _TestBenchPageState extends State<TestBenchPage> {
           Text('State: ${_controller.state.name}'),
           const SizedBox(width: 24),
           Text('Texture: ${textureId ?? "none"}'),
+          const SizedBox(width: 24),
+          Text(
+            video == null
+                ? 'Video: none'
+                : 'Video: ${video.width}x${video.height} (${video.decoder})',
+          ),
           const Spacer(),
           Text('Overlay taps: $_tapCount'),
         ],

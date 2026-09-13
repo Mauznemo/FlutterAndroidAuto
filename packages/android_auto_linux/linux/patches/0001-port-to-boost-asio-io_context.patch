@@ -140,6 +140,21 @@ index d0fc49e..d42e9ce 100644
  
      // Senders and Receivers
  
+diff --git a/include/aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp b/include/aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp
+index 392d479..9d4fe13 100644
+--- a/include/aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp
++++ b/include/aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp
+@@ -18,8 +18,10 @@
+ #pragma once
+ 
+ #include <stdint.h>
++#include <memory>
+ #include <aap_protobuf/service/control/message/ChannelOpenRequest.pb.h>
+ #include <aap_protobuf/service/media/sink/message/KeyBindingRequest.pb.h>
++#include "aasdk/Error/Error.hpp"
+ 
+ namespace aasdk::channel::inputsource {
+ 
 diff --git a/include/aasdk/Channel/InputSource/InputSourceService.hpp b/include/aasdk/Channel/InputSource/InputSourceService.hpp
 index c4cb045..dc8565c 100644
 --- a/include/aasdk/Channel/InputSource/InputSourceService.hpp

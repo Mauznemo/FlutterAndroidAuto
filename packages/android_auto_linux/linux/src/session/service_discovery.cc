@@ -12,8 +12,11 @@
 #include <aap_protobuf/service/media/source/MediaSourceService.pb.h>
 #include <aap_protobuf/service/sensorsource/SensorSourceService.pb.h>
 #include <aap_protobuf/service/sensorsource/message/Sensor.pb.h>
+#include <aap_protobuf/service/control/message/DriverPosition.pb.h>
+#include <aap_protobuf/service/control/message/HeadUnitInfo.pb.h>
 #include <aap_protobuf/service/sensorsource/message/SensorType.pb.h>
 
+#include <aasdk/Common/Log.hpp>
 #include <aasdk/Messenger/ChannelId.hpp>
 
 namespace aa {
@@ -160,6 +163,11 @@ void BuildServiceDiscoveryResponse(
   }
 
   response->set_display_name(description.head_unit_name);
+  // Every one of these was `required` in the schema openauto was built against, so a
+  // phone that still validates against that shape refuses the response outright when
+  // one is missing, and refuses it silently: it drops out of accessory mode without a
+  // word. Fill them all in even though the current schema calls them optional.
+  response->set_driver_position(pb::service::control::message::DRIVER_POSITION_LEFT);
 
   // The make/model/year fields are marked deprecated in the schema, but phones still
   // read them and leaving them empty makes some builds refuse to project. Deprecated
@@ -169,6 +177,7 @@ void BuildServiceDiscoveryResponse(
   response->set_make("Flutter");
   response->set_model(description.car_model);
   response->set_year(description.car_year);
+  response->set_vehicle_id(description.vehicle_id);
   response->set_head_unit_make("Flutter");
   response->set_head_unit_model(description.head_unit_name);
   response->set_head_unit_software_build("1");
@@ -176,7 +185,26 @@ void BuildServiceDiscoveryResponse(
   response->set_can_play_native_media_during_vr(false);
 #pragma GCC diagnostic pop
 
-  response->set_session_configuration(0);
+  // The same identity again in the field that replaced the deprecated ones. Newer
+  // builds read this and older ones ignore it, so sending both costs a few bytes and
+  // removes a whole class of "which schema does this phone speak" guessing.
+  auto* head_unit = response->mutable_headunit_info();
+  head_unit->set_make("Flutter");
+  head_unit->set_model(description.car_model);
+  head_unit->set_year(description.car_year);
+  head_unit->set_vehicle_id(description.vehicle_id);
+  head_unit->set_head_unit_make("Flutter");
+  head_unit->set_head_unit_model(description.head_unit_name);
+  head_unit->set_head_unit_software_build("1");
+  head_unit->set_head_unit_software_version("1.0");
+
+  // session_configuration is deliberately not set. It is absent from the schema
+  // openauto used, and an explicit zero is not the same as an absent field on the wire.
+
+  // Dumped in full at debug level, because this message decides everything that
+  // follows and a phone that dislikes it says nothing at all: it simply drops out of
+  // accessory mode. Turn it on with AA_LOG_LEVEL=DEBUG.
+  AASDK_LOG(debug) << "[ServiceDiscovery] response:\n" << response->DebugString();
 }
 
 }  // namespace aa

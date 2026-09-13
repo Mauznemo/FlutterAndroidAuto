@@ -112,9 +112,53 @@ class AaCoreBindings {
   late final _aa_session_texture_id = _aa_session_texture_idPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
-  /// Milestone M2 scaffolding: drives the texture pipeline from a generated pattern so
-  /// the Flutter side can be proven end to end before a phone is ever involved. M4
-  /// replaces this with the real H.264 path.
+  /// Size of the video the phone is actually sending, or 0 before the first frame.
+  ///
+  /// This is not necessarily the size asked for in AaConfig. The phone picks from the
+  /// video configurations service discovery advertised, and it may change mid session
+  /// without the texture being rebuilt, so the host app reads it rather than assuming.
+  int aa_session_video_width(ffi.Pointer<AaSession> session) {
+    return _aa_session_video_width(session);
+  }
+
+  late final _aa_session_video_widthPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_video_width',
+      );
+  late final _aa_session_video_width = _aa_session_video_widthPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  int aa_session_video_height(ffi.Pointer<AaSession> session) {
+    return _aa_session_video_height(session);
+  }
+
+  late final _aa_session_video_heightPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_video_height',
+      );
+  late final _aa_session_video_height = _aa_session_video_heightPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Which decoder is running: "VA-API", "software", or "none" before the first frame.
+  /// The returned string is heap allocated and must be handed back to aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_video_backend(
+    ffi.Pointer<AaSession> session,
+  ) {
+    return _aa_session_video_backend(session);
+  }
+
+  late final _aa_session_video_backendPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)
+        >
+      >('aa_session_video_backend');
+  late final _aa_session_video_backend = _aa_session_video_backendPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
+
+  /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
+  /// app can lay its overlay out before any hardware is involved. Started life as M2
+  /// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
   int aa_session_start_test_pattern(ffi.Pointer<AaSession> session) {
     return _aa_session_start_test_pattern(session);
   }

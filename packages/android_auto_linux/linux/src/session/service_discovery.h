@@ -29,6 +29,9 @@ struct HeadUnitDescription {
   std::string head_unit_name = "Flutter Head Unit";
   std::string car_model = "Universal";
   std::string car_year = "2026";
+  // Serial number of the "vehicle". Any stable string will do, but it must not be
+  // empty: it was a required field in the schema older phones validate against.
+  std::string vehicle_id = "20260913";
 
   // Which channels to advertise. Each one must have a handler before it is turned on.
   bool enable_video = true;

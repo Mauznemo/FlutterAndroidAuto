@@ -15,6 +15,7 @@ class AndroidAutoController extends ChangeNotifier {
   AndroidAutoConnectionState _state = AndroidAutoConnectionState.idle;
   String? _message;
   int? _textureId;
+  AndroidAutoVideoInfo? _videoInfo;
 
   /// Creates a controller. Nothing happens until [start] is called.
   AndroidAutoController({this.config = const AndroidAutoConfig()}) {
@@ -36,16 +37,23 @@ class AndroidAutoController extends ChangeNotifier {
   /// Id of the texture carrying the projected video, or null while there is none.
   int? get textureId => _textureId;
 
+  /// The size and decoder of the incoming video, or null before the first frame.
+  ///
+  /// Prefer this over [config] when laying the projection out: the config is what was
+  /// asked for, this is what arrived.
+  AndroidAutoVideoInfo? get videoInfo => _videoInfo;
+
   /// Begins looking for a phone.
   Future<void> start() async {
     await _platform.start(config);
-    await _refreshTextureId();
+    await _refreshVideoState();
   }
 
   /// Ends the session.
   Future<void> stop() async {
     await _platform.stop();
     _textureId = null;
+    _videoInfo = null;
     notifyListeners();
   }
 
@@ -54,16 +62,19 @@ class AndroidAutoController extends ChangeNotifier {
   /// Useful for laying out an overlay before any hardware is involved.
   Future<void> startTestPattern() async {
     await _platform.startTestPattern();
-    await _refreshTextureId();
+    await _refreshVideoState();
   }
 
   /// Stops the pattern started by [startTestPattern].
   Future<void> stopTestPattern() => _platform.stopTestPattern();
 
-  Future<void> _refreshTextureId() async {
+  /// Re-reads the texture id and the incoming video description from the platform.
+  Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;
-    if (id != _textureId) {
+    final info = await _platform.videoInfo;
+    if (id != _textureId || info != _videoInfo) {
       _textureId = id;
+      _videoInfo = info;
       notifyListeners();
     }
   }
@@ -73,8 +84,9 @@ class AndroidAutoController extends ChangeNotifier {
     _message = event.message;
     notifyListeners();
     // The texture is registered natively the moment video starts, so an event is the
-    // earliest point at which asking for the id is worthwhile.
-    _refreshTextureId();
+    // earliest point at which asking for the id is worthwhile. The video size arrives
+    // later still, on the event the decoder raises once it has a frame.
+    _refreshVideoState();
   }
 
   @override

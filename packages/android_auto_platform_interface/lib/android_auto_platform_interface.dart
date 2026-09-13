@@ -69,6 +69,48 @@ class AndroidAutoConfig {
   });
 }
 
+/// What the phone is actually sending, once video is flowing.
+///
+/// Distinct from [AndroidAutoConfig] on purpose. The config is what the head unit asked
+/// for; this is what turned up. The phone chooses from the video configurations the
+/// head unit advertised, and it is allowed to change its mind mid session, so a host
+/// app that lays out from the config alone will letterbox the projection wrongly the
+/// first time a phone does something unexpected.
+class AndroidAutoVideoInfo {
+  /// Width of the decoded video in pixels.
+  final int width;
+
+  /// Height of the decoded video in pixels.
+  final int height;
+
+  /// Which decoder is doing the work: `VA-API`, `software`, or `none` before the first
+  /// frame has been decoded.
+  final String decoder;
+
+  /// Creates a description of the incoming video stream.
+  const AndroidAutoVideoInfo({
+    required this.width,
+    required this.height,
+    required this.decoder,
+  });
+
+  /// Width divided by height, for laying the projection out.
+  double get aspectRatio => height == 0 ? 0 : width / height;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AndroidAutoVideoInfo &&
+      other.width == width &&
+      other.height == height &&
+      other.decoder == decoder;
+
+  @override
+  int get hashCode => Object.hash(width, height, decoder);
+
+  @override
+  String toString() => 'AndroidAutoVideoInfo($width x $height, $decoder)';
+}
+
 /// Something the native session wants the Dart side to know about.
 class AndroidAutoEvent {
   /// The lifecycle state the session moved into.
@@ -128,6 +170,9 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// Id of the texture the projected video is rendered into, or null while there is
   /// no video stream.
   Future<int?> get textureId;
+
+  /// The size and decoder of the incoming video, or null before the first frame.
+  Future<AndroidAutoVideoInfo?> get videoInfo async => null;
 
   /// Feeds the video path from a generated pattern instead of a phone.
   ///
