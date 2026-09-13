@@ -36,6 +36,7 @@
 
 namespace aa {
 
+class InputChannel;
 class ProtocolSession;
 class SupportChannels;
 class VideoChannel;
@@ -88,6 +89,11 @@ class ControlEventRelay
 class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
  public:
   using StateHandler = std::function<void(int, const std::string&)>;
+  // Hands the owner the input channel as it comes and goes. Called with the channel
+  // once it exists, and with nullptr when the session ends, both on an io_context
+  // thread. The owner is what the C ABI's send calls reach, and they arrive on
+  // Flutter's platform thread, so it has to be told rather than allowed to reach in.
+  using InputHandler = std::function<void(std::shared_ptr<InputChannel>)>;
 
   // `strand` must outlive every ProtocolSession built on it. aasdk's Channel base holds
   // it by reference and posts to it from promise handlers that can run after the
@@ -100,11 +106,12 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
                                                  aasdk::Strand& strand,
                                                  HeadUnitDescription description,
                                                  std::shared_ptr<VideoDecoder> decoder,
-                                                 StateHandler on_state);
+                                                 StateHandler on_state,
+                                                 InputHandler on_input);
 
   ProtocolSession(boost::asio::io_context& io_context, aasdk::Strand& strand,
                   HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
-                  StateHandler on_state);
+                  StateHandler on_state, InputHandler on_input);
   ~ProtocolSession();
 
   // Begins the handshake with a device that has already reached accessory mode.
@@ -167,6 +174,7 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   aasdk::Strand& strand_;
   HeadUnitDescription description_;
   StateHandler on_state_;
+  InputHandler on_input_;
 
   aasdk::usb::IAOAPDevice::Pointer device_;
   aasdk::transport::ITransport::Pointer transport_;
@@ -176,6 +184,7 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   std::shared_ptr<ControlEventRelay> relay_;
   std::shared_ptr<VideoDecoder> decoder_;
   std::shared_ptr<VideoChannel> video_channel_;
+  std::shared_ptr<InputChannel> input_channel_;
   std::shared_ptr<SupportChannels> support_channels_;
 
   std::vector<std::string> opened_channels_;

@@ -68,6 +68,33 @@ class AndroidAutoController extends ChangeNotifier {
   /// Stops the pattern started by [startTestPattern].
   Future<void> stopTestPattern() => _platform.stopTestPattern();
 
+  /// Reports a touch to the phone.
+  ///
+  /// [AndroidAutoView] calls this for every pointer event over the projection, so an
+  /// app that uses the view has nothing to do here. Calling it directly is for head
+  /// units with a real touchscreen wired up some other way, and it is then the
+  /// caller's job to put the coordinates in projected video pixels: see
+  /// [AndroidAutoTouchPoint].
+  void sendTouch(
+    AndroidAutoTouchAction action,
+    List<AndroidAutoTouchPoint> pointers, {
+    int actionIndex = 0,
+  }) => _platform.sendTouch(action, pointers, actionIndex: actionIndex);
+
+  /// Presses and releases a hardware key.
+  ///
+  /// This is how a head unit's steering wheel and dashboard buttons reach the phone.
+  void pressKey(AndroidAutoKey key) => _platform.pressKey(key);
+
+  /// Reports one half of a key press, for a button that can be held.
+  void sendKey(AndroidAutoKey key, {required bool down, bool longPress = false}) =>
+      _platform.sendKey(key, down: down, longPress: longPress);
+
+  /// Reports rotary encoder movement, in detents, positive clockwise.
+  ///
+  /// Pair it with [pressKey] and [AndroidAutoKey.enter] for the encoder's push.
+  void sendRotary(int steps) => _platform.sendRotary(steps);
+
   /// Re-reads the texture id and the incoming video description from the platform.
   Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;

@@ -11,8 +11,10 @@
 //
 //   audio sinks   accept the stream and acknowledge it, then discard the PCM   (M6)
 //   microphone    accept the channel, never actually capture anything          (M7)
-//   input         accept the channel and answer key binding requests           (M5)
 //   sensors       answer the start request, then report "parked" and "day"     (M8)
+//
+// Input used to be on that list. M5 gave it a real implementation, so it moved out to
+// session/input_channel.cc, which is the shape every one of these is headed for.
 //
 // The sensor one is not merely polite. Android Auto locks most of its UI until the
 // head unit has told it the driving status, so without it the projection is a phone
@@ -31,8 +33,6 @@
 
 #include <boost/asio.hpp>
 
-#include <aasdk/Channel/InputSource/IInputSourceServiceEventHandler.hpp>
-#include <aasdk/Channel/InputSource/InputSourceService.hpp>
 #include <aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp>
 #include <aasdk/Channel/MediaSink/Audio/IAudioMediaSinkServiceEventHandler.hpp>
 #include <aasdk/Channel/MediaSource/IMediaSourceServiceEventHandler.hpp>
@@ -48,7 +48,7 @@ namespace aa {
 
 class SupportChannels;
 
-// The four relays below all exist for the reason spelled out on ControlEventRelay:
+// The three relays below all exist for the reason spelled out on ControlEventRelay:
 // a channel binds its event handler into a promise the messenger owns, so a handler
 // that owns the channel makes a cycle nothing can break, and a session that never dies
 // never releases the USB interface. Every one of them holds a weak reference.
@@ -91,21 +91,6 @@ class MicrophoneRelay
       override;
   void onMediaChannelAckIndication(
       const aap_protobuf::service::media::source::message::Ack& indication) override;
-  void onChannelError(const aasdk::error::Error& error) override;
-
- private:
-  std::weak_ptr<SupportChannels> owner_;
-};
-
-class InputRelay : public aasdk::channel::inputsource::IInputSourceServiceEventHandler {
- public:
-  explicit InputRelay(std::weak_ptr<SupportChannels> owner);
-
-  void onChannelOpenRequest(
-      const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
-  void onKeyBindingRequest(
-      const aap_protobuf::service::media::sink::message::KeyBindingRequest& request)
-      override;
   void onChannelError(const aasdk::error::Error& error) override;
 
  private:
@@ -157,8 +142,6 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
   void OnMicrophoneSetup();
   void OnMicrophoneRequest(bool open);
   void OnMicrophoneAck();
-  void OnInputOpen();
-  void OnKeyBindingRequest();
   void OnSensorOpen();
   void OnSensorStartRequest(
       const aap_protobuf::service::sensorsource::message::SensorRequest& request);
@@ -173,7 +156,6 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
 
   void ListenAudio(aasdk::messenger::ChannelId channel);
   void ListenMicrophone();
-  void ListenInput();
   void ListenSensor();
   void AddAudioSink(aasdk::messenger::ChannelId channel);
   aasdk::channel::SendPromise::Pointer MakeSendPromise(const char* what);
@@ -188,8 +170,6 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
   std::map<aasdk::messenger::ChannelId, AudioSink> audio_;
   aasdk::channel::mediasource::IMediaSourceService::Pointer microphone_;
   std::shared_ptr<MicrophoneRelay> microphone_relay_;
-  aasdk::channel::inputsource::IInputSourceService::Pointer input_;
-  std::shared_ptr<InputRelay> input_relay_;
   aasdk::channel::sensorsource::ISensorSourceService::Pointer sensor_;
   std::shared_ptr<SensorRelay> sensor_relay_;
 

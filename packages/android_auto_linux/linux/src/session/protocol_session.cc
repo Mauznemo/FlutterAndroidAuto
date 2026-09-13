@@ -8,6 +8,7 @@
 #include <aasdk/Common/Log.hpp>
 
 #include "../aa_core.h"
+#include "input_channel.h"
 #include "support_channels.h"
 #include "video_channel.h"
 
@@ -104,19 +105,21 @@ void ControlEventRelay::onChannelError(const aasdk::error::Error& error) {
 std::shared_ptr<ProtocolSession> ProtocolSession::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
     HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
-    StateHandler on_state) {
+    StateHandler on_state, InputHandler on_input) {
   return std::make_shared<ProtocolSession>(io_context, strand, std::move(description),
-                                           std::move(decoder), std::move(on_state));
+                                           std::move(decoder), std::move(on_state),
+                                           std::move(on_input));
 }
 
 ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
                                  aasdk::Strand& strand, HeadUnitDescription description,
                                  std::shared_ptr<VideoDecoder> decoder,
-                                 StateHandler on_state)
+                                 StateHandler on_state, InputHandler on_input)
     : io_context_(io_context),
       strand_(strand),
       description_(std::move(description)),
       on_state_(std::move(on_state)),
+      on_input_(std::move(on_input)),
       decoder_(std::move(decoder)) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
@@ -154,6 +157,23 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
           }
         });
     video_channel_->Start();
+  }
+
+  // Armed for the same reason as video, and it matters more here: the phone sends its
+  // key binding request the moment the channel opens, and a head unit that does not
+  // answer it is one that advertised a channel and then ignored it.
+  if (description_.enable_input) {
+    input_channel_ = InputChannel::Create(
+        io_context_, strand_, messenger_, description_.width, description_.height,
+        [weak = weak_from_this()](const std::string& message) {
+          if (auto self = weak.lock()) {
+            self->ReportState(AA_STATE_CONNECTED, message);
+          }
+        });
+    input_channel_->Start();
+    if (on_input_) {
+      on_input_(input_channel_);
+    }
   }
 
   // Everything else the phone opens. It will not project at all unless these answer,
@@ -235,6 +255,16 @@ void ProtocolSession::Stop() {
   if (video_channel_) {
     video_channel_->Stop();
     video_channel_.reset();
+  }
+  // The owner hears first: its send calls arrive on Flutter's platform thread, and the
+  // point of telling it is to stop them reaching a channel that is about to lose its
+  // messenger. A report that slips through anyway is dropped by the stopped_ check.
+  if (on_input_) {
+    on_input_(nullptr);
+  }
+  if (input_channel_) {
+    input_channel_->Stop();
+    input_channel_.reset();
   }
   if (support_channels_) {
     support_channels_->Stop();

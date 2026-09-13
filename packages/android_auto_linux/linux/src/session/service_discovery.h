@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <aap_protobuf/service/control/message/ServiceDiscoveryResponse.pb.h>
 
@@ -42,6 +43,13 @@ struct HeadUnitDescription {
   bool enable_microphone = false;
   bool enable_sensors = true;
 };
+
+// The hardware keys this head unit tells the phone it can produce.
+//
+// Advertising one is a promise, not a subscription: the phone may bind any of them and
+// route them itself, and it expects the head unit to be able to send every code on the
+// list. Keep it in step with AndroidAutoKey in the platform interface.
+const std::vector<int32_t>& SupportedKeycodes();
 
 // Fills `response` in place.
 void BuildServiceDiscoveryResponse(

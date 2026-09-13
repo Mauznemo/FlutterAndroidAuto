@@ -23,9 +23,11 @@ structs:
   include:
     - 'AaConfig'
     - 'AaSession'
+    - 'AaTouchPoint'
 enums:
   include:
     - 'AaState'
+    - 'AaTouchAction'
 typedefs:
   include:
     - 'AaEventCallback'

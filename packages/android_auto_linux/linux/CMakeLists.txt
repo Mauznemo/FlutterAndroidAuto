@@ -23,6 +23,7 @@ list(APPEND PLUGIN_SOURCES
   "src/session/usb_context.cc"
   "src/session/usb_connector.cc"
   "src/session/service_discovery.cc"
+  "src/session/input_channel.cc"
   "src/session/protocol_session.cc"
   "src/session/support_channels.cc"
   "src/session/video_channel.cc"

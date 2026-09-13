@@ -156,6 +156,94 @@ class AaCoreBindings {
   late final _aa_session_video_backend = _aa_session_video_backendPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
 
+  /// Reports a touch to the phone. `points` carries every finger currently down, and
+  /// `action_index` is the index within it of the finger this report is about, which only
+  /// means anything for AA_TOUCH_POINTER_DOWN and AA_TOUCH_POINTER_UP.
+  ///
+  /// Returns 0 if the report was queued, -1 on a bad argument, and -2 when there is no
+  /// input channel, which is the normal answer whenever a phone is not connected. Nothing
+  /// acknowledges an input report, so a caller that ignores the result will never find out
+  /// that its taps went nowhere.
+  ///
+  /// Safe to call from the Dart main isolate: the send is posted onto the channel's own
+  /// thread and this returns immediately.
+  int aa_session_send_touch(
+    ffi.Pointer<AaSession> session,
+    int action,
+    int action_index,
+    ffi.Pointer<AaTouchPoint> points,
+    int count,
+  ) {
+    return _aa_session_send_touch(session, action, action_index, points, count);
+  }
+
+  late final _aa_session_send_touchPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Pointer<AaTouchPoint>,
+            ffi.Int32,
+          )
+        >
+      >('aa_session_send_touch');
+  late final _aa_session_send_touch = _aa_session_send_touchPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<AaSession>,
+          int,
+          int,
+          ffi.Pointer<AaTouchPoint>,
+          int,
+        )
+      >();
+
+  /// Reports one hardware key transition. Down and up are separate calls, as they are on
+  /// Android: a phone that gets a down and no up believes the button is still held.
+  /// `keycode` must be one of the codes service discovery advertised. Same return values
+  /// as aa_session_send_touch.
+  int aa_session_send_key(
+    ffi.Pointer<AaSession> session,
+    int keycode,
+    int down,
+    int long_press,
+  ) {
+    return _aa_session_send_key(session, keycode, down, long_press);
+  }
+
+  late final _aa_session_send_keyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+          )
+        >
+      >('aa_session_send_key');
+  late final _aa_session_send_key = _aa_session_send_keyPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int, int, int)>();
+
+  /// Reports rotary encoder movement, in detents, positive clockwise. Sent as a relative
+  /// axis rather than a key, which is what makes the phone scroll a list by steps instead
+  /// of treating every detent as a button press. Same return values as
+  /// aa_session_send_touch.
+  int aa_session_send_rotary(ffi.Pointer<AaSession> session, int steps) {
+    return _aa_session_send_rotary(session, steps);
+  }
+
+  late final _aa_session_send_rotaryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_send_rotary');
+  late final _aa_session_send_rotary = _aa_session_send_rotaryPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Started life as M2
   /// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
@@ -204,6 +292,44 @@ enum AaState {
     4 => AA_STATE_ERROR,
     _ => throw ArgumentError('Unknown value for AaState: $value'),
   };
+}
+
+/// What a touch report describes, mirrored by AndroidAutoTouchAction in Dart and by
+/// PointerAction on the wire. All three carry Android's own MotionEvent action
+/// constants, so the gaps in the numbering are deliberate.
+enum AaTouchAction {
+  AA_TOUCH_DOWN(0),
+  AA_TOUCH_UP(1),
+  AA_TOUCH_MOVED(2),
+  AA_TOUCH_POINTER_DOWN(5),
+  AA_TOUCH_POINTER_UP(6);
+
+  final int value;
+  const AaTouchAction(this.value);
+
+  static AaTouchAction fromValue(int value) => switch (value) {
+    0 => AA_TOUCH_DOWN,
+    1 => AA_TOUCH_UP,
+    2 => AA_TOUCH_MOVED,
+    5 => AA_TOUCH_POINTER_DOWN,
+    6 => AA_TOUCH_POINTER_UP,
+    _ => throw ArgumentError('Unknown value for AaTouchAction: $value'),
+  };
+}
+
+/// One finger. `x` and `y` are in projected video pixels, not logical pixels and not
+/// normalised: the phone is told the head unit has a touchscreen exactly the size of the
+/// video it asked for, and it reads these against that. `id` identifies the finger
+/// across a gesture and should be a small index, the way Android numbers pointers.
+final class AaTouchPoint extends ffi.Struct {
+  @ffi.Int32()
+  external int id;
+
+  @ffi.Int32()
+  external int x;
+
+  @ffi.Int32()
+  external int y;
 }
 
 /// How the head unit describes itself to the phone during service discovery.

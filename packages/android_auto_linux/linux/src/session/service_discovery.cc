@@ -2,6 +2,8 @@
 
 #include <aap_protobuf/service/Service.pb.h>
 #include <aap_protobuf/service/inputsource/InputSourceService.pb.h>
+#include <aap_protobuf/service/inputsource/message/TouchScreenType.pb.h>
+#include <aap_protobuf/service/media/sink/message/KeyCode.pb.h>
 #include <aap_protobuf/service/media/shared/message/AudioConfiguration.pb.h>
 #include <aap_protobuf/service/media/shared/message/MediaCodecType.pb.h>
 #include <aap_protobuf/service/media/sink/MediaSinkService.pb.h>
@@ -100,6 +102,11 @@ void AddInputService(const HeadUnitDescription& description,
   // to have is exactly the size of the video it asked for.
   touchscreen->set_width(description.width);
   touchscreen->set_height(description.height);
+  touchscreen->set_type(pb::service::inputsource::message::CAPACITIVE);
+  touchscreen->set_is_secondary(false);
+  for (const int32_t keycode : SupportedKeycodes()) {
+    input->add_keycodes_supported(keycode);
+  }
   input->set_display_id(0);
 }
 
@@ -131,6 +138,29 @@ void AddSensorService(pb::service::control::message::ServiceDiscoveryResponse* r
 }
 
 }  // namespace
+
+const std::vector<int32_t>& SupportedKeycodes() {
+  // The set openauto advertises, which is the set phones are actually tested against.
+  // Advertising a key is a promise that the head unit can produce it, not a request to
+  // receive it, so the list has to match what InputChannel::SendKey will ever be asked
+  // for and AndroidAutoKey on the Dart side.
+  //
+  // The rotary encoder is in here as a keycode even though the head unit reports it as
+  // a relative axis. That is how the protocol names the device.
+  static const std::vector<int32_t> keycodes = {
+      sink::message::KEYCODE_DPAD_UP,          sink::message::KEYCODE_DPAD_DOWN,
+      sink::message::KEYCODE_DPAD_LEFT,        sink::message::KEYCODE_DPAD_RIGHT,
+      sink::message::KEYCODE_DPAD_CENTER,      sink::message::KEYCODE_BACK,
+      sink::message::KEYCODE_HOME,             sink::message::KEYCODE_CALL,
+      sink::message::KEYCODE_ENDCALL,          sink::message::KEYCODE_MEDIA_PLAY,
+      sink::message::KEYCODE_MEDIA_PAUSE,      sink::message::KEYCODE_MEDIA_PLAY_PAUSE,
+      sink::message::KEYCODE_MEDIA_NEXT,       sink::message::KEYCODE_MEDIA_PREVIOUS,
+      // What the protocol calls SEARCH is the microphone button on a head unit: it is
+      // what starts the Assistant, not a text search.
+      sink::message::KEYCODE_SEARCH,           sink::message::KEYCODE_ROTARY_CONTROLLER,
+  };
+  return keycodes;
+}
 
 void BuildServiceDiscoveryResponse(
     const HeadUnitDescription& description,

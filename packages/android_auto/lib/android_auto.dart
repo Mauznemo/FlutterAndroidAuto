@@ -5,7 +5,14 @@
 library;
 
 export 'package:android_auto_platform_interface/android_auto_platform_interface.dart'
-    show AndroidAutoConfig, AndroidAutoConnectionState, AndroidAutoEvent;
+    show
+        AndroidAutoConfig,
+        AndroidAutoConnectionState,
+        AndroidAutoEvent,
+        AndroidAutoKey,
+        AndroidAutoTouchAction,
+        AndroidAutoTouchPoint,
+        AndroidAutoVideoInfo;
 
 export 'src/android_auto_controller.dart';
 export 'src/android_auto_view.dart';

@@ -37,6 +37,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
 
   int _tapCount = 0;
   bool _patternRunning = false;
+  String _lastInput = 'none';
 
   @override
   void initState() {
@@ -108,11 +109,58 @@ class _TestBenchPageState extends State<TestBenchPage> {
                 ? 'Video: none'
                 : 'Video: ${video.width}x${video.height} (${video.decoder})',
           ),
+          const SizedBox(width: 24),
+          Text('Last input: $_lastInput'),
           const Spacer(),
           Text('Overlay taps: $_tapCount'),
         ],
       ),
     );
+  }
+
+  /// The hardware buttons a real head unit has on its dashboard or steering wheel.
+  ///
+  /// Exists to exercise the key half of the input channel, which touch alone never
+  /// reaches: a phone routes these itself rather than drawing them, so the only way to
+  /// tell they arrived is to watch what the projection does.
+  Widget _keypad() {
+    Widget key(IconData icon, String tooltip, VoidCallback onPressed) {
+      return IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20),
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.black.withValues(alpha: 0.55),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      spacing: 8,
+      children: [
+        key(Icons.arrow_back, 'Back', () => _press(AndroidAutoKey.back)),
+        key(Icons.home, 'Home', () => _press(AndroidAutoKey.home)),
+        key(Icons.skip_previous, 'Previous', () => _press(AndroidAutoKey.previous)),
+        key(Icons.play_arrow, 'Play/pause', () => _press(AndroidAutoKey.playPause)),
+        key(Icons.skip_next, 'Next', () => _press(AndroidAutoKey.next)),
+        key(Icons.mic, 'Assistant', () => _press(AndroidAutoKey.microphone)),
+        const SizedBox(width: 16),
+        key(Icons.rotate_left, 'Rotary anticlockwise', () => _rotate(-1)),
+        key(Icons.adjust, 'Rotary push', () => _press(AndroidAutoKey.enter)),
+        key(Icons.rotate_right, 'Rotary clockwise', () => _rotate(1)),
+      ],
+    );
+  }
+
+  void _press(AndroidAutoKey key) {
+    _controller.pressKey(key);
+    setState(() => _lastInput = 'key ${key.name}');
+  }
+
+  void _rotate(int steps) {
+    _controller.sendRotary(steps);
+    setState(() => _lastInput = 'rotary $steps');
   }
 
   Widget _controls() {
@@ -133,6 +181,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
               style: const TextStyle(color: Colors.orangeAccent),
             ),
           ),
+        const SizedBox(height: 12),
+        _keypad(),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,

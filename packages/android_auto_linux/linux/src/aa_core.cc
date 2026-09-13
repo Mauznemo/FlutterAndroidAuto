@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "event_bus.h"
 #include "frame_ring.h"
 #include "present/gl_adapter.h"
+#include "session/input_channel.h"
 #include "session/protocol_session.h"
 #include "session/service_discovery.h"
 #include "session/usb_connector.h"
@@ -162,6 +164,12 @@ struct AaSession {
 
   std::unique_ptr<aa::UsbConnector> usb;
   std::shared_ptr<aa::ProtocolSession> protocol;
+  // The input channel of whichever connection is live, published by the protocol
+  // session as it comes and goes. Weak, so a stale entry cannot keep a finished
+  // connection's messenger alive, and behind a mutex because it is written from an
+  // io_context thread and read from Flutter's platform thread on every touch.
+  std::mutex input_mutex;
+  std::weak_ptr<aa::InputChannel> input;
   // Recovery from a phone left wedged by a previous run. Bounded, so a genuinely broken
   // phone reports an error instead of looping forever.
   int recovery_attempts = 0;
@@ -178,6 +186,20 @@ struct AaSession {
   std::vector<std::thread> io_threads;
   bool running = false;
 };
+
+namespace {
+
+// The live input channel, or nullptr when no phone is connected. Called on Flutter's
+// platform thread.
+std::shared_ptr<aa::InputChannel> LockInput(AaSession* session) {
+  if (session == nullptr) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(session->input_mutex);
+  return session->input.lock();
+}
+
+}  // namespace
 
 extern "C" {
 
@@ -354,6 +376,10 @@ int32_t aa_session_start(AaSession* session) {
                 return;
               }
               session->events.Emit(static_cast<AaState>(state), message);
+            },
+            [session](std::shared_ptr<aa::InputChannel> input) {
+              std::lock_guard<std::mutex> lock(session->input_mutex);
+              session->input = input;
             });
         session->protocol->Start(std::move(device));
       },
@@ -481,6 +507,44 @@ char* aa_session_video_backend(AaSession* session) {
       session == nullptr || !session->decoder ? std::string("none")
                                               : session->decoder->backend_name();
   return strdup(name.c_str());
+}
+
+int32_t aa_session_send_touch(AaSession* session, int32_t action, int32_t action_index,
+                              const AaTouchPoint* points, int32_t count) {
+  if (points == nullptr || count <= 0) {
+    return -1;
+  }
+  auto input = LockInput(session);
+  if (!input) {
+    return -2;
+  }
+  std::vector<aa::TouchPoint> fingers;
+  fingers.reserve(static_cast<size_t>(count));
+  for (int32_t i = 0; i < count; ++i) {
+    fingers.push_back({points[i].id, points[i].x, points[i].y});
+  }
+  input->SendTouch(static_cast<aa::TouchAction>(action), action_index,
+                   std::move(fingers));
+  return 0;
+}
+
+int32_t aa_session_send_key(AaSession* session, int32_t keycode, int32_t down,
+                            int32_t long_press) {
+  auto input = LockInput(session);
+  if (!input) {
+    return -2;
+  }
+  input->SendKey(keycode, down != 0, long_press != 0);
+  return 0;
+}
+
+int32_t aa_session_send_rotary(AaSession* session, int32_t steps) {
+  auto input = LockInput(session);
+  if (!input) {
+    return -2;
+  }
+  input->SendRotary(steps);
+  return 0;
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

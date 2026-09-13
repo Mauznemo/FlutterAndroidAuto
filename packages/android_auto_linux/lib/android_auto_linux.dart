@@ -168,6 +168,66 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     _bindings.aa_session_stop_test_pattern(_session);
   }
 
+  @override
+  void sendTouch(
+    AndroidAutoTouchAction action,
+    List<AndroidAutoTouchPoint> pointers, {
+    int actionIndex = 0,
+  }) {
+    if (_session == nullptr || pointers.isEmpty) {
+      return;
+    }
+    // Allocated and freed per report rather than kept in a reusable scratch buffer.
+    // A drag produces one of these per pointer event, so at most a few hundred a
+    // second, and calloc costs far less than the USB round trip that follows.
+    final points = calloc<AaTouchPoint>(pointers.length);
+    try {
+      for (var i = 0; i < pointers.length; i++) {
+        points[i]
+          ..id = pointers[i].id
+          ..x = pointers[i].x
+          ..y = pointers[i].y;
+      }
+      _bindings.aa_session_send_touch(
+        _session,
+        _touchActions[action]!,
+        actionIndex,
+        points,
+        pointers.length,
+      );
+    } finally {
+      calloc.free(points);
+    }
+  }
+
+  @override
+  void sendKey(AndroidAutoKey key, {required bool down, bool longPress = false}) {
+    if (_session == nullptr) {
+      return;
+    }
+    _bindings.aa_session_send_key(_session, key.code, down ? 1 : 0, longPress ? 1 : 0);
+  }
+
+  @override
+  void sendRotary(int steps) {
+    if (_session == nullptr) {
+      return;
+    }
+    _bindings.aa_session_send_rotary(_session, steps);
+  }
+
+  /// The AaTouchAction integers from `linux/src/aa_core.h`.
+  ///
+  /// Spelled out rather than taken from the enum's index, because the protocol reuses
+  /// Android's MotionEvent constants and those skip 3 and 4.
+  static const Map<AndroidAutoTouchAction, int> _touchActions = {
+    AndroidAutoTouchAction.down: 0,
+    AndroidAutoTouchAction.up: 1,
+    AndroidAutoTouchAction.move: 2,
+    AndroidAutoTouchAction.pointerDown: 5,
+    AndroidAutoTouchAction.pointerUp: 6,
+  };
+
   void _onNativeEvent(int state, Pointer<Char> message) {
     String? text;
     if (message != nullptr) {

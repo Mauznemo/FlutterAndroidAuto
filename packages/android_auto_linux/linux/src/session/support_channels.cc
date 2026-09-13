@@ -13,7 +13,6 @@ namespace {
 
 namespace control_pb = aap_protobuf::service::control::message;
 namespace media_pb = aap_protobuf::service::media::shared::message;
-namespace sink_pb = aap_protobuf::service::media::sink::message;
 namespace source_pb = aap_protobuf::service::media::source::message;
 namespace sensor_pb = aap_protobuf::service::sensorsource::message;
 
@@ -118,26 +117,6 @@ void MicrophoneRelay::onChannelError(const aasdk::error::Error& error) {
   }
 }
 
-InputRelay::InputRelay(std::weak_ptr<SupportChannels> owner) : owner_(std::move(owner)) {}
-
-void InputRelay::onChannelOpenRequest(const control_pb::ChannelOpenRequest&) {
-  if (auto owner = owner_.lock()) {
-    owner->OnInputOpen();
-  }
-}
-
-void InputRelay::onKeyBindingRequest(const sink_pb::KeyBindingRequest&) {
-  if (auto owner = owner_.lock()) {
-    owner->OnKeyBindingRequest();
-  }
-}
-
-void InputRelay::onChannelError(const aasdk::error::Error& error) {
-  if (auto owner = owner_.lock()) {
-    owner->OnChannelError("input", error);
-  }
-}
-
 SensorRelay::SensorRelay(std::weak_ptr<SupportChannels> owner)
     : owner_(std::move(owner)) {}
 
@@ -204,12 +183,6 @@ void SupportChannels::Start() {
     microphone_relay_ = std::make_shared<MicrophoneRelay>(weak_from_this());
     ListenMicrophone();
   }
-  if (description_.enable_input) {
-    input_ = std::make_shared<aasdk::channel::inputsource::InputSourceService>(strand_,
-                                                                              messenger_);
-    input_relay_ = std::make_shared<InputRelay>(weak_from_this());
-    ListenInput();
-  }
   if (description_.enable_sensors) {
     sensor_ = std::make_shared<aasdk::channel::sensorsource::SensorSourceService>(
         strand_, messenger_);
@@ -225,7 +198,6 @@ void SupportChannels::Stop() {
   stopped_ = true;
   audio_.clear();
   microphone_.reset();
-  input_.reset();
   sensor_.reset();
   messenger_.reset();
 }
@@ -243,12 +215,6 @@ void SupportChannels::ListenAudio(aasdk::messenger::ChannelId channel) {
 void SupportChannels::ListenMicrophone() {
   if (!stopped_ && microphone_) {
     microphone_->receive(microphone_relay_);
-  }
-}
-
-void SupportChannels::ListenInput() {
-  if (!stopped_ && input_) {
-    input_->receive(input_relay_);
   }
 }
 
@@ -373,26 +339,6 @@ void SupportChannels::OnMicrophoneRequest(bool open) {
 }
 
 void SupportChannels::OnMicrophoneAck() { ListenMicrophone(); }
-
-void SupportChannels::OnInputOpen() {
-  if (input_) {
-    control_pb::ChannelOpenResponse response;
-    response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
-    input_->sendChannelOpenResponse(response, MakeSendPromise("input channel open"));
-  }
-  ListenInput();
-}
-
-void SupportChannels::OnKeyBindingRequest() {
-  if (input_) {
-    // Accepting the binding costs nothing: the head unit simply never reports those
-    // keys until M5 gives it something to report them from.
-    sink_pb::KeyBindingResponse response;
-    response.set_status(0);
-    input_->sendKeyBindingResponse(response, MakeSendPromise("key binding"));
-  }
-  ListenInput();
-}
 
 void SupportChannels::OnSensorOpen() {
   if (sensor_) {

@@ -111,6 +111,114 @@ class AndroidAutoVideoInfo {
   String toString() => 'AndroidAutoVideoInfo($width x $height, $decoder)';
 }
 
+/// What a touch report describes.
+///
+/// The names and the order come from Android's own `MotionEvent`, which is what the
+/// protocol carries, so the head unit has to follow the same rules Android does: the
+/// first finger down is [down] and the last one up is [up], while the ones in between
+/// are [pointerDown] and [pointerUp].
+enum AndroidAutoTouchAction {
+  /// The first finger touched the screen.
+  down,
+
+  /// The last finger left the screen.
+  up,
+
+  /// At least one finger moved.
+  move,
+
+  /// Another finger touched a screen that was already being touched.
+  pointerDown,
+
+  /// One of several fingers left the screen, and others are still down.
+  pointerUp,
+}
+
+/// One finger in a touch report.
+///
+/// [x] and [y] are in **projected video pixels**, not logical pixels and not
+/// normalised. The head unit tells the phone it has a touchscreen exactly the size of
+/// the video it asked for, and the phone reads these against that, so a widget local
+/// position has to be mapped through however the projection is fitted on screen first.
+/// [AndroidAutoView] does that; an app sending its own touches has to do it itself.
+class AndroidAutoTouchPoint {
+  /// Identifies this finger for as long as it stays down. Small indices, the way
+  /// Android numbers pointers, rather than an ever growing counter.
+  final int id;
+
+  /// Horizontal position in projected video pixels.
+  final int x;
+
+  /// Vertical position in projected video pixels.
+  final int y;
+
+  /// Creates one finger of a touch report.
+  const AndroidAutoTouchPoint({required this.id, required this.x, required this.y});
+
+  @override
+  String toString() => 'AndroidAutoTouchPoint(#$id at $x,$y)';
+}
+
+/// A hardware key a head unit can report.
+///
+/// These are the keys advertised during service discovery, which is a promise that the
+/// head unit can produce every one of them rather than a request to receive them. A
+/// phone may bind any of them and route it itself. Adding to this list means adding to
+/// `SupportedKeycodes()` in the Linux implementation as well, otherwise the phone is
+/// sent a key it was never told about.
+enum AndroidAutoKey {
+  /// Go back one screen.
+  back(4),
+
+  /// Return to the Android Auto home screen.
+  home(3),
+
+  /// Answer a call, or open the dialler.
+  call(5),
+
+  /// Hang up.
+  endCall(6),
+
+  /// Toggle playback.
+  playPause(85),
+
+  /// Start playback.
+  play(126),
+
+  /// Pause playback.
+  pause(127),
+
+  /// Skip to the next track.
+  next(87),
+
+  /// Skip to the previous track.
+  previous(88),
+
+  /// Start the Assistant. The protocol calls this SEARCH; on a head unit it is the
+  /// microphone button, not a text search.
+  microphone(84),
+
+  /// Move the selection up, on a head unit with a D-pad.
+  up(19),
+
+  /// Move the selection down.
+  down(20),
+
+  /// Move the selection left.
+  left(21),
+
+  /// Move the selection right.
+  right(22),
+
+  /// Activate the selection. This is also the rotary encoder's push.
+  enter(23);
+
+  /// The protocol's keycode, which is Android's `KeyEvent` code.
+  final int code;
+
+  const AndroidAutoKey(this.code);
+}
+
 /// Something the native session wants the Dart side to know about.
 class AndroidAutoEvent {
   /// The lifecycle state the session moved into.
@@ -183,6 +291,40 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
 
   /// Stops the pattern started by [startTestPattern].
   Future<void> stopTestPattern() async {}
+
+  /// Reports a touch to the phone.
+  ///
+  /// [pointers] carries every finger currently down, and [actionIndex] is the index
+  /// within it of the finger this report is about, which only means anything for
+  /// [AndroidAutoTouchAction.pointerDown] and [AndroidAutoTouchAction.pointerUp].
+  ///
+  /// Fire and forget, and synchronous on purpose: this is called straight out of a
+  /// pointer callback, the protocol never acknowledges a report, and awaiting one
+  /// would only add latency to a path that is measured in milliseconds. Does nothing
+  /// while no phone is connected.
+  void sendTouch(
+    AndroidAutoTouchAction action,
+    List<AndroidAutoTouchPoint> pointers, {
+    int actionIndex = 0,
+  }) {}
+
+  /// Reports one hardware key transition.
+  ///
+  /// Down and up are separate calls, as they are on Android: a phone that gets a down
+  /// and no up believes the button is still held. Use [pressKey] for the common case.
+  void sendKey(AndroidAutoKey key, {required bool down, bool longPress = false}) {}
+
+  /// Presses and releases [key].
+  void pressKey(AndroidAutoKey key) {
+    sendKey(key, down: true);
+    sendKey(key, down: false);
+  }
+
+  /// Reports rotary encoder movement, in detents, positive clockwise.
+  ///
+  /// Sent as a relative axis rather than a key, which is what makes the phone scroll a
+  /// list by steps instead of treating every detent as a button press.
+  void sendRotary(int steps) {}
 
   /// Releases everything the implementation holds.
   ///
