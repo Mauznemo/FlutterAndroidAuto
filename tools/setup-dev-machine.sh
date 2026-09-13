@@ -18,6 +18,10 @@ BUILD_DEPS=(
   libva-dev libva-drm2 vainfo
   libpulse-dev
   libgtk-3-dev libegl1-mesa-dev libgles2-mesa-dev
+  # Flutter's Linux build uses clang, and clang on this distro targets the newest
+  # installed GCC. Without that GCC's libstdc++ headers, every C++ compile fails with
+  # "'limits' file not found", which looks like a project problem and is not.
+  libstdc++-16-dev
 )
 
 AGENT_TOOLS=(ydotool kde-spectacle wl-clipboard python3-pil)

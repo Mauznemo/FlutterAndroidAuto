@@ -35,19 +35,35 @@ class _TestBenchPageState extends State<TestBenchPage> {
     config: const AndroidAutoConfig(width: 1280, height: 720, fps: 30),
   );
 
-  AndroidAutoConnectionState _state = AndroidAutoConnectionState.idle;
-  String? _message;
   int _tapCount = 0;
+  bool _patternRunning = false;
 
   @override
   void initState() {
     super.initState();
-    _controller.events.listen((event) {
-      setState(() {
-        _state = event.state;
-        _message = event.message;
-      });
-    });
+    _controller.addListener(_onControllerChanged);
+  }
+
+  void _onControllerChanged() => setState(() {});
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_onControllerChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  Future<void> _togglePattern() async {
+    if (_patternRunning) {
+      await _controller.stopTestPattern();
+    } else {
+      if (_controller.state == AndroidAutoConnectionState.idle) {
+        await _controller.start();
+      }
+      await _controller.startTestPattern();
+    }
+    setState(() => _patternRunning = !_patternRunning);
   }
 
   @override
@@ -69,19 +85,22 @@ class _TestBenchPageState extends State<TestBenchPage> {
   }
 
   Widget _statusBar() {
+    final textureId = _controller.textureId;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       color: Colors.black.withValues(alpha: 0.55),
       child: Row(
         children: [
           Icon(
-            _state == AndroidAutoConnectionState.connected
+            _controller.state == AndroidAutoConnectionState.connected
                 ? Icons.directions_car
                 : Icons.usb_off,
             size: 20,
           ),
           const SizedBox(width: 10),
-          Text('State: ${_state.name}'),
+          Text('State: ${_controller.state.name}'),
+          const SizedBox(width: 24),
+          Text('Texture: ${textureId ?? "none"}'),
           const Spacer(),
           Text('Overlay taps: $_tapCount'),
         ],
@@ -90,13 +109,19 @@ class _TestBenchPageState extends State<TestBenchPage> {
   }
 
   Widget _controls() {
+    final message = _controller.message;
     return Column(
       children: [
-        if (_message != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
+        if (message != null)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 60),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: Text(
-              _message!,
+              message,
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.orangeAccent),
             ),
@@ -111,13 +136,21 @@ class _TestBenchPageState extends State<TestBenchPage> {
               icon: const Icon(Icons.play_arrow),
               label: const Text('Start head unit'),
             ),
+            FilledButton.tonalIcon(
+              onPressed: _togglePattern,
+              icon: Icon(_patternRunning ? Icons.pause : Icons.gradient),
+              label: Text(_patternRunning ? 'Stop pattern' : 'Test pattern'),
+            ),
             OutlinedButton.icon(
-              onPressed: _controller.stop,
+              onPressed: () async {
+                await _controller.stop();
+                setState(() => _patternRunning = false);
+              },
               icon: const Icon(Icons.stop),
               label: const Text('Stop'),
             ),
-            // Proves that widgets drawn over the projection still receive input,
-            // and gives the agent a click target when testing GUI automation.
+            // Proves that widgets drawn over the projection still receive input, and
+            // gives the agent a click target when testing GUI automation.
             OutlinedButton(
               onPressed: () => setState(() => _tapCount++),
               child: const Text('Overlay hit test'),
@@ -129,7 +162,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
   }
 }
 
-/// Stands in for the projected video until milestone M4 lands.
+/// Stands in for the projected video until a session is running.
 class _ProjectionPlaceholder extends StatelessWidget {
   const _ProjectionPlaceholder();
 
@@ -150,12 +183,12 @@ class _ProjectionPlaceholder extends StatelessWidget {
           Icon(Icons.cast_connected, size: 64, color: Colors.white24),
           SizedBox(height: 16),
           Text(
-            'Projection area',
+            'No video',
             style: TextStyle(fontSize: 22, color: Colors.white38),
           ),
           SizedBox(height: 6),
           Text(
-            'A Texture widget fed by the native video pipeline lands here in M4',
+            'Press Test pattern to drive the texture without a phone',
             style: TextStyle(color: Colors.white24),
           ),
         ],

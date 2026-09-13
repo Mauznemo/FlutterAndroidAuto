@@ -94,6 +94,31 @@ to restore the old one argument `dispatch`/`post`, `get_io_service()` and an
 `io_context&` flavoured `context()`. That is what keeps the port a type substitution
 instead of a rewrite, so prefer extending it over touching call sites.
 
+## Native layout (M2 onward)
+
+| File | What |
+|---|---|
+| `linux/src/aa_core.h` | the flat C ABI, the only thing Dart binds to |
+| `linux/src/aa_core.cc` | session lifecycle, owns the `io_context` thread pool |
+| `linux/src/frame_ring.*` | the API agnostic seam, three slots, producer to raster thread |
+| `linux/src/present/gl_adapter.*` | **the only file allowed to name a GL type** |
+| `linux/src/present/texture_registry.*` | the `FlTextureRegistrar` the GTK entry point captured |
+| `linux/src/event_bus.*` | native to Dart events |
+| `linux/src/test_pattern.*` | M2 scaffolding, delete once M4 lands |
+
+After changing `aa_core.h`, regenerate the Dart bindings:
+
+```bash
+cd packages/android_auto_linux && dart run ffigen --config ffigen.yaml
+```
+
+`AaState` in `aa_core.h` and `AndroidAutoConnectionState` in the platform interface cross
+FFI as plain integers, so their orders must stay in step.
+
+Only the raster thread touches GL, inside `populate()`, where Flutter's context is
+already current. A `GdkGLContext` shared with Flutter's is only needed once a producer
+thread creates GL objects itself, which is the M4 dmabuf path.
+
 ## Native notes that keep coming back
 
 - `android_auto_linux` must keep `pluginClass` in its pubspec even though it is mostly
@@ -101,3 +126,10 @@ instead of a rewrite, so prefer extending it over touching call sites.
 - The `io_context` thread pool must never run on Flutter's platform thread, and nothing
   outside the raster thread may call into Flutter's GL context without making the shared
   context current first.
+- Texture *registration* must happen on the platform thread (so, from an FFI entry
+  point). Only `mark_texture_frame_available` is safe from a producer thread.
+- Flutter's `apply_standard_settings` pins C++14, but aasdk headers need C++17, so the
+  plugin target raises it afterwards. Do not remove that line.
+- Clang on this machine targets the newest installed GCC. Without a matching
+  `libstdc++-N-dev` every C++ compile dies with `'limits' file not found`, which looks
+  like a project bug and is not. `tools/setup-dev-machine.sh --build-deps` installs it.

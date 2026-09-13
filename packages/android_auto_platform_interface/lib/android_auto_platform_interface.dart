@@ -128,4 +128,14 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// Id of the texture the projected video is rendered into, or null while there is
   /// no video stream.
   Future<int?> get textureId;
+
+  /// Feeds the video path from a generated pattern instead of a phone.
+  ///
+  /// Exists so the texture pipeline can be exercised without hardware, and so a host
+  /// app can check its own overlay layout before a phone is ever plugged in. Does
+  /// nothing once real video is running.
+  Future<void> startTestPattern() async {}
+
+  /// Stops the pattern started by [startTestPattern].
+  Future<void> stopTestPattern() async {}
 }

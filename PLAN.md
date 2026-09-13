@@ -19,8 +19,8 @@ implementation can be added later without touching the app-facing API.
 |---|---|---|
 | M0 | Project setup, research, tooling | done |
 | M1 | Native build: vendor and modernise aasdk | **done** |
-| M2 | C ABI core + Dart FFI + texture plumbing | **next** |
-| M3 | USB transport, AOAP, SSL, service discovery | not started |
+| M2 | C ABI core + Dart FFI + texture plumbing | **done** |
+| M3 | USB transport, AOAP, SSL, service discovery | **next** |
 | M4 | Video channel to Flutter texture | not started |
 | M5 | Input channel (touch, keys, rotary) | not started |
 | M6 | Audio output (media, system, speech) | not started |
@@ -95,28 +95,43 @@ write up in `docs/aasdk-port-notes.md`.
 Goal: the example app starts, calls into native code, gets a texture id back, and
 shows a test pattern in a `Texture` widget with Flutter widgets on top.
 
-- [ ] Create `packages/android_auto_linux/linux/src/` with the core skeleton
-  - [ ] `aa_core.h`: the flat C ABI (opaque handle, create/destroy/start/stop, config struct, event callback)
-  - [ ] `aa_core.cc`: lifecycle, owns the Boost `io_context` thread pool
-  - [ ] `event_bus.{h,cc}`: native to Dart events, one queue drained on the platform thread
-- [ ] Wire `AndroidAutoLinuxPlugin` (GTK entry point) to capture the `FlTextureRegistrar` into a process-global
-- [ ] Implement `present/gl_adapter.{h,cc}`: an `FlTextureGL` subclass fed from a dmabuf ring
-  - [ ] Create a `GdkGLContext` shared with Flutter's, per `fl_view` window
-  - [ ] Define the API agnostic frame descriptor (`fd`, modifier, stride, offset, fourcc, size) that the seam is built on
-  - [ ] Keep `FlTextureGL` confined to this one file, see the Vulkan readiness rules in `docs/architecture.md`
-  - [ ] Render a moving test pattern to prove the texture pipeline end to end
-- [ ] `ffigen` config + generated bindings in `packages/android_auto_linux/lib/src/bindings/`
-- [ ] Dart side: `AndroidAutoLinux` registers itself as the platform implementation
-- [ ] `NativeCallable.listener` based event stream from native to Dart
-- [ ] Define the public API in `android_auto_platform_interface`
-  - [ ] `AndroidAutoConfig` (resolution, fps, dpi, head unit identity, enabled services)
-  - [ ] `AndroidAutoConnectionState` enum and event stream
-  - [ ] `textureId` future
-- [ ] Define `AndroidAutoView` widget in `android_auto` (Texture + `Listener` for touch)
-- [ ] Example app renders the test pattern with a Flutter overlay on top
-- [ ] `tools/run-example.sh` builds and launches the example, agent verifies by screenshot
+- [x] Create `packages/android_auto_linux/linux/src/` with the core skeleton
+  - [x] `aa_core.h`: the flat C ABI (opaque handle, create/destroy/start/stop, config struct, event callback)
+  - [x] `aa_core.cc`: lifecycle, owns the Boost `io_context` thread pool
+  - [x] `event_bus.{h,cc}`: native to Dart events, closed before the Dart callable is torn down
+- [x] Wire `AndroidAutoLinuxPlugin` (GTK entry point) to capture the `FlTextureRegistrar` into a process-global
+- [x] `frame_ring.{h,cc}`: the API agnostic seam, a three slot rotation between producer and raster thread
+- [x] Implement `present/gl_adapter.{h,cc}`: an `FlTextureGL` subclass fed from the frame ring
+  - [x] Define the API agnostic frame descriptor (`fd`, modifier, stride, offset, fourcc, size) the seam is built on
+  - [x] Keep `FlTextureGL` confined to this one file, see the Vulkan readiness rules in `docs/architecture.md`
+  - [x] Register the texture from the platform thread, not from the producer thread
+  - [x] Render a moving test pattern to prove the texture pipeline end to end
+- [x] Link aasdk into the plugin so the M3 transport work has nothing left to integrate
+- [x] `ffigen` config + generated bindings in `packages/android_auto_linux/lib/src/bindings/`
+- [x] Dart side: `AndroidAutoLinux` registers itself as the platform implementation
+- [x] `NativeCallable.listener` based event stream from native to Dart
+- [x] Define the public API in `android_auto_platform_interface`
+  - [x] `AndroidAutoConfig` (resolution, fps, dpi, head unit identity)
+  - [x] `AndroidAutoConnectionState` enum and event stream
+  - [x] `textureId` future
+  - [x] `startTestPattern` / `stopTestPattern`
+- [x] Define `AndroidAutoView` widget in `android_auto` (Texture, with the `Listener` for touch landing in M5)
+- [x] Example app renders the test pattern with a Flutter overlay on top
+- [x] Verify by screenshot: pattern animates, overlay takes input, two stop/start cycles survive
 
-**Checkpoint:** a screenshot showing the native test pattern with Flutter widgets composited over it.
+Verified on this machine: the sweeping bar moved across three screenshots taken a
+second apart (x = 1244, 1005, 283), so frames really are flowing rather than one frame
+being stuck. Three clicks on a button drawn over the texture registered as three taps.
+Two full stop/start cycles left the app alive, with a fresh texture id each time.
+
+Not carried over from the original M2 list:
+- A `GdkGLContext` shared with Flutter's turned out to be unnecessary. Only the raster
+  thread touches GL, inside `populate()`, where Flutter's own context is already current.
+  A shared context is needed once the producer creates GL objects itself, which is the
+  dmabuf path in M4, not before.
+
+**Checkpoint met:** the native test pattern renders in a `Texture` with Flutter widgets
+composited over it, and those widgets still receive input.
 
 ---
 

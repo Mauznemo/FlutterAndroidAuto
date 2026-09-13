@@ -2,18 +2,31 @@ import 'package:flutter/widgets.dart';
 
 import 'android_auto_controller.dart';
 
-/// Renders the projected phone screen, and forwards pointer events back to the phone.
+/// Renders the projected phone screen.
 ///
-/// Put it in a [Stack] and draw whatever the host app wants on top of it.
-class AndroidAutoView extends StatefulWidget {
-  /// The session to render. Must already have been started, or be started later.
+/// This is the whole point of the package: the projection is a [Texture] in the widget
+/// tree, not a separate window, so a host app can put anything it likes on top of it
+/// with ordinary Flutter widgets.
+///
+/// ```dart
+/// Stack(
+///   children: [
+///     AndroidAutoView(controller: controller),
+///     MyStatusBar(),
+///   ],
+/// )
+/// ```
+class AndroidAutoView extends StatelessWidget {
+  /// The session to render.
   final AndroidAutoController controller;
 
   /// Shown while there is no video stream yet.
   final Widget? placeholder;
 
-  /// How the projected surface is fitted into the available space. Touch coordinates
-  /// are mapped through the same fit, so changing this stays consistent.
+  /// How the projected surface is fitted into the available space.
+  ///
+  /// From milestone M5 touch coordinates are mapped through the same fit, so changing
+  /// this stays consistent between what is drawn and where taps land.
   final BoxFit fit;
 
   /// Creates a view for [controller].
@@ -25,14 +38,23 @@ class AndroidAutoView extends StatefulWidget {
   });
 
   @override
-  State<AndroidAutoView> createState() => _AndroidAutoViewState();
-}
-
-class _AndroidAutoViewState extends State<AndroidAutoView> {
-  @override
   Widget build(BuildContext context) {
-    // M4 replaces this with a Texture fed by the native video pipeline, and M5 adds
-    // the Listener that maps pointer events into projected coordinates.
-    return widget.placeholder ?? const SizedBox.expand();
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final textureId = controller.textureId;
+        if (textureId == null) {
+          return placeholder ?? const SizedBox.expand();
+        }
+        return FittedBox(
+          fit: fit,
+          child: SizedBox(
+            width: controller.config.width.toDouble(),
+            height: controller.config.height.toDouble(),
+            child: Texture(textureId: textureId),
+          ),
+        );
+      },
+    );
   }
 }
