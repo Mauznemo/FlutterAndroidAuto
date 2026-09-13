@@ -1613,7 +1613,7 @@ index 318cbdc..fb31225 100644
  
      }
 diff --git a/src/Messenger/MessageInStream.cpp b/src/Messenger/MessageInStream.cpp
-index 997643d..b5eb60d 100644
+index 997643d..eea0305 100644
 --- a/src/Messenger/MessageInStream.cpp
 +++ b/src/Messenger/MessageInStream.cpp
 @@ -24,7 +24,7 @@
@@ -1624,6 +1624,83 @@ index 997643d..b5eb60d 100644
 +  MessageInStream::MessageInStream(boost::asio::io_context &ioService, transport::ITransport::Pointer transport,
                                     ICryptor::Pointer cryptor)
        : strand_(ioService), transport_(std::move(transport)), cryptor_(std::move(cryptor)) {
+ 
+@@ -42,7 +42,9 @@ namespace aasdk::messenger {
+             },
+             [this, self = this->shared_from_this()](const error::Error &e) mutable {
+               AASDK_LOG_MESSENGER(debug, "Rejecting message.");
+-              promise_->reject(e);
++              if (promise_ != nullptr) {
++                promise_->reject(e);
++              }
+               promise_.reset();
+             });
+ 
+@@ -83,7 +85,9 @@ namespace aasdk::messenger {
+       // No Message Found in Buffers and this is a middle or last frame, this an error.
+       if (frameHeader.getType() == FrameType::MIDDLE || frameHeader.getType() == FrameType::LAST) {
+         AASDK_LOG_MESSENGER(debug, "Rejecting intertwined channel frame.");
+-        promise_->reject(error::Error(error::ErrorCode::MESSENGER_INTERTWINED_CHANNELS));
++        if (promise_ != nullptr) {
++          promise_->reject(error::Error(error::ErrorCode::MESSENGER_INTERTWINED_CHANNELS));
++        }
+         promise_.reset();
+         message_.reset();
+         return;
+@@ -105,7 +109,9 @@ namespace aasdk::messenger {
+         [this, self = this->shared_from_this()](const error::Error &e) mutable {
+           AASDK_LOG_MESSENGER(debug, "Rejecting message.");
+           message_.reset();
+-          promise_->reject(e);
++          if (promise_ != nullptr) {
++            promise_->reject(e);
++          }
+           promise_.reset();
+         });
+ 
+@@ -121,7 +127,9 @@ namespace aasdk::messenger {
+         [this, self = this->shared_from_this()](const error::Error &e) mutable {
+           AASDK_LOG_MESSENGER(debug, "Rejecting message.");
+           message_.reset();
+-          promise_->reject(e);
++          if (promise_ != nullptr) {
++            promise_->reject(e);
++          }
+           promise_.reset();
+         });
+ 
+@@ -138,7 +146,9 @@ namespace aasdk::messenger {
+       catch (const error::Error &e) {
+         AASDK_LOG_MESSENGER(debug, "Rejecting message.");
+         message_.reset();
+-        promise_->reject(e);
++        if (promise_ != nullptr) {
++          promise_->reject(e);
++        }
+         promise_.reset();
+         return;
+       }
+@@ -151,7 +161,9 @@ namespace aasdk::messenger {
+     // If this is the LAST frame or a BULK frame...
+     if ((thisFrameType_ == FrameType::BULK || thisFrameType_ == FrameType::LAST) && isValidFrame_) {
+       AASDK_LOG_MESSENGER(debug, "Resolving message.");
+-      promise_->resolve(std::move(message_));
++      if (promise_ != nullptr) {
++        promise_->resolve(std::move(message_));
++      }
+       promise_.reset();
+       isResolved = true;
+ 
+@@ -170,7 +182,9 @@ namespace aasdk::messenger {
+           [this, self = this->shared_from_this()](const error::Error &e) mutable {
+             message_.reset();
+             AASDK_LOG_MESSENGER(debug, "Rejecting message.");
+-            promise_->reject(e);
++            if (promise_ != nullptr) {
++              promise_->reject(e);
++            }
+             promise_.reset();
+           });
  
 diff --git a/src/Messenger/MessageInStream.ut.cpp b/src/Messenger/MessageInStream.ut.cpp
 index 71f1d54..42188be 100644
@@ -1639,7 +1716,7 @@ index 71f1d54..42188be 100644
      transport::ITransport::Pointer transport_;
      CryptorMock cryptorMock_;
 diff --git a/src/Messenger/MessageOutStream.cpp b/src/Messenger/MessageOutStream.cpp
-index 03623f0..cb626ce 100644
+index 03623f0..99d134c 100644
 --- a/src/Messenger/MessageOutStream.cpp
 +++ b/src/Messenger/MessageOutStream.cpp
 @@ -23,7 +23,7 @@
@@ -1651,6 +1728,39 @@ index 03623f0..cb626ce 100644
                                         ICryptor::Pointer cryptor)
          : strand_(ioService), transport_(std::move(transport)), cryptor_(std::move(cryptor)), offset_(0),
            remainingSize_(0) {
+@@ -54,7 +54,9 @@ namespace aasdk {
+             transport_->send(std::move(data), std::move(transportPromise));
+           }
+           catch (const error::Error &e) {
+-            promise_->reject(e);
++            if (promise_ != nullptr) {
++              promise_->reject(e);
++            }
+             promise_.reset();
+           }
+ 
+@@ -86,7 +88,9 @@ namespace aasdk {
+                                  },
+                                  [this, self = this->shared_from_this()](const error::Error &e) mutable {
+                                    this->reset();
+-                                   promise_->reject(e);
++                                   if (promise_ != nullptr) {
++                                     promise_->reject(e);
++                                   }
+                                    promise_.reset();
+                                  });
+         }
+@@ -95,7 +99,9 @@ namespace aasdk {
+       }
+       catch (const error::Error &e) {
+         this->reset();
+-        promise_->reject(e);
++        if (promise_ != nullptr) {
++          promise_->reject(e);
++        }
+         promise_.reset();
+       }
+     }
 diff --git a/src/Messenger/MessageOutStream.ut.cpp b/src/Messenger/MessageOutStream.ut.cpp
 index d677bcf..529bce5 100644
 --- a/src/Messenger/MessageOutStream.ut.cpp
@@ -1791,7 +1901,7 @@ index a17e8ba..cc310fa 100644
      usb::ut::USBEndpointMock outEndpointMock_;
      TransportReceivePromiseHandlerMock receivePromiseHandlerMock_;
 diff --git a/src/USB/AOAPDevice.cpp b/src/USB/AOAPDevice.cpp
-index c169ab1..71f78c3 100644
+index c169ab1..8969756 100644
 --- a/src/USB/AOAPDevice.cpp
 +++ b/src/USB/AOAPDevice.cpp
 @@ -24,9 +24,12 @@
@@ -1818,11 +1928,18 @@ index c169ab1..71f78c3 100644
        auto configDescriptorHandle = AOAPDevice::getConfigDescriptor(usbWrapper, handle);
        auto interface = AOAPDevice::getInterface(configDescriptorHandle);
        auto interfaceDescriptor = AOAPDevice::getInterfaceDescriptor(interface);
-@@ -70,7 +73,8 @@ namespace aasdk {
+@@ -70,7 +73,15 @@ namespace aasdk {
          throw error::Error(error::ErrorCode::USB_CLAIM_INTERFACE, result);
        }
  
 -      return std::make_unique<AOAPDevice>(usbWrapper, ioService, std::move(handle), interfaceDescriptor);
++      // A previous session can leave the bulk endpoints halted, and every transfer on a
++      // halted endpoint fails with LIBUSB_TRANSFER_STALL. Clearing the halt here is what
++      // makes reconnecting to a phone that was already projecting work.
++      for (int i = 0; i < interfaceDescriptor->bNumEndpoints; ++i) {
++        libusb_clear_halt(handle.get(), interfaceDescriptor->endpoint[i].bEndpointAddress);
++      }
++
 +      return std::make_unique<AOAPDevice>(usbWrapper, ioService, std::move(handle),
 +                                          std::move(configDescriptorHandle), interfaceDescriptor);
      }

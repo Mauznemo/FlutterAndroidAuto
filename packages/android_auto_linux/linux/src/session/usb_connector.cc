@@ -18,9 +18,12 @@ namespace {
 constexpr int kMaxClaimAttempts = 40;
 constexpr int kClaimRetryMinMs = 250;
 constexpr int kClaimRetryMaxMs = 2000;
-// Wait a few polite retries before resorting to bouncing the device, so the ordinary
-// fast handover is not disturbed.
-constexpr int kResetAfterAttempts = 4;
+// Bouncing the device is a big hammer: it drops the phone out of accessory mode
+// entirely, and it then takes several seconds to come back, during which a connection
+// attempt lands mid re-enumeration and fails. That made fresh starts flaky when it was
+// tried early, so it is now a genuine last resort, used only once the polite retries
+// have had a good ten seconds to work.
+constexpr int kResetAfterAttempts = 24;
 
 }  // namespace
 
@@ -68,6 +71,7 @@ void UsbConnector::WaitForDevice(int attempt) {
         // Keep a copy: create() takes the handle by value, and a failed attempt still
         // needs something to reset.
         aasdk::usb::DeviceHandle retained = handle;
+        last_handle_ = retained;
         aasdk::usb::IAOAPDevice::Pointer device;
         try {
           device = aasdk::usb::AOAPDevice::create(usb_context_->wrapper(), io_context_,
@@ -116,6 +120,34 @@ void UsbConnector::WaitForDevice(int attempt) {
         }
       });
   hub_->start(std::move(promise));
+}
+
+void UsbConnector::ResetDevice() {
+  if (last_handle_ == nullptr) {
+    return;
+  }
+  libusb_reset_device(last_handle_.get());
+  last_handle_.reset();
+}
+
+void UsbConnector::RecoverAndRediscover() {
+  ResetDevice();
+  // Re-registering the hotplug callback is what makes libusb enumerate the device that
+  // is already attached, so cancel first and then ask again.
+  if (hub_) {
+    hub_->cancel();
+  }
+  if (retry_timer_) {
+    // The phone needs a moment to come back after a reset, and asking too early just
+    // burns an attempt on a device that is still re-enumerating.
+    retry_timer_->expires_after(std::chrono::milliseconds(1500));
+    retry_timer_->async_wait([this](const boost::system::error_code& ec) {
+      if (!ec) {
+        WaitForDevice();
+        EnumerateAlreadyConnected();
+      }
+    });
+  }
 }
 
 void UsbConnector::ClearHandlers() {

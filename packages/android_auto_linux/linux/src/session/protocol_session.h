@@ -14,8 +14,11 @@
 #ifndef ANDROID_AUTO_LINUX_SESSION_PROTOCOL_SESSION_H_
 #define ANDROID_AUTO_LINUX_SESSION_PROTOCOL_SESSION_H_
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -99,10 +102,19 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // Begins the handshake with a device that has already reached accessory mode.
   void Start(aasdk::usb::IAOAPDevice::Pointer device);
 
-  // Asks the phone to end the session, then lets Stop() finish the job once the reply
-  // arrives (or the caller gives up waiting). Always prefer this over Stop() when the
-  // link is still healthy.
+  // Asks the phone to end its side of the session. Returns immediately; the phone's
+  // acknowledgement arrives asynchronously, so pair this with WaitForShutdown.
+  //
+  // This matters more than it looks. Android Auto on the phone keeps its session, and
+  // its hold on the USB interface, until it is told the head unit is going away. Drop
+  // the link without saying so and the phone stays in Android Auto with its persistent
+  // notification showing, and the next connection attempt cannot claim the interface.
   void Shutdown();
+
+  // Blocks until the phone acknowledges the shutdown or `timeout` elapses. Returns true
+  // if the phone answered. Called from the platform thread, so keep the timeout short
+  // enough that a user pressing stop does not think the app has hung.
+  bool WaitForShutdown(std::chrono::milliseconds timeout);
 
   // Tears the connection down immediately. Safe from any thread.
   void Stop();
@@ -136,6 +148,7 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
 
  private:
   void SendHandshakeStep();
+  void NoteShutdownAcknowledged();
   void Listen();
   void ReportState(int state, const std::string& message);
   // Sends a message and reports, but does not tear down, if it fails. Used for the
@@ -156,6 +169,10 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
 
   std::vector<std::string> opened_channels_;
   bool stopped_ = false;
+
+  std::mutex shutdown_mutex_;
+  std::condition_variable shutdown_cv_;
+  bool shutdown_acknowledged_ = false;
 };
 
 }  // namespace aa

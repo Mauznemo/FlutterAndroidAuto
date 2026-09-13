@@ -49,6 +49,21 @@ class UsbConnector {
   // terminates the process.
   std::string Start(DeviceHandler on_device, ErrorHandler on_error);
 
+  // Drops the phone out of accessory mode, the same thing unplugging the cable does.
+  //
+  // Ending an Android Auto session is not enough to let the next one start. After a
+  // ByeBye the phone closes the session but stays in accessory mode, and it will not
+  // answer a fresh version request on those endpoints, so the next attempt times out.
+  // What actually re-arms it is redoing the AOAP handshake, and that only happens once
+  // the phone has left accessory mode. Resetting the device is how to ask for that
+  // without the driver physically unplugging anything.
+  void ResetDevice();
+
+  // Bounces the phone and starts looking again. For when a connection got as far as
+  // opening the device but could not talk to it, which is what a phone left wedged by a
+  // previous run that died without saying goodbye looks like.
+  void RecoverAndRediscover();
+
   // Drops the handlers installed by Start. The connector outlives the session that
   // installed them, so this has to be called before that session goes away or a later
   // device arrival calls into freed memory.
@@ -68,6 +83,9 @@ class UsbConnector {
 
   boost::asio::io_context& io_context_;
   UsbContext* usb_context_ = nullptr;
+  // Kept so the device can be bounced at stop time. A copy, so it stays valid even
+  // after the AOAPDevice built from it has gone.
+  aasdk::usb::DeviceHandle last_handle_;
 
   std::unique_ptr<aasdk::usb::AccessoryModeQueryFactory> query_factory_;
   std::unique_ptr<aasdk::usb::AccessoryModeQueryChainFactory> query_chain_factory_;

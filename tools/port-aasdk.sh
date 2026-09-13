@@ -13,8 +13,12 @@
 # It also raises a couple of cmake_minimum_required() calls, because CMake 4 dropped
 # compatibility with anything below 3.5, stops asking CMake for the Boost.System
 # component that Boost 1.90 no longer ships, puts aasdk's own include directory on the
-# aasdk target so a parent project can actually use it, and fixes a use after free in
-# AOAPDevice that crashes on the second connect.
+# aasdk target so a parent project can actually use it, and fixes two crashes: a use
+# after free in AOAPDevice, unguarded promise dereferences in the message streams, and
+# bulk endpoints left halted by a previous session.
+#
+# Note on reading aasdk's USB_TRANSFER errors: "Native Code" is a libusb_transfer_status,
+# so 2 is TIMED_OUT and 4 is STALL. It is not a libusb_error.
 #
 #   tools/port-aasdk.sh apply     transform the submodule working tree in place
 #   tools/port-aasdk.sh patch     regenerate linux/patches/ from the working tree
@@ -183,6 +187,84 @@ if "configDescriptorHandle_" not in text:
 PYEOF
 }
 
+# A USB bulk endpoint that was in use when a session ended can be left halted, and every
+# transfer on it then fails. aasdk claims the interface and starts writing without
+# clearing that state.
+#
+# This is defensive hygiene rather than a fix for a symptom we saw: the reconnect
+# failures turned out to be LIBUSB_TRANSFER_TIMED_OUT, not STALL. Clearing the halt
+# after claiming is standard practice and costs nothing, so it stays.
+port_clear_endpoint_halt() {
+  python3 - "$AASDK" <<'PYEOF'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]) / "src/USB/AOAPDevice.cpp"
+text = source.read_text()
+if "libusb_clear_halt" in text:
+    sys.exit(0)
+
+needle = """      if (result != 0) {
+        throw error::Error(error::ErrorCode::USB_CLAIM_INTERFACE, result);
+      }
+"""
+replacement = """      if (result != 0) {
+        throw error::Error(error::ErrorCode::USB_CLAIM_INTERFACE, result);
+      }
+
+      // A previous session can leave the bulk endpoints halted, and every transfer on a
+      // halted endpoint fails with LIBUSB_TRANSFER_STALL. Clearing the halt here is what
+      // makes reconnecting to a phone that was already projecting work.
+      for (int i = 0; i < interfaceDescriptor->bNumEndpoints; ++i) {
+        libusb_clear_halt(handle.get(), interfaceDescriptor->endpoint[i].bEndpointAddress);
+      }
+"""
+if needle not in text:
+    raise SystemExit("AOAPDevice::create claim block not found, patch needs updating")
+source.write_text(text.replace(needle, replacement))
+PYEOF
+}
+
+# The message streams dereference promise_ without ever checking it for null. There are
+# ten such sites across MessageInStream and MessageOutStream and not one is guarded.
+#
+# Most of the time the promise is there. During teardown it is not: a transport that is
+# being stopped rejects its pending receive, the rejection handler runs, and promise_ has
+# already been reset by another path. The result is a null dereference inside
+# Promise::reject, which is a segfault in an io_context thread.
+#
+# Guarding the dereference is the whole fix. Resetting an already null shared_ptr is a
+# no op, so the lines that follow need no change.
+port_promise_null_guards() {
+  python3 - "$AASDK" <<'PYEOF'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+pattern = re.compile(r"^(\s*)(promise_->[^\n]*;)\s*$")
+
+for name in ("src/Messenger/MessageInStream.cpp", "src/Messenger/MessageOutStream.cpp"):
+    path = root / name
+    if not path.exists():
+        continue
+    out = []
+    changed = False
+    for line in path.read_text().splitlines():
+        match = pattern.match(line)
+        if match and "if (promise_" not in line:
+            indent, statement = match.groups()
+            out.append(f"{indent}if (promise_ != nullptr) {{")
+            out.append(f"{indent}  {statement}")
+            out.append(f"{indent}}}")
+            changed = True
+        else:
+            out.append(line)
+    if changed:
+        path.write_text("\n".join(out) + "\n")
+PYEOF
+}
+
 # aasdk exposes its own headers through a directory scoped include_directories(), which
 # does not reach a parent project's targets. Anyone adding aasdk with add_subdirectory,
 # which is exactly how the Flutter plugin consumes it, cannot find aasdk/... headers.
@@ -243,6 +325,8 @@ cmd_apply() {
   # Has to run after the substitutions above: it matches signatures that mention
   # io_context, which only exist once io_service has been renamed.
   port_aoap_device_lifetime
+  port_promise_null_guards
+  port_clear_endpoint_halt
 
   echo "ported $(echo "$files" | wc -l) files"
   echo "remaining io_service references: $(grep -rc 'io_service' "$AASDK/include" "$AASDK/src" 2>/dev/null | grep -v ':0$' | wc -l) files"

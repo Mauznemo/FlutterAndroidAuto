@@ -20,8 +20,8 @@ implementation can be added later without touching the app-facing API.
 | M0 | Project setup, research, tooling | done |
 | M1 | Native build: vendor and modernise aasdk | **done** |
 | M2 | C ABI core + Dart FFI + texture plumbing | **done** |
-| M3 | USB transport, AOAP, SSL, service discovery | **mostly done** |
-| M4 | Video channel to Flutter texture | not started |
+| M3 | USB transport, AOAP, SSL, service discovery | **done** |
+| M4 | Video channel to Flutter texture | **next** |
 | M5 | Input channel (touch, keys, rotary) | not started |
 | M6 | Audio output (media, system, speech) | not started |
 | M7 | Microphone input | not started |
@@ -152,25 +152,50 @@ and announced its services.
 - [x] Surface connect/disconnect/error states through the Dart event stream
 - [x] Graceful shutdown: send `ByeByeRequest` before dropping the link
 - [x] Answer the replies that keep a session alive: ping, audio focus, navigation focus
-- [ ] Reconnect cleanly after unplug and replug, 10 times in a row without a leak
+- [x] Stay connected: held a session for two minutes with no drop
+- [x] Stop and resume, 5 cycles in a row, every one reaching connected again
+- [x] Recover automatically from a phone left wedged by a run that died without saying goodbye
+- [ ] Physical unplug and replug (the port on the test phone is failing, so this is still untested)
 
 **Checkpoint met, with one caveat.** The head unit reaches `connected` and reports
 `Channels advertised: MEDIA_SINK_VIDEO, INPUT_SOURCE, SENSOR`, verified against a Pixel
 with its screen off. Whether Android Auto shows as active on the phone itself has not
 been checked, because that needs the screen on.
 
-### What is not finished, and why it matters
+### How stop and resume actually works, and why it took so long
 
-In-app stop then start recovers, but only about half the time inside a 20 second window.
-Physical unplug and replug has not been tested at all. Until both are solid the last box
-above stays open.
+Ending an Android Auto session is not enough to let the next one start. The sequence
+that works is:
 
-The cause is structural rather than a single bug. aasdk was written for openauto, which
-builds its object graph once and exits the process when the phone goes away, so nothing
-in it is designed to be torn down and rebuilt in place. Five distinct crashes came out
-of this in one sitting, each a different instance of the same shape: an aasdk object
-holding a raw pointer or reference to something whose lifetime the caller controls, and
-outliving it.
+1. Send `ByeByeRequest` and **wait for the acknowledgement**. A fixed sleep was not
+   enough. Until the phone answers, it keeps Android Auto running and keeps its claim on
+   the USB interface.
+2. Then reset the USB device. After a ByeBye the phone closes the session but stays in
+   accessory mode, and it will not answer a fresh version request on those endpoints.
+   What re-arms it is going through the AOAP handshake again, and that only happens once
+   it has left accessory mode. `libusb_reset_device` asks for that without anyone
+   physically unplugging the cable.
+3. On the next start, the phone is back in normal mode, the enumerator switches it into
+   accessory mode, and the session begins from scratch.
+
+Skipping step 1 leaves the phone wedged. Skipping step 2 makes every other reconnect
+time out, which is what the alternating success and failure pattern turned out to be.
+
+A run that dies without reaching step 1 (a crash, or a force kill) leaves the phone
+wedged for the next launch. That is handled: a session that errors before it ever
+reached connected bounces the phone and starts over, up to three times.
+
+### Reading aasdk's USB errors
+
+`USB_TRANSFER`'s "Native Code" is a `libusb_transfer_status`, not a `libusb_error`. So
+**2 is TIMED_OUT and 4 is STALL**. Misreading 2 as STALL cost an hour chasing halted
+endpoints that were never halted.
+
+### Lifetime bugs found along the way
+
+aasdk was written for openauto, which builds its object graph once and exits the process
+when the phone goes away, so nothing in it is designed to be torn down and rebuilt in
+place. Seven crashes came out of this, each a different instance of the same shape.
 
 | What outlived what | Symptom |
 |---|---|
@@ -179,18 +204,18 @@ outliving it.
 | `USBHub`'s queued cancel ran after `libusb_exit` | segfault in `libusb_hotplug_deregister_callback` |
 | `USBHub`'s hotplug callback fired after the hub was destroyed | `std::bad_weak_ptr`, process terminated |
 | aasdk's `Channel` posted to a strand owned by a destroyed session | segfault in Boost.Asio |
+| `MessageInStream` dereferenced a null `promise_` during teardown | segfault in an io_context thread |
+| Our own send rejection handler captured a raw `this` | segfault after the session was gone |
 
-The first one is an upstream use after free and is fixed in
-`linux/patches/`. The rest are handled by giving the long lived pieces process
-lifetime: libusb, the USB connector and the channel strand are created once and never
-destroyed. See `src/session/usb_context.h` for the reasoning.
+Three of these are upstream bugs now fixed in `linux/patches/`: the use after free, the
+ten unguarded `promise_` dereferences, and endpoint halt clearing. The rest are handled
+by giving the long lived pieces process lifetime: libusb, the USB connector and the
+channel strand are created once and never destroyed. See `src/session/usb_context.h`.
 
-A sixth crash was ours, not aasdk's: a send rejection handler capturing a raw `this`.
-
-**Decide before finishing M3:** either accept process lifetime for the whole USB and
-channel stack, which is effectively what openauto does and what the code now assumes, or
-invest in patching aasdk's ownership so a session really can be rebuilt. The former is
-cheap and already working; the latter is the honest fix and would need upstream changes.
+There was also a reference cycle worth remembering: passing `shared_from_this()` as a
+channel's event handler makes session to channel to promise to session, so the session
+never dies, the USB interface is never released, and every reconnect fails with
+`LIBUSB_ERROR_BUSY`. `ControlEventRelay` holds a weak reference instead.
 
 ---
 

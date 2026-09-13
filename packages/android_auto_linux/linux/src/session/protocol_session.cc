@@ -155,9 +155,29 @@ void ProtocolSession::Shutdown() {
   // Tell the phone we are going before pulling the link out from under it. Without this
   // the phone keeps its side of the accessory session open, and the USB interface stays
   // claimed on its end for long enough that the next connection attempt fails.
+  {
+    std::lock_guard<std::mutex> lock(shutdown_mutex_);
+    shutdown_acknowledged_ = false;
+  }
   control_pb::ByeByeRequest request;
   request.set_reason(control_pb::USER_SELECTION);
   control_channel_->sendShutdownRequest(request, MakeSendPromise("shutdown request"));
+  // Make sure a receive is outstanding, otherwise the acknowledgement has nowhere to
+  // land and we would wait out the whole timeout for a reply that did arrive.
+  Listen();
+}
+
+bool ProtocolSession::WaitForShutdown(std::chrono::milliseconds timeout) {
+  std::unique_lock<std::mutex> lock(shutdown_mutex_);
+  return shutdown_cv_.wait_for(lock, timeout, [this] { return shutdown_acknowledged_; });
+}
+
+void ProtocolSession::NoteShutdownAcknowledged() {
+  {
+    std::lock_guard<std::mutex> lock(shutdown_mutex_);
+    shutdown_acknowledged_ = true;
+  }
+  shutdown_cv_.notify_all();
 }
 
 void ProtocolSession::Stop() {
@@ -328,11 +348,14 @@ void ProtocolSession::onByeByeRequest(const control_pb::ByeByeRequest& request) 
   ReportState(AA_STATE_IDLE, "The phone ended the session.");
   control_pb::ByeByeResponse response;
   control_channel_->sendShutdownResponse(response, MakeSendPromise("shutdown response"));
-  Stop();
+  NoteShutdownAcknowledged();
 }
 
 void ProtocolSession::onByeByeResponse(const control_pb::ByeByeResponse& response) {
-  Stop();
+  // The phone has closed its side. This is what releases the USB interface, so the
+  // caller waiting in WaitForShutdown can stop waiting.
+  ReportState(AA_STATE_IDLE, "The phone closed its side of the session.");
+  NoteShutdownAcknowledged();
 }
 
 void ProtocolSession::onBatteryStatusNotification(

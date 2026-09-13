@@ -23,6 +23,9 @@
 
 namespace {
 
+// How many times to bounce an unresponsive phone before giving up and telling the user.
+constexpr int kMaxRecoveryAttempts = 3;
+
 std::string CopyOrEmpty(const char* value) {
   return value == nullptr ? std::string() : std::string(value);
 }
@@ -79,6 +82,10 @@ struct AaSession {
 
   std::unique_ptr<aa::UsbConnector> usb;
   std::shared_ptr<aa::ProtocolSession> protocol;
+  // Recovery from a phone left wedged by a previous run. Bounded, so a genuinely broken
+  // phone reports an error instead of looping forever.
+  int recovery_attempts = 0;
+  bool reached_connected = false;
   // Outlives every protocol session built on it, see the note on ProtocolSession::Create.
   std::unique_ptr<aasdk::Strand> channel_strand;
 
@@ -203,9 +210,31 @@ int32_t aa_session_start(AaSession* session) {
         if (session->protocol) {
           session->protocol->Stop();
         }
+        session->reached_connected = false;
         session->protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
             [session](int state, const std::string& message) {
+              if (state == AA_STATE_CONNECTED) {
+                session->reached_connected = true;
+                session->recovery_attempts = 0;
+              }
+
+              // A session that fails before it ever connected usually means the phone is
+              // still in accessory mode from a run that died without saying goodbye. It
+              // will not answer on those endpoints again until it has been through the
+              // AOAP handshake, so bounce it and start over rather than reporting a dead
+              // end the user can only fix by unplugging the cable.
+              if (state == AA_STATE_ERROR && !session->reached_connected &&
+                  session->recovery_attempts < kMaxRecoveryAttempts && session->usb) {
+                ++session->recovery_attempts;
+                session->events.Emit(
+                    AA_STATE_SEARCHING,
+                    "The phone did not answer, resetting it and trying again (" +
+                        std::to_string(session->recovery_attempts) + " of " +
+                        std::to_string(kMaxRecoveryAttempts) + ").");
+                session->usb->RecoverAndRediscover();
+                return;
+              }
               session->events.Emit(static_cast<AaState>(state), message);
             });
         session->protocol->Start(std::move(device));
@@ -234,15 +263,26 @@ int32_t aa_session_stop(AaSession* session) {
   // io_context, and those queued handlers still need libusb and the USB device to be
   // alive when they run.
   if (session->protocol) {
-    // Say goodbye first and give the phone a moment to hear it. Dropping the link
-    // without this leaves the phone's accessory session open, and the USB interface
-    // stays claimed on its side long enough to break the next connection.
+    // Say goodbye and actually wait to be heard. A fixed sleep was not enough: the
+    // phone keeps Android Auto running, and its claim on the USB interface, until it
+    // acknowledges. Waiting for the acknowledgement is what makes resuming work.
     session->protocol->Shutdown();
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    const bool acknowledged =
+        session->protocol->WaitForShutdown(std::chrono::milliseconds(1500));
+    if (!acknowledged) {
+      session->events.Emit(
+          AA_STATE_IDLE,
+          "The phone did not acknowledge the shutdown. It may keep Android Auto running, "
+          "which can delay the next connection.");
+    }
     session->protocol->Stop();
   }
   if (session->usb) {
     session->usb->Stop();
+    // Bounce the phone out of accessory mode so a later start redoes the AOAP handshake
+    // from scratch. Without this the phone stays in accessory mode with its Android Auto
+    // session closed, and the next version request simply times out.
+    session->usb->ResetDevice();
   }
   if (!session->running) {
     session->protocol.reset();

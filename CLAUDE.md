@@ -119,13 +119,32 @@ Only the raster thread touches GL, inside `populate()`, where Flutter's context 
 already current. A `GdkGLContext` shared with Flutter's is only needed once a producer
 thread creates GL objects itself, which is the M4 dmabuf path.
 
+## Stopping and resuming a session
+
+The order matters and it is not obvious. `PLAN.md` under M3 has the full reasoning.
+
+1. `ByeByeRequest`, then **wait for the acknowledgement**. The phone keeps Android Auto
+   running, and its claim on the USB interface, until it answers.
+2. Then `libusb_reset_device`. After a ByeBye the phone stays in accessory mode and will
+   not answer a fresh version request; only redoing the AOAP handshake re-arms it, and
+   that needs it out of accessory mode first.
+
+Skip step 1 and the phone is wedged. Skip step 2 and every other reconnect times out.
+
+A run that dies before step 1 leaves the phone wedged for the next launch, so a session
+that errors before ever reaching connected bounces the phone and retries, up to three
+times.
+
+**Reading aasdk USB errors:** `USB_TRANSFER`'s "Native Code" is a
+`libusb_transfer_status`, not a `libusb_error`. 2 is TIMED_OUT, 4 is STALL.
+
 ## aasdk object lifetimes, the thing that keeps biting
 
 aasdk was written for openauto, which builds everything once and exits the process when
 the phone disconnects. Nothing in it survives being torn down and rebuilt in place: its
 objects hold raw pointers and references to things the caller owns, and they outlive
-them in ways no ordering fixes. Six crashes came out of this in one sitting, listed in
-`PLAN.md` under M3.
+them in ways no ordering fixes. Seven crashes came out of this, listed in `PLAN.md`
+under M3.
 
 The rules that came out of it, do not undo them:
 
