@@ -243,6 +243,12 @@ void VideoChannel::onMediaWithTimestampIndication(
     AASDK_LOG(debug) << "[Video] first frame, " << buffer.size
                      << " bytes: " << HexPrefix(buffer, 16);
     Log("First video frame received.");
+  } else {
+    // Size alone, for every frame after the first. A static screen encodes to a few
+    // hundred bytes and a screen that just changed to tens of thousands, so this is
+    // what says when the phone reacted to something, which is the other half of the
+    // touch latency measurement in input_channel.cc.
+    AASDK_LOG(debug) << "[Video] frame, " << buffer.size << " bytes";
   }
   if (decoder_ != nullptr && buffer.size > 0) {
     // The phone's timestamp is on its own clock with no agreed epoch, so it is no use

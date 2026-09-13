@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <aasdk/Common/Log.hpp>
+
 namespace aa {
 
 EventBus::EventBus(AaEventCallback callback) : callback_(callback) {}
@@ -17,6 +19,12 @@ void EventBus::Emit(AaState state, const std::string& message) {
     last_state_ = state;
     callback = callback_;
   }
+
+  // Into the protocol log as well as out to Dart. An event is the only record of why a
+  // session ended, and reading it next to the USB traffic that caused it is what makes
+  // the cause obvious; in the UI it is one line that the next event overwrites.
+  AASDK_LOG(info) << "[Event] state " << static_cast<int32_t>(state)
+                  << (message.empty() ? std::string() : ": " + message);
 
   // strdup rather than passing c_str(): the listener runs later, on the Dart isolate,
   // long after this string has gone out of scope.

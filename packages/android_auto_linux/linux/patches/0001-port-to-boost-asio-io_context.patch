@@ -2152,7 +2152,7 @@ index fc7b143..f7826fe 100644
      AccessoryModeQueryChainFactoryMock queryChainFactoryMock_;
      AccessoryModeQueryChainMock queryChainMock_;
 diff --git a/src/USB/USBEndpoint.cpp b/src/USB/USBEndpoint.cpp
-index d60acb6..cd124cc 100644
+index d60acb6..84b0b89 100644
 --- a/src/USB/USBEndpoint.cpp
 +++ b/src/USB/USBEndpoint.cpp
 @@ -24,7 +24,7 @@
@@ -2164,6 +2164,45 @@ index d60acb6..cd124cc 100644
                               uint8_t endpointAddress)
          : usbWrapper_(usbWrapper), strand_(ioService), handle_(std::move(handle)), endpointAddress_(endpointAddress) {
      }
+@@ -114,6 +114,24 @@ namespace aasdk {
+       return handle_;
+     }
+ 
++    namespace {
++      // libusb_transfer_status as a name. Every failure used to be logged as
++      // "Transfer Cancelled", which is only one of six things it can be, and telling
++      // them apart is the difference between a cable, a stall and a timeout.
++      const char *transferStatusName(int status) {
++        switch (status) {
++          case LIBUSB_TRANSFER_COMPLETED: return "COMPLETED";
++          case LIBUSB_TRANSFER_ERROR: return "ERROR";
++          case LIBUSB_TRANSFER_TIMED_OUT: return "TIMED_OUT";
++          case LIBUSB_TRANSFER_CANCELLED: return "CANCELLED";
++          case LIBUSB_TRANSFER_STALL: return "STALL";
++          case LIBUSB_TRANSFER_NO_DEVICE: return "NO_DEVICE";
++          case LIBUSB_TRANSFER_OVERFLOW: return "OVERFLOW";
++          default: return "UNKNOWN";
++        }
++      }
++    }
++
+     void USBEndpoint::transferHandler(libusb_transfer *transfer) {
+       AASDK_LOG_USB(debug, "transferHandler()");
+       auto self = reinterpret_cast<USBEndpoint *>(transfer->user_data)->shared_from_this();
+@@ -130,7 +148,12 @@ namespace aasdk {
+           AASDK_LOG_USB(debug, "Transfer Complete.");
+           promise->resolve(transfer->actual_length);
+         } else {
+-          AASDK_LOG_USB(debug, "Transfer Cancelled.");
++          AASDK_LOG_USB(debug, "Transfer failed: " << transferStatusName(transfer->status)
++                                                   << " (" << transfer->status << "), "
++                                                   << transfer->actual_length << " of "
++                                                   << transfer->length << " bytes on endpoint 0x"
++                                                   << std::hex << static_cast<int>(transfer->endpoint)
++                                                   << std::dec);
+           auto error = transfer->status ==
+               LIBUSB_TRANSFER_CANCELLED ? error::Error(error::ErrorCode::OPERATION_ABORTED)
+                                                                      : error::Error(error::ErrorCode::USB_TRANSFER,
 diff --git a/src/USB/USBEndpoint.ut.cpp b/src/USB/USBEndpoint.ut.cpp
 index 0e7a173..a0b31da 100644
 --- a/src/USB/USBEndpoint.ut.cpp
