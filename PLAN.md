@@ -155,7 +155,7 @@ and announced its services.
 - [x] Stay connected: held a session for two minutes with no drop
 - [x] Stop and resume, 5 cycles in a row, every one reaching connected again
 - [x] Recover automatically from a phone left wedged by a run that died without saying goodbye
-- [ ] Physical unplug and replug (the port on the test phone is failing, so this is still untested)
+- [x] Physical unplug and replug: reconnects on its own, about six seconds after the cable goes back in
 
 **Checkpoint met, with one caveat.** The head unit reaches `connected` and reports
 `Channels advertised: MEDIA_SINK_VIDEO, INPUT_SOURCE, SENSOR`, verified against a Pixel
@@ -184,6 +184,31 @@ time out, which is what the alternating success and failure pattern turned out t
 A run that dies without reaching step 1 (a crash, or a force kill) leaves the phone
 wedged for the next launch. That is handled: a session that errors before it ever
 reached connected bounces the phone and starts over, up to three times.
+
+### Losing the cable mid session
+
+Different case, different handling. The phone vanishing while connected is not an error
+the user has to act on, it is a wait, so it reports `searching` rather than `error` and
+the session recovers on its own when the cable goes back in.
+
+Two things were needed. `USBHub::handleDevice` does nothing at all while its promise is
+null, and handing over the first device clears it, so every later arrival was silently
+ignored: discovery is now re-armed immediately after each handover. And the automatic
+recovery above only covered sessions that had never connected, which excluded exactly
+this case.
+
+Measured end to end, with the cable pulled and put back:
+
+| Time | USB | State |
+|---|---|---|
+| t=59s | `2d01` | connected |
+| t=68s | `2d01` | searching, "The phone disconnected. Waiting for it to come back." |
+| t=71s | none | cable out |
+| t=80s | `4ee7` | cable back, phone in normal mode |
+| t=86s | `2d01` | connected again, no user action |
+
+The drop is noticed at t=68s, before the device even disappears from `lsusb`, because
+the transport fails first.
 
 ### Reading aasdk's USB errors
 

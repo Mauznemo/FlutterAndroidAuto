@@ -135,6 +135,10 @@ A run that dies before step 1 leaves the phone wedged for the next launch, so a 
 that errors before ever reaching connected bounces the phone and retries, up to three
 times.
 
+Losing the cable mid session is a separate path: it reports `searching`, not `error`, and
+resumes on its own. That needs discovery to be re-armed after **every** handover, because
+`USBHub::handleDevice` ignores arrivals while its promise is null.
+
 **Reading aasdk USB errors:** `USB_TRANSFER`'s "Native Code" is a
 `libusb_transfer_status`, not a `libusb_error`. 2 is TIMED_OUT, 4 is STALL.
 

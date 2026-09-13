@@ -219,6 +219,18 @@ int32_t aa_session_start(AaSession* session) {
                 session->recovery_attempts = 0;
               }
 
+              // A session that was connected and then failed is almost always the cable
+              // coming out. That is not an error the user needs to act on, it is a wait:
+              // the hub is still armed, so plugging back in picks up where this left off.
+              if (state == AA_STATE_ERROR && session->reached_connected) {
+                session->reached_connected = false;
+                session->recovery_attempts = 0;
+                session->events.Emit(
+                    AA_STATE_SEARCHING,
+                    "The phone disconnected. Waiting for it to come back.");
+                return;
+              }
+
               // A session that fails before it ever connected usually means the phone is
               // still in accessory mode from a run that died without saying goodbye. It
               // will not answer on those endpoints again until it has been through the

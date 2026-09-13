@@ -110,6 +110,11 @@ void UsbConnector::WaitForDevice(int attempt) {
         if (on_device_) {
           on_device_(std::move(device));
         }
+        // Re-arm immediately. USBHub::handleDevice does nothing at all while its promise
+        // is null, and handing the device over clears it, so without this the very next
+        // arrival is ignored. That is what makes a phone that is unplugged and plugged
+        // back in never come back.
+        WaitForDevice();
       },
       [this](const aasdk::error::Error& error) {
         if (error.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED) {
