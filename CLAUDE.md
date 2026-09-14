@@ -201,7 +201,8 @@ talking unprompted, and that makes three things different.
 `InputChannel` is also the only channel called from Flutter's platform thread while an io
 thread can be tearing it down. Hence `std::atomic` flags, a mutex around `channel_`, and
 a `Channel()` helper that hands every caller its own reference. `VideoChannel` and
-`SupportChannels` have the same shape of race and have not been given the same treatment.
+`SupportChannels` had the same shape of race, for a different pair of threads, and now
+have the same treatment; see the lifetime rules below.
 
 **Movement is rate limited to one report per 16 ms.** Without it the head unit emits one
 USB bulk write per Flutter pointer event, measured at 382 a second on a desktop mouse.
@@ -305,6 +306,14 @@ The rules that came out of it, do not undo them:
   threads long after the object is gone. Capture `weak_from_this()` and lock.
 - **Anything that outlives a session must not hold a pointer back into it.** The
   connector is process lifetime, so `aa_session_destroy` calls `ClearHandlers()` first.
+- **No channel class uses its channel member in place.** Every handler runs on an io
+  thread, but `Stop()` is reached from Flutter's platform thread too, through
+  `aa_session_stop`, so a frame can be halfway through being acknowledged while the
+  channel is being dropped. `VideoChannel::Channel()`, `SupportChannels::Audio()`,
+  `Microphone()` and `Sensor()` copy the pointer out under a mutex and the caller works
+  from that copy, so a teardown mid handler drops the channel when the last reference
+  goes rather than out from under whoever is using it. The flags beside them
+  (`stopped_`, `streaming_`, `session_id_`) are `std::atomic` for the same reason.
 
 When something crashes in a destructor or inside libusb's event thread, it is almost
 always one of these rather than a new problem.

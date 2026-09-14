@@ -17,8 +17,10 @@
 #ifndef ANDROID_AUTO_LINUX_SESSION_VIDEO_CHANNEL_H_
 #define ANDROID_AUTO_LINUX_SESSION_VIDEO_CHANNEL_H_
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include <boost/asio.hpp>
@@ -96,7 +98,7 @@ class VideoChannel : public std::enable_shared_from_this<VideoChannel> {
   void Stop();
 
   // Whether any frame has arrived on this channel yet.
-  bool streaming() const { return streaming_; }
+  bool streaming() const { return streaming_.load(); }
 
   // Called by VideoEventRelay, never by aasdk directly.
   void onChannelOpenRequest(
@@ -116,6 +118,17 @@ class VideoChannel : public std::enable_shared_from_this<VideoChannel> {
   void onChannelError(const aasdk::error::Error& error);
 
  private:
+  // A reference to the live channel, or nullptr once stopped.
+  //
+  // The same reasoning as InputChannel::Channel(), for a different pair of threads.
+  // Every handler here runs on the io_context, but Stop() does not: it is reached from
+  // aa_session_stop() on Flutter's platform thread as well as from io threads, so a
+  // frame can be halfway through being acknowledged while the channel is being dropped.
+  // A caller takes its own reference and works from that, so a teardown mid handler
+  // drops the channel when the last reference goes rather than out from under whoever
+  // is using it.
+  aasdk::channel::mediasink::video::IVideoMediaSinkService::Pointer Channel() const;
+
   void Listen();
   // Tells the phone the projection is on screen. Sent unsolicited after setup, because
   // the phone will not start encoding until it believes the head unit is showing it.
@@ -130,12 +143,15 @@ class VideoChannel : public std::enable_shared_from_this<VideoChannel> {
   std::shared_ptr<VideoDecoder> decoder_;
   LogHandler log_;
 
+  // Guards channel_ and messenger_ only. Held for the length of a pointer copy, never
+  // across a send.
+  mutable std::mutex channel_mutex_;
   aasdk::channel::mediasink::video::IVideoMediaSinkService::Pointer channel_;
   std::shared_ptr<VideoEventRelay> relay_;
 
-  int32_t session_id_ = -1;
-  bool streaming_ = false;
-  bool stopped_ = false;
+  std::atomic<int32_t> session_id_{-1};
+  std::atomic<bool> streaming_{false};
+  std::atomic<bool> stopped_{false};
 };
 
 }  // namespace aa

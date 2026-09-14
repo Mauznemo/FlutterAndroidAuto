@@ -26,9 +26,11 @@
 #ifndef ANDROID_AUTO_LINUX_SESSION_SUPPORT_CHANNELS_H_
 #define ANDROID_AUTO_LINUX_SESSION_SUPPORT_CHANNELS_H_
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include <boost/asio.hpp>
@@ -154,10 +156,29 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
     int32_t session_id = -1;
   };
 
+  // A copy of one audio sink, or one with a null channel if there is no such sink or
+  // the session has stopped. Microphone() and Sensor() are the same idea.
+  //
+  // The same reasoning as InputChannel::Channel(), for a different pair of threads.
+  // Every handler here runs on the io_context, but Stop() does not: it is reached from
+  // aa_session_stop() on Flutter's platform thread as well as from io threads, so a
+  // buffer can be halfway through being acknowledged while the channels are being
+  // dropped. A caller works from its own copy, so a teardown mid handler drops the
+  // channel when the last reference goes rather than out from under whoever is using
+  // it.
+  AudioSink Audio(aasdk::messenger::ChannelId channel) const;
+  aasdk::channel::mediasource::IMediaSourceService::Pointer Microphone() const;
+  aasdk::channel::sensorsource::ISensorSourceService::Pointer Sensor() const;
+  void SetAudioSession(aasdk::messenger::ChannelId channel, int32_t session_id);
+
   void ListenAudio(aasdk::messenger::ChannelId channel);
   void ListenMicrophone();
   void ListenSensor();
+  // Each of these builds its channel under the lock and arms the receive outside it,
+  // which is the only ordering that neither races Stop() nor takes the lock twice.
   void AddAudioSink(aasdk::messenger::ChannelId channel);
+  void AddMicrophone();
+  void AddSensor();
   aasdk::channel::SendPromise::Pointer MakeSendPromise(const char* what);
   void Log(const std::string& message);
 
@@ -167,14 +188,17 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
   HeadUnitDescription description_;
   LogHandler log_;
 
+  // Guards audio_, microphone_, sensor_ and messenger_. Held for the length of a
+  // pointer copy, never across a send.
+  mutable std::mutex channels_mutex_;
   std::map<aasdk::messenger::ChannelId, AudioSink> audio_;
   aasdk::channel::mediasource::IMediaSourceService::Pointer microphone_;
   std::shared_ptr<MicrophoneRelay> microphone_relay_;
   aasdk::channel::sensorsource::ISensorSourceService::Pointer sensor_;
   std::shared_ptr<SensorRelay> sensor_relay_;
 
-  int32_t microphone_session_ = 0;
-  bool stopped_ = false;
+  std::atomic<int32_t> microphone_session_{0};
+  std::atomic<bool> stopped_{false};
 };
 
 }  // namespace aa

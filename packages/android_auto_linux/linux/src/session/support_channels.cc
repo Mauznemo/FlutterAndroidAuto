@@ -159,12 +159,45 @@ SupportChannels::SupportChannels(boost::asio::io_context& io_context,
 SupportChannels::~SupportChannels() { Stop(); }
 
 void SupportChannels::AddAudioSink(aasdk::messenger::ChannelId channel) {
-  AudioSink sink;
-  sink.channel = std::make_shared<aasdk::channel::mediasink::audio::AudioMediaSinkService>(
-      strand_, messenger_, channel);
-  sink.relay = std::make_shared<AudioSinkRelay>(weak_from_this(), channel);
-  audio_.emplace(channel, std::move(sink));
+  {
+    std::lock_guard<std::mutex> lock(channels_mutex_);
+    if (stopped_.load() || !messenger_) {
+      return;
+    }
+    AudioSink sink;
+    sink.channel =
+        std::make_shared<aasdk::channel::mediasink::audio::AudioMediaSinkService>(
+            strand_, messenger_, channel);
+    sink.relay = std::make_shared<AudioSinkRelay>(weak_from_this(), channel);
+    audio_.emplace(channel, std::move(sink));
+  }
   ListenAudio(channel);
+}
+
+void SupportChannels::AddMicrophone() {
+  {
+    std::lock_guard<std::mutex> lock(channels_mutex_);
+    if (stopped_.load() || !messenger_) {
+      return;
+    }
+    microphone_ = std::make_shared<aasdk::channel::mediasource::MediaSourceService>(
+        strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SOURCE_MICROPHONE);
+    microphone_relay_ = std::make_shared<MicrophoneRelay>(weak_from_this());
+  }
+  ListenMicrophone();
+}
+
+void SupportChannels::AddSensor() {
+  {
+    std::lock_guard<std::mutex> lock(channels_mutex_);
+    if (stopped_.load() || !messenger_) {
+      return;
+    }
+    sensor_ = std::make_shared<aasdk::channel::sensorsource::SensorSourceService>(
+        strand_, messenger_);
+    sensor_relay_ = std::make_shared<SensorRelay>(weak_from_this());
+  }
+  ListenSensor();
 }
 
 void SupportChannels::Start() {
@@ -178,49 +211,84 @@ void SupportChannels::Start() {
     AddAudioSink(aasdk::messenger::ChannelId::MEDIA_SINK_GUIDANCE_AUDIO);
   }
   if (description_.enable_microphone) {
-    microphone_ = std::make_shared<aasdk::channel::mediasource::MediaSourceService>(
-        strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SOURCE_MICROPHONE);
-    microphone_relay_ = std::make_shared<MicrophoneRelay>(weak_from_this());
-    ListenMicrophone();
+    AddMicrophone();
   }
   if (description_.enable_sensors) {
-    sensor_ = std::make_shared<aasdk::channel::sensorsource::SensorSourceService>(
-        strand_, messenger_);
-    sensor_relay_ = std::make_shared<SensorRelay>(weak_from_this());
-    ListenSensor();
+    AddSensor();
   }
 }
 
 void SupportChannels::Stop() {
-  if (stopped_) {
+  if (stopped_.exchange(true)) {
     return;
   }
-  stopped_ = true;
-  audio_.clear();
-  microphone_.reset();
-  sensor_.reset();
-  messenger_.reset();
+  // Moved out and destroyed after the lock is dropped, so a handler holding its own
+  // references on an io thread finishes against live objects.
+  std::map<aasdk::messenger::ChannelId, AudioSink> audio;
+  aasdk::channel::mediasource::IMediaSourceService::Pointer microphone;
+  aasdk::channel::sensorsource::ISensorSourceService::Pointer sensor;
+  {
+    std::lock_guard<std::mutex> lock(channels_mutex_);
+    audio.swap(audio_);
+    microphone = std::move(microphone_);
+    sensor = std::move(sensor_);
+    messenger_.reset();
+  }
+}
+
+SupportChannels::AudioSink SupportChannels::Audio(
+    aasdk::messenger::ChannelId channel) const {
+  if (stopped_.load()) {
+    return AudioSink{};
+  }
+  std::lock_guard<std::mutex> lock(channels_mutex_);
+  auto found = audio_.find(channel);
+  return found == audio_.end() ? AudioSink{} : found->second;
+}
+
+aasdk::channel::mediasource::IMediaSourceService::Pointer SupportChannels::Microphone()
+    const {
+  if (stopped_.load()) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(channels_mutex_);
+  return microphone_;
+}
+
+aasdk::channel::sensorsource::ISensorSourceService::Pointer SupportChannels::Sensor()
+    const {
+  if (stopped_.load()) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(channels_mutex_);
+  return sensor_;
+}
+
+void SupportChannels::SetAudioSession(aasdk::messenger::ChannelId channel,
+                                      int32_t session_id) {
+  std::lock_guard<std::mutex> lock(channels_mutex_);
+  auto found = audio_.find(channel);
+  if (found != audio_.end()) {
+    found->second.session_id = session_id;
+  }
 }
 
 void SupportChannels::ListenAudio(aasdk::messenger::ChannelId channel) {
-  if (stopped_) {
-    return;
-  }
-  auto found = audio_.find(channel);
-  if (found != audio_.end() && found->second.channel) {
-    found->second.channel->receive(found->second.relay);
+  AudioSink sink = Audio(channel);
+  if (sink.channel) {
+    sink.channel->receive(sink.relay);
   }
 }
 
 void SupportChannels::ListenMicrophone() {
-  if (!stopped_ && microphone_) {
-    microphone_->receive(microphone_relay_);
+  if (auto microphone = Microphone()) {
+    microphone->receive(microphone_relay_);
   }
 }
 
 void SupportChannels::ListenSensor() {
-  if (!stopped_ && sensor_) {
-    sensor_->receive(sensor_relay_);
+  if (auto sensor = Sensor()) {
+    sensor->receive(sensor_relay_);
   }
 }
 
@@ -246,43 +314,36 @@ aasdk::channel::SendPromise::Pointer SupportChannels::MakeSendPromise(const char
 }
 
 void SupportChannels::OnAudioOpen(aasdk::messenger::ChannelId channel) {
-  auto found = audio_.find(channel);
-  if (found != audio_.end()) {
+  AudioSink sink = Audio(channel);
+  if (sink.channel) {
     control_pb::ChannelOpenResponse response;
     response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
-    found->second.channel->sendChannelOpenResponse(response,
-                                                   MakeSendPromise("audio channel open"));
+    sink.channel->sendChannelOpenResponse(response,
+                                          MakeSendPromise("audio channel open"));
   }
   ListenAudio(channel);
 }
 
 void SupportChannels::OnAudioSetup(aasdk::messenger::ChannelId channel) {
-  auto found = audio_.find(channel);
-  if (found != audio_.end()) {
+  AudioSink sink = Audio(channel);
+  if (sink.channel) {
     media_pb::Config response;
     response.set_status(media_pb::Config::STATUS_READY);
     response.set_max_unacked(kAudioMaxUnacked);
     response.add_configuration_indices(0);
-    found->second.channel->sendChannelSetupResponse(response,
-                                                    MakeSendPromise("audio setup"));
+    sink.channel->sendChannelSetupResponse(response, MakeSendPromise("audio setup"));
   }
   ListenAudio(channel);
 }
 
 void SupportChannels::OnAudioStart(aasdk::messenger::ChannelId channel,
                                    int32_t session_id) {
-  auto found = audio_.find(channel);
-  if (found != audio_.end()) {
-    found->second.session_id = session_id;
-  }
+  SetAudioSession(channel, session_id);
   ListenAudio(channel);
 }
 
 void SupportChannels::OnAudioStop(aasdk::messenger::ChannelId channel) {
-  auto found = audio_.find(channel);
-  if (found != audio_.end()) {
-    found->second.session_id = -1;
-  }
+  SetAudioSession(channel, -1);
   ListenAudio(channel);
 }
 
@@ -290,44 +351,44 @@ void SupportChannels::OnAudioData(aasdk::messenger::ChannelId channel) {
   // The samples are dropped on the floor until M6. The acknowledgement is not optional
   // though: without it the phone runs out of unacked buffers and stops sending, and a
   // stalled channel is one more reason for it to end the session.
-  auto found = audio_.find(channel);
-  if (found != audio_.end() && found->second.session_id >= 0) {
+  AudioSink sink = Audio(channel);
+  if (sink.channel && sink.session_id >= 0) {
     source_pb::Ack ack;
-    ack.set_session_id(found->second.session_id);
+    ack.set_session_id(sink.session_id);
     ack.set_ack(1);
-    found->second.channel->sendMediaAckIndication(ack, MakeSendPromise("audio ack"));
+    sink.channel->sendMediaAckIndication(ack, MakeSendPromise("audio ack"));
   }
   ListenAudio(channel);
 }
 
 void SupportChannels::OnMicrophoneOpen() {
-  if (microphone_) {
+  if (auto microphone = Microphone()) {
     control_pb::ChannelOpenResponse response;
     response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
-    microphone_->sendChannelOpenResponse(response,
-                                         MakeSendPromise("microphone channel open"));
+    microphone->sendChannelOpenResponse(response,
+                                        MakeSendPromise("microphone channel open"));
   }
   ListenMicrophone();
 }
 
 void SupportChannels::OnMicrophoneSetup() {
-  if (microphone_) {
+  if (auto microphone = Microphone()) {
     media_pb::Config response;
     response.set_status(media_pb::Config::STATUS_READY);
     response.set_max_unacked(kAudioMaxUnacked);
     response.add_configuration_indices(0);
-    microphone_->sendChannelSetupResponse(response, MakeSendPromise("microphone setup"));
+    microphone->sendChannelSetupResponse(response, MakeSendPromise("microphone setup"));
   }
   ListenMicrophone();
 }
 
 void SupportChannels::OnMicrophoneRequest(bool open) {
-  if (microphone_) {
+  if (auto microphone = Microphone()) {
     source_pb::MicrophoneResponse response;
     response.set_status(0);
     response.set_session_id(++microphone_session_);
-    microphone_->sendMicrophoneOpenResponse(response,
-                                            MakeSendPromise("microphone open response"));
+    microphone->sendMicrophoneOpenResponse(response,
+                                           MakeSendPromise("microphone open response"));
     if (open) {
       // Answered, but nothing will follow. Say so rather than leaving a silent
       // Assistant looking like a bug in the projection.
@@ -341,23 +402,24 @@ void SupportChannels::OnMicrophoneRequest(bool open) {
 void SupportChannels::OnMicrophoneAck() { ListenMicrophone(); }
 
 void SupportChannels::OnSensorOpen() {
-  if (sensor_) {
+  if (auto sensor = Sensor()) {
     control_pb::ChannelOpenResponse response;
     response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
-    sensor_->sendChannelOpenResponse(response, MakeSendPromise("sensor channel open"));
+    sensor->sendChannelOpenResponse(response, MakeSendPromise("sensor channel open"));
   }
   ListenSensor();
 }
 
 void SupportChannels::OnSensorStartRequest(const sensor_pb::SensorRequest& request) {
-  if (!sensor_) {
+  auto sensor = Sensor();
+  if (!sensor) {
     ListenSensor();
     return;
   }
 
   sensor_pb::SensorStartResponseMessage response;
   response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
-  sensor_->sendSensorStartResponse(response, MakeSendPromise("sensor start"));
+  sensor->sendSensorStartResponse(response, MakeSendPromise("sensor start"));
 
   // The phone waits for a first reading before it will show anything that depends on
   // the sensor, so answering the subscription and then saying nothing is the same as
@@ -375,7 +437,7 @@ void SupportChannels::OnSensorStartRequest(const sensor_pb::SensorRequest& reque
     has_data = true;
   }
   if (has_data) {
-    sensor_->sendSensorEventIndication(batch, MakeSendPromise("sensor reading"));
+    sensor->sendSensorEventIndication(batch, MakeSendPromise("sensor reading"));
   }
   ListenSensor();
 }

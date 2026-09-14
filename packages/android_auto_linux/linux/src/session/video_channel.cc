@@ -106,28 +106,44 @@ VideoChannel::VideoChannel(boost::asio::io_context& io_context, aasdk::Strand& s
 VideoChannel::~VideoChannel() { Stop(); }
 
 void VideoChannel::Start() {
-  channel_ = std::make_shared<aasdk::channel::mediasink::video::VideoMediaSinkService>(
-      strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SINK_VIDEO);
   relay_ = std::make_shared<VideoEventRelay>(weak_from_this());
+  {
+    std::lock_guard<std::mutex> lock(channel_mutex_);
+    channel_ = std::make_shared<aasdk::channel::mediasink::video::VideoMediaSinkService>(
+        strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SINK_VIDEO);
+  }
   Listen();
 }
 
 void VideoChannel::Stop() {
-  if (stopped_) {
+  if (stopped_.exchange(true)) {
     return;
   }
-  stopped_ = true;
   streaming_ = false;
   session_id_ = -1;
-  channel_.reset();
-  messenger_.reset();
+  // Moved out and destroyed after the lock is dropped, so a handler holding its own
+  // reference on an io thread finishes against a live object.
+  aasdk::channel::mediasink::video::IVideoMediaSinkService::Pointer channel;
+  {
+    std::lock_guard<std::mutex> lock(channel_mutex_);
+    channel = std::move(channel_);
+    messenger_.reset();
+  }
+}
+
+aasdk::channel::mediasink::video::IVideoMediaSinkService::Pointer VideoChannel::Channel()
+    const {
+  if (stopped_.load()) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(channel_mutex_);
+  return channel_;
 }
 
 void VideoChannel::Listen() {
-  if (stopped_ || !channel_) {
-    return;
+  if (auto channel = Channel()) {
+    channel->receive(relay_);
   }
-  channel_->receive(relay_);
 }
 
 void VideoChannel::Log(const std::string& message) {
@@ -152,39 +168,44 @@ aasdk::channel::SendPromise::Pointer VideoChannel::MakeSendPromise(const char* w
 }
 
 void VideoChannel::onChannelOpenRequest(const control_pb::ChannelOpenRequest& request) {
-  control_pb::ChannelOpenResponse response;
-  response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
-  channel_->sendChannelOpenResponse(response, MakeSendPromise("video channel open"));
-  Log("The phone opened the video channel.");
+  if (auto channel = Channel()) {
+    control_pb::ChannelOpenResponse response;
+    response.set_status(aap_protobuf::shared::STATUS_SUCCESS);
+    channel->sendChannelOpenResponse(response, MakeSendPromise("video channel open"));
+    Log("The phone opened the video channel.");
+  }
   Listen();
 }
 
 void VideoChannel::onMediaChannelSetupRequest(const media_pb::Setup& request) {
-  media_pb::Config response;
-  response.set_status(media_pb::Config::STATUS_READY);
-  // One frame in flight at a time. The phone waits for the acknowledgement before
-  // sending the next, which is what stops it running ahead of a head unit that cannot
-  // keep up, and it is what every other implementation asks for.
-  response.set_max_unacked(1);
-  // Index into the video_configs list we sent during service discovery. There is one.
-  response.add_configuration_indices(0);
-  channel_->sendChannelSetupResponse(response, MakeSendPromise("video setup"));
+  if (auto channel = Channel()) {
+    media_pb::Config response;
+    response.set_status(media_pb::Config::STATUS_READY);
+    // One frame in flight at a time. The phone waits for the acknowledgement before
+    // sending the next, which is what stops it running ahead of a head unit that cannot
+    // keep up, and it is what every other implementation asks for.
+    response.set_max_unacked(1);
+    // Index into the video_configs list we sent during service discovery. There is one.
+    response.add_configuration_indices(0);
+    channel->sendChannelSetupResponse(response, MakeSendPromise("video setup"));
 
-  // Unsolicited, and it has to be: the phone will not start encoding until it believes
-  // the head unit is actually showing the projection.
-  SendVideoFocus(true, true);
+    // Unsolicited, and it has to be: the phone will not start encoding until it believes
+    // the head unit is actually showing the projection.
+    SendVideoFocus(true, true);
+  }
   Listen();
 }
 
 void VideoChannel::SendVideoFocus(bool projected, bool unsolicited) {
-  if (!channel_) {
+  auto channel = Channel();
+  if (!channel) {
     return;
   }
   video_pb::VideoFocusNotification notification;
   notification.set_focus(projected ? video_pb::VIDEO_FOCUS_PROJECTED
                                    : video_pb::VIDEO_FOCUS_NATIVE);
   notification.set_unsolicited(unsolicited);
-  channel_->sendVideoFocusIndication(notification, MakeSendPromise("video focus"));
+  channel->sendVideoFocusIndication(notification, MakeSendPromise("video focus"));
 }
 
 void VideoChannel::onVideoFocusRequest(
@@ -215,13 +236,15 @@ void VideoChannel::onMediaChannelStopIndication(const media_pb::Stop& indication
 }
 
 void VideoChannel::AcknowledgeFrame() {
-  if (session_id_ < 0 || !channel_) {
+  const int32_t session_id = session_id_.load();
+  auto channel = Channel();
+  if (session_id < 0 || !channel) {
     return;
   }
   source_pb::Ack ack;
-  ack.set_session_id(session_id_);
+  ack.set_session_id(session_id);
   ack.set_ack(1);
-  channel_->sendMediaAckIndication(ack, MakeSendPromise("video ack"));
+  channel->sendMediaAckIndication(ack, MakeSendPromise("video ack"));
 }
 
 void VideoChannel::onMediaIndication(const aasdk::common::DataConstBuffer& buffer) {
@@ -238,8 +261,7 @@ void VideoChannel::onMediaIndication(const aasdk::common::DataConstBuffer& buffe
 void VideoChannel::onMediaWithTimestampIndication(
     aasdk::messenger::Timestamp::ValueType timestamp,
     const aasdk::common::DataConstBuffer& buffer) {
-  if (!streaming_) {
-    streaming_ = true;
+  if (!streaming_.exchange(true)) {
     AASDK_LOG(debug) << "[Video] first frame, " << buffer.size
                      << " bytes: " << HexPrefix(buffer, 16);
     Log("First video frame received.");
