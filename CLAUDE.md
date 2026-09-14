@@ -130,6 +130,9 @@ Do NOT git commit unless you are toled to do so!
 | `linux/src/event_bus.*` | native to Dart events |
 | `linux/src/video/video_decoder.*` | H.264 to frames on its own thread, VA-API or software |
 | `linux/src/session/video_channel.*` | the MEDIA_SINK_VIDEO channel |
+| `linux/src/audio/pcm_sink.*` | the API agnostic seam for audio, **the only place naming PulseAudio is pulse_sink.cc** |
+| `linux/src/audio/audio_output.*` | three streams, a writer thread each, volume, mute and ducking |
+| `linux/src/session/audio_channels.*` | the three MEDIA_SINK audio channels |
 | `linux/src/session/support_channels.*` | the channels that must answer for video to flow at all |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 
@@ -164,9 +167,10 @@ service discovery response just stops talking and drops out of accessory mode.
 
 - **Advertise every channel, not only the implemented ones.** A head unit offering video,
   input and sensors is one Android Auto refuses to project to. The three audio sinks and
-  the microphone have to be there too. `src/session/support_channels.cc` answers them and
-  discards what they carry until M6 and M7 make them real. The older rule still holds on
-  top of this: an advertised channel that is never serviced gets the connection dropped.
+  the microphone have to be there too. M6 made the audio sinks real;
+  `src/session/support_channels.cc` still answers the microphone and discards what it
+  carries until M7. The older rule holds on top of this: an advertised channel that is
+  never serviced gets the connection dropped.
 - **The sensor channel is load bearing.** The phone locks most of its interface until the
   head unit answers the driving status subscription.
 - **Fill in the fields the schema calls optional.** `vehicle_id` and `driver_position`
@@ -210,6 +214,53 @@ USB bulk write per Flutter pointer event, measured at 382 a second on a desktop 
 What comes back is a video stream of at most 60 fps, so extra samples cannot produce a
 distinguishable picture. Only movement is limited: a finger landing or lifting is an edge,
 not a sample, and has to go at once.
+
+## Audio, and why the head unit is the thing that mixes
+
+Android Auto sends media, system and speech as **three separate PCM streams** and leaves
+the mixing to the head unit. The phone cannot duck its own music under its own
+navigation prompt, because by the time the two exist they are already on different
+channels. Whoever mixes is whoever ducks, and that is this code.
+
+- **Media drops to 25% while the speech stream carries audio**, and for 500 ms after so
+  the pauses inside one instruction do not make it flutter. Ramped over 20 ms, never
+  stepped: a step on music is an audible click. `[Audio] media ducked under speech` is
+  logged once per transition, which is the only way to answer "did it duck" without
+  recording the speakers.
+- **Ducking is not driven by the audio focus request.** A phone asks for
+  `GAIN_TRANSIENT_MAY_DUCK` before its own media too, so that would duck media against
+  itself. The focus exchange is answered properly all the same, in
+  `ProtocolSession::onAudioFocusRequest`: a transient request gets `GAIN_TRANSIENT`, not
+  `GAIN`.
+- **Every method on `PcmSink` blocks and none is thread safe.** A sink belongs to one
+  writer thread, which is never an io_context thread: `Write` waits for the server to
+  take the samples, which is what paces the head unit to real time, and waiting on an io
+  thread stalls the USB transport.
+- **A buffer is acknowledged when it is queued, not when it is heard.** The phone's ten
+  unacked buffers are the flow control, the queue here is bounded at one second and
+  drops oldest first, and the pacing is the writer waiting on the speakers.
+- **Volume and mute are applied in software**, on the int16 samples, so they work on any
+  backend and mute is exactly zero rather than nearly zero. A muted stream is written as
+  silence rather than not written, so the stream clock keeps running.
+- **An underrun only counts once the buffer has been full on that open.** A stream the
+  phone feeds in real time (speech is exactly that) never gets ahead of the speakers and
+  sits at 10 ms buffered from first sample to last. Counting those made every navigation
+  prompt an underrun. See `Track::primed`.
+- `EndStream` **drains rather than flushes**. The phone ends a spoken instruction with
+  the stop indication, so discarding what is queued clips the last syllable off every
+  prompt. The sink is left open across the gap, because guidance comes every few seconds
+  and reopening costs a fresh prebuffer.
+
+Measuring any of this means recording, not listening:
+
+```bash
+parecord --device=@DEFAULT_MONITOR@ --format=s16le --rate=48000 --channels=2 \
+  --file-format=wav /tmp/probe.wav
+```
+
+then a per-100 ms RMS over it. Comparisons have to be back to back on the same passage:
+two recordings a minute apart gave -2.2 dB for a -12 dB volume change, because the track
+had moved on.
 
 ## Stopping and resuming a session
 
@@ -352,5 +403,8 @@ always one of these rather than a new problem.
 - The video path needs `libavcodec`, `libavutil` and `libswscale` (no libavformat, there
   is no container to demux). `drm_fourcc.h` comes from the kernel headers, not libdrm, so
   there is nothing extra for an end user to install.
+- The audio path needs `libpulse` and `libpulse-simple`. On this machine that is PipeWire
+  answering to PulseAudio's API, which is why it is the first backend: the same code runs
+  on PipeWire, on PulseAudio, and on the compatibility layer infotainment images ship.
 - Android Auto logs nothing to `logcat` on a production phone, so do not go looking.
   `adb` is still useful for telling a locked phone from an unresponsive one.

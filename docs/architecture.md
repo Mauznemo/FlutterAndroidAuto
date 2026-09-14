@@ -109,7 +109,7 @@ day Linux flips to Vulkan.
 | Flutter raster thread | calls our `FlTextureGL::populate`, GL context current | do decoding |
 | `io_context` pool (2 threads) | aasdk transport, SSL, channel dispatch | touch GL or Dart |
 | Decoder thread | libavcodec, dmabuf export | touch Dart |
-| Audio threads | PipeWire callbacks | allocate |
+| Audio writer threads (one per stream) | one `PcmSink` each, blocking writes | touch Dart, or run on the io_context |
 
 Handoff rules:
 
@@ -121,6 +121,11 @@ Handoff rules:
   GL calls, no allocation.
 - Native to Dart events are pushed onto a lock free queue and posted to a Dart
   `NativeCallable.listener`. Never call into Dart from an aasdk callback directly.
+- PCM is copied out of the aasdk buffer on the io thread, queued, and written by the
+  stream's own thread. The write blocks until the audio server takes it, which is what
+  paces the head unit to real time; doing that on an io thread would stall the USB
+  transport. `audio/pcm_sink.h` is the seam, the same idea as `frame_ring.h` is for
+  video: nothing above it names PulseAudio.
 
 ## The C ABI
 

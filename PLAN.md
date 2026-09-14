@@ -23,8 +23,8 @@ implementation can be added later without touching the app-facing API.
 | M3 | USB transport, AOAP, SSL, service discovery | **done** |
 | M4 | Video channel to Flutter texture | **done** |
 | M5 | Input channel (touch, keys, rotary) | **done** |
-| M6 | Audio output (media, system, speech) | **next** |
-| M7 | Microphone input | not started |
+| M6 | Audio output (media, system, speech) | **done** |
+| M7 | Microphone input | **next** |
 | M8 | Sensors (night mode, GPS, driving status) | not started |
 | M9 | Metadata channels for native Flutter UI | not started |
 | M10 | Wireless Android Auto | not started |
@@ -489,14 +489,88 @@ reproducible on demand:
 
 ## M6. Audio output (media, system, speech)
 
-- [ ] `MediaAudioService`, `SystemAudioService`, `SpeechAudioService` channels
-- [ ] PCM sink abstraction, first backend PipeWire via `libpulse-simple`
-- [ ] Correct stream formats: media 48 kHz stereo 16 bit, system and speech 16 kHz mono 16 bit
-- [ ] Audio focus request/response handling, duck media under speech
-- [ ] Expose per stream volume and mute through the Dart API
-- [ ] Let the host app choose the output device (the infotainment system may route audio itself)
-- [ ] Optional: expose raw PCM to Dart for apps that want to do their own mixing
-- [ ] Underrun and xrun handling, no audible glitches over a 10 minute playback
+Goal: the phone's audio comes out of the machine's speakers, mixed the way a head unit
+is supposed to mix it.
+
+- [x] `MediaAudioService`, `SystemAudioService`, `SpeechAudioService` channels
+- [x] PCM sink abstraction, first backend PipeWire via `libpulse-simple`
+- [x] Correct stream formats: media 48 kHz stereo 16 bit, system and speech 16 kHz mono 16 bit
+- [x] Audio focus request/response handling, duck media under speech
+- [x] Expose per stream volume and mute through the Dart API
+- [x] Let the host app choose the output device (the infotainment system may route audio itself)
+- [x] Optional: expose raw PCM to Dart for apps that want to do their own mixing
+- [x] Underrun and xrun handling, no audible glitches over a 10 minute playback
+- [ ] **The system sink has never carried a buffer.** The phone opens it and accepts the
+      setup response, and it is the same code as the two that work, but nothing in a
+      session produced one: not a shell notification, not the volume keys, not touch
+      feedback with `sound_effects_enabled` on. Advertised, answered, never heard.
+
+**Checkpoint met.** Music from the phone playing through the laptop's speakers, at the
+volume the Flutter app asked for, ducking under navigation prompts and coming back up.
+
+### Measured
+
+| | |
+|---|---|
+| Continuous media playback | **11 minutes, 0 underruns, 0 buffers dropped** |
+| Buffer held at the server | 118 to 161 ms, never outside it |
+| Volume, 100% against 25% | -11.4 dB measured, -12.0 dB asked for |
+| Mute | digital silence, peak sample 0 |
+| Duck under a guidance prompt | engaged for 2.3 s, released 0.5 s after the last speech buffer |
+| Output device change while playing | stream reopened on the named sink in 40 ms |
+
+Volume and ducking were checked by recording the sink monitor and reading the envelope,
+not by listening. That is worth keeping in mind for the next audio change: `parecord`
+on `@DEFAULT_MONITOR@` plus a per-100 ms RMS is what turns "sounds right" into a number.
+The first attempt at the volume check compared two recordings a minute apart and got
+-2.2 dB for a -12 dB change, because the track had moved on to a quieter passage. Back
+to back, same passage, is the only way it means anything.
+
+### The head unit is what ducks
+
+Android Auto sends media, system and speech as three separate channels. The phone
+therefore *cannot* duck its own music under its own navigation prompt: by the time the
+two exist they are on different channels heading for different speakers, and whoever
+mixes them is whoever ducks. openauto does not, which is a known complaint about it.
+
+Media drops to 25% while the speech stream is carrying audio, and for 500 ms after, so
+the pauses inside one spoken instruction do not make it flutter. The change is ramped
+over 20 ms rather than stepped, because a step on a music stream is an audible click and
+a click under a navigation prompt is more noticeable than the ducking it announces.
+
+Deliberately **not** driven by the audio focus request. A phone asks for
+`GAIN_TRANSIENT_MAY_DUCK` before its own media as well as before a prompt, so ducking on
+the request makes the media stream duck against itself. The speech channel carrying
+audio is the unambiguous signal, so that is the one used. The focus exchange still got a
+real state machine, because the answer changes the phone's behaviour: a transient
+request is now answered `GAIN_TRANSIENT` rather than `GAIN`.
+
+Watch for `[Audio] media ducked under speech` in the log. It is logged once per
+transition, because the alternative way to answer "did it duck" is to record the
+speakers and read the envelope, and that is not a thing to repeat.
+
+### What an underrun is, and the first definition that was wrong
+
+The first version counted an underrun whenever the server's buffer fell below 25 ms.
+Every navigation prompt then reported one, and it was not wrong about the buffer: a
+stream the phone feeds in **real time** never gets ahead of the speakers, so a spoken
+instruction sits at 10 ms buffered from its first sample to its last. Nothing skipped.
+
+The counter now only arms once the buffer has been comfortably full on that open, which
+is the difference between a stream that ran ahead and then starved, and one that was
+never ahead in the first place. Media reaches 150 ms and stays there; speech never does
+and never counts.
+
+### Acknowledge on queue, not on playback
+
+A buffer is acknowledged the moment it is handed to `AudioOutput`, not when it is heard.
+The phone is allowed ten buffers ahead, the queue here is bounded at one second and
+drops oldest first, and the real pacing is `pa_simple_write` waiting on the speakers.
+Acknowledging on playback instead would put a USB round trip inside the audio clock.
+
+Blocking is the whole point of the design, and it is why each stream has a thread of its
+own: waiting on the speakers from an io_context thread would stall the USB transport,
+which is the thing that makes a phone drop the session.
 
 ---
 
