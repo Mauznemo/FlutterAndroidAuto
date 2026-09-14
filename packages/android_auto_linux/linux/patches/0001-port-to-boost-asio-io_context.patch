@@ -1122,7 +1122,7 @@ index 3b48dc1..1bdf236 100644
        IAccessoryModeQueryChain::Pointer queryChain_;
        Promise::Pointer promise_;
 diff --git a/include/aasdk/USB/USBEndpoint.hpp b/include/aasdk/USB/USBEndpoint.hpp
-index 8d30656..a5ec3d0 100644
+index 8d30656..0ed80be 100644
 --- a/include/aasdk/USB/USBEndpoint.hpp
 +++ b/include/aasdk/USB/USBEndpoint.hpp
 @@ -22,6 +22,7 @@
@@ -1142,7 +1142,17 @@ index 8d30656..a5ec3d0 100644
                    uint8_t endpointAddress = 0x00);
  
        void controlTransfer(common::DataBuffer buffer, uint32_t timeout, Promise::Pointer promise) override;
-@@ -56,7 +57,7 @@ namespace aasdk {
+@@ -53,14 +54,26 @@ namespace aasdk {
+ 
+       void transfer(libusb_transfer *transfer, Promise::Pointer promise);
+ 
++      // Resubmits a transfer that failed without moving any data, returning true if it
++      // was resubmitted and the promise therefore still belongs to transfers_.
++      bool retryTransfer(libusb_transfer *transfer, Promise::Pointer &promise);
++
++      // Debug only, see AA_FAULT_TRANSFER_AFTER in the .cpp file.
++      void injectFault(libusb_transfer *transfer);
++
        static void transferHandler(libusb_transfer *transfer);
  
        IUSBWrapper &usbWrapper_;
@@ -1151,6 +1161,15 @@ index 8d30656..a5ec3d0 100644
        DeviceHandle handle_;
        uint8_t endpointAddress_;
        Transfers transfers_;
+       std::shared_ptr<USBEndpoint> self_;
++      // Consecutive failed transfers resubmitted without a success in between.
++      unsigned int retries_ = 0;
++      // Fault injection, see AA_FAULT_TRANSFER_AFTER in USBEndpoint.cpp.
++      int faultCountdown_ = -1;
++      bool injectHalt_ = false;
+     };
+ 
+   }
 diff --git a/include/aasdk/USB/USBHub.hpp b/include/aasdk/USB/USBHub.hpp
 index 1608aa2..1313713 100644
 --- a/include/aasdk/USB/USBHub.hpp
@@ -2152,7 +2171,7 @@ index fc7b143..f7826fe 100644
      AccessoryModeQueryChainFactoryMock queryChainFactoryMock_;
      AccessoryModeQueryChainMock queryChainMock_;
 diff --git a/src/USB/USBEndpoint.cpp b/src/USB/USBEndpoint.cpp
-index d60acb6..84b0b89 100644
+index d60acb6..58a71c2 100644
 --- a/src/USB/USBEndpoint.cpp
 +++ b/src/USB/USBEndpoint.cpp
 @@ -24,7 +24,7 @@
@@ -2164,7 +2183,7 @@ index d60acb6..84b0b89 100644
                               uint8_t endpointAddress)
          : usbWrapper_(usbWrapper), strand_(ioService), handle_(std::move(handle)), endpointAddress_(endpointAddress) {
      }
-@@ -114,6 +114,24 @@ namespace aasdk {
+@@ -114,6 +114,129 @@ namespace aasdk {
        return handle_;
      }
  
@@ -2186,12 +2205,128 @@ index d60acb6..84b0b89 100644
 +      }
 +    }
 +
++    // How many times in a row a transfer may be resubmitted before the failure is
++    // treated as real. Consecutive, so an isolated glitch every few minutes never runs
++    // the budget down, while a link that has genuinely gone still gives up at once.
++    static constexpr unsigned int kMaxTransferRetries = 5;
++
++    // Turns the Nth completed IN transfer into a transaction error whose resubmit is
++    // refused as a halted endpoint, which is the exact failure seen in the wild.
++    //
++    //   AA_FAULT_TRANSFER_AFTER=200 tools/run-example.sh --bundle
++    //
++    // The recovery it exercises cannot be waited for reliably: the real fault appeared
++    // every few minutes one evening and then not once in 46 minutes the next morning.
++    //
++    // It cannot be a faithful test of the outcome, only of the mechanics. A real
++    // transaction error moves no data and the device still holds it; this one discards a
++    // transfer that really did arrive, so the framing is gone afterwards whatever the
++    // recovery does. What it proves is that the retry decides correctly, that clearing
++    // the halt and resubmitting actually succeeds, and that nothing crashes or leaks.
++    void USBEndpoint::injectFault(libusb_transfer *transfer) {
++      if (faultCountdown_ < 0) {
++        const char *after = std::getenv("AA_FAULT_TRANSFER_AFTER");
++        faultCountdown_ = (after != nullptr && *after != '\0') ? std::atoi(after) : 0;
++        if (faultCountdown_ <= 0) {
++          faultCountdown_ = 0;
++          return;
++        }
++      }
++      if (faultCountdown_ == 0 || transfer->status != LIBUSB_TRANSFER_COMPLETED ||
++          (transfer->endpoint & LIBUSB_ENDPOINT_IN) == 0) {
++        return;
++      }
++      if (--faultCountdown_ > 0) {
++        return;
++      }
++      AASDK_LOG_USB(warning, "Injecting a transaction error on endpoint 0x"
++                                 << std::hex << static_cast<int>(transfer->endpoint)
++                                 << std::dec);
++      transfer->status = LIBUSB_TRANSFER_ERROR;
++      transfer->actual_length = 0;
++      injectHalt_ = true;
++    }
++
++    bool USBEndpoint::retryTransfer(libusb_transfer *transfer, Promise::Pointer &promise) {
++      // Only a failure that moved nothing, and only the generic error status, which is
++      // what a USB transaction error (-EPROTO, -EILSEQ, -ETIMEDOUT) arrives as.
++      //
++      // Such a transfer has lost nothing, in either direction, and USB's data toggle is
++      // what guarantees it. On an IN the device has not had its packet acknowledged, so
++      // it sends the same one again on the next token. On an OUT the device either never
++      // took the data, or took it and had its acknowledgement lost, in which case the
++      // resend arrives with the toggle it has already seen and is discarded as the
++      // duplicate it is. Either way resubmitting continues the message stream exactly
++      // where it was.
++      //
++      // A partial transfer is a different matter: part of a frame has been consumed and
++      // the framing is gone, so that one still has to fail upwards.
++      //
++      // This is worth doing because the alternative is a full reconnect, several seconds
++      // of no projection, for an event that lasts microseconds. A car is a far worse
++      // electrical environment than a desk and these will happen there.
++      if (transfer->status != LIBUSB_TRANSFER_ERROR || transfer->actual_length != 0 ||
++          retries_ >= kMaxTransferRetries) {
++        return false;
++      }
++
++      ++retries_;
++      AASDK_LOG_USB(warning, "Transaction error on endpoint 0x"
++                                 << std::hex << static_cast<int>(transfer->endpoint)
++                                 << std::dec << ", resubmitting (" << retries_ << " of "
++                                 << kMaxTransferRetries << ")");
++
++      // Back into the map before submitting: once submitted the completion callback can
++      // run, and it looks the promise up there.
++      transfers_.at(transfer) = std::move(promise);
++
++      auto submitResult = injectHalt_ ? libusb_error::LIBUSB_ERROR_PIPE
++                                      : usbWrapper_.submitTransfer(transfer);
++      injectHalt_ = false;
++      if (submitResult == libusb_error::LIBUSB_ERROR_PIPE) {
++        // The controller halted the endpoint when the transaction failed, and nothing
++        // can be submitted on it until the halt is cleared. This is heavier than a plain
++        // resubmit: CLEAR_FEATURE(ENDPOINT_HALT) resets the data toggle at both ends, so
++        // a packet the device was holding can be dropped and the framing with it. It is
++        // still the better move, because the alternative here is tearing the session
++        // down, which loses the framing too and costs a full reconnect on top.
++        AASDK_LOG_USB(warning, "Endpoint 0x" << std::hex
++                                             << static_cast<int>(transfer->endpoint)
++                                             << std::dec << " is halted, clearing it");
++        libusb_clear_halt(handle_.get(), transfer->endpoint);
++        submitResult = usbWrapper_.submitTransfer(transfer);
++      }
++
++      if (submitResult == libusb_error::LIBUSB_SUCCESS) {
++        return true;
++      }
++
++      // Could not resubmit, so take the promise back and let the caller reject it. Say
++      // why: without this the retry looks like it simply did not happen.
++      AASDK_LOG_USB(warning, "Resubmit refused: "
++                                 << libusb_error_name(submitResult) << " ("
++                                 << submitResult << ")");
++      promise = std::move(transfers_.at(transfer));
++      return false;
++    }
++
      void USBEndpoint::transferHandler(libusb_transfer *transfer) {
        AASDK_LOG_USB(debug, "transferHandler()");
        auto self = reinterpret_cast<USBEndpoint *>(transfer->user_data)->shared_from_this();
-@@ -130,7 +148,12 @@ namespace aasdk {
+@@ -126,11 +249,23 @@ namespace aasdk {
+ 
+         auto promise(std::move(self->transfers_.at(transfer)));
+ 
++        self->injectFault(transfer);
++
+         if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
            AASDK_LOG_USB(debug, "Transfer Complete.");
++          self->retries_ = 0;
            promise->resolve(transfer->actual_length);
++        } else if (self->retryTransfer(transfer, promise)) {
++          // Resubmitted. The promise is back in transfers_ and this transfer must not be
++          // freed or erased, so there is nothing left to do until it completes again.
++          return;
          } else {
 -          AASDK_LOG_USB(debug, "Transfer Cancelled.");
 +          AASDK_LOG_USB(debug, "Transfer failed: " << transferStatusName(transfer->status)

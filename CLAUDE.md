@@ -82,6 +82,7 @@ Three environment knobs, all off unless set:
 | `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything |
 | `AA_VIDEO_DECODER=software` | forces the software decoder, to tell a driver problem from a decoder problem |
 | `AA_FAULT_TRANSPORT_AFTER=20` | kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
+| `AA_FAULT_TRANSFER_AFTER=400` | turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
 
 Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
 
@@ -232,6 +233,37 @@ resumes on its own. That needs discovery to be re-armed after **every** handover
 `libusb_transfer_status`, not a `libusb_error`. 2 is TIMED_OUT, 4 is STALL. The patched
 `USBEndpoint` now prints the name, the endpoint and the byte counts, so this no longer
 has to be decoded by hand.
+
+## USB transaction errors, and what is and is not proven about them
+
+The dropouts chased through M5 are `-EPROTO` transaction errors on the bulk endpoints,
+confirmed with usbmon. They are a physical layer fault: they hit the **ADB interface as
+well**, which this code never opens, and twice within 14 ms of each other on both. No
+amount of software causes a transaction error on an endpoint it does not use.
+
+Two things follow, and only the first is settled.
+
+**A zero length failure loses nothing, so it is retried.** USB's data toggle means a
+transaction that moved no bytes leaves the device holding its packet, in either
+direction, so `USBEndpoint` resubmits rather than failing upwards, five consecutive times
+before giving up. A **partial** transfer is different: part of a frame is gone and the
+framing with it, so that one still fails. Watch for `Transaction error on endpoint 0x81,
+resubmitting`.
+
+**A transaction error can halt the endpoint,** and then the resubmit is refused outright.
+That is what happened the first time this ran in the wild: the retry fired once, the
+resubmit was rejected, and the session died anyway looking exactly as if the retry had
+never run. `libusb_clear_halt` then resubmits. This is heavier than a plain resubmit,
+because clearing a halt resets the data toggle at both ends and a packet the device was
+holding can be dropped, but the alternative is a full reconnect which loses that anyway.
+
+What is **not** proven is the end to end outcome. Verified with `AA_FAULT_TRANSFER_AFTER`:
+the retry fires, the halt clears, the resubmit succeeds, nothing crashes. Not verified:
+that a real fault is absorbed invisibly, because injection cannot be faithful. It discards
+a transfer that really did arrive, so the stream breaks afterwards with `SSL_READ` (error
+26) whatever the recovery does; a real fault does not discard anything. Confirming that
+needs one real transaction error, and they come and go: every few minutes one evening,
+then not once in 46 minutes the next morning.
 
 ## A dead transport does not mean the phone went away
 

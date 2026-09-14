@@ -444,12 +444,45 @@ within a millisecond, and they report their failures as messages on the *connect
 state, which put `reached_connected` back up in between and started a second bounce. The
 recovery is now debounced.
 
+### The dropouts, and where that was left
+
+The `LIBUSB_TRANSFER_ERROR` above is `-EPROTO`, a USB transaction error, caught with
+usbmon. It is a physical layer fault: it hits the **ADB interface too**, which this code
+never opens, twice within 14 ms of each other on both interfaces. Wiggling the cable for
+two minutes did not provoke it, so it is not a loose connector in the obvious mechanical
+sense, but it is below the software either way.
+
+Every occurrence moved **zero bytes**, and that is what makes it survivable. USB's data
+toggle means such a transfer lost nothing, so `USBEndpoint` now resubmits instead of
+failing upwards. The first time that ran against a real fault it still dropped the
+session, for a reason worth remembering: the retry fired, and the **resubmit was refused**
+because the controller had halted the endpoint. One retry line, then a dead session, which
+reads exactly like the retry never happening. Clearing the halt and resubmitting is the
+answer.
+
+- [x] Retry a zero length transfer failure rather than tearing the session down
+- [x] Clear a halted endpoint when the resubmit is refused
+- [ ] **Confirm a real transaction error is absorbed invisibly.** Not done, and it cannot
+      be done by injection: a faked fault discards a transfer that really arrived, so the
+      stream breaks afterwards with `SSL_READ` whatever the recovery does. What injection
+      did prove is the mechanics, which is not nothing given the resubmit refusal above
+      went unnoticed for a night. This needs one real fault, and they are erratic: every
+      few minutes one evening, none in 46 minutes the next morning.
+
+Do not read a long clean run as proof. Twice now a session has run for tens of minutes
+with the retry never once executing, which says the link behaved, not that the code works.
+Check `Transaction error on endpoint` in the log before concluding anything.
+
 ### Fault injection
 
-The failure above takes minutes of real use to appear once, and unplugging the cable
-tests the case that already worked. `AA_FAULT_TRANSPORT_AFTER=20` kills the transport
-after twenty seconds without touching USB, delivering the same error a failed bulk read
-delivers, so the recovery path can be exercised on demand.
+The failures above take minutes of real use to appear once, or do not appear for an hour,
+and unplugging the cable tests the case that already worked. Two knobs make them
+reproducible on demand:
+
+| Knob | Exercises |
+|---|---|
+| `AA_FAULT_TRANSPORT_AFTER=20` | the reconnect path, by killing the transport without touching USB |
+| `AA_FAULT_TRANSFER_AFTER=400` | the retry path, by turning the Nth bulk IN into a transaction error whose resubmit is refused as a halted endpoint |
 
 
 ---
