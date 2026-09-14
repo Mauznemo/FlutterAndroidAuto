@@ -74,7 +74,7 @@ tools/run-example.sh --bg
 arrives in 8 KB lumps, minutes late, which is useless for watching a protocol exchange.
 Use `--bundle` for that, which runs the built binary directly and line buffers.
 
-Three environment knobs, all off unless set:
+Environment knobs, all off unless set:
 
 | Knob | What it does |
 |---|---|
@@ -83,6 +83,7 @@ Three environment knobs, all off unless set:
 | `AA_VIDEO_DECODER=software` | forces the software decoder, to tell a driver problem from a decoder problem |
 | `AA_FAULT_TRANSPORT_AFTER=20` | kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
 | `AA_FAULT_TRANSFER_AFTER=400` | turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
+| `AA_FAULT_SLOW_START=3000` | stalls N ms inside `ProtocolSession::Start`, between the messenger existing and the channels being handed it, so a stop pressed during it lands in the window that used to crash |
 
 Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
 
@@ -225,6 +226,22 @@ Skip step 1 and the phone is wedged. Skip step 2 and every other reconnect times
 A run that dies before step 1 leaves the phone wedged for the next launch, so a session
 that errors before ever reaching connected bounces the phone and retries, up to three
 times.
+
+**A stop can arrive while the session is still being built.** `Start()` runs on an io
+thread, when the connector hands over a phone that reached accessory mode; `Stop()` and
+`Shutdown()` arrive on Flutter's platform thread. `lifecycle_mutex_` serialises them, so
+a stop pressed a moment after a start waits for the connection to exist and then says
+goodbye on it. Without that, the stop reset `messenger_` between two of the lines in
+`Start()` that hand it to a channel, and the channel dereferenced a null messenger on its
+first `receive()`: a segfault that took the whole app down, found by hand and then made
+reproducible on demand with `AA_FAULT_SLOW_START`.
+
+**Nothing a stopping session says is news.** From the moment `Shutdown()` is asked for,
+`ReportState` drops error and connected reports. The channels fail one after another as
+the link comes down, and `aa_core.cc` read those as a phone gone wrong: it bounced the
+device a second time in the middle of the user's stop, which is what left the next start
+unable to enumerate the phone for tens of seconds. The goodbye itself still goes out, and
+so does every other state.
 
 Losing the cable mid session is a separate path: it reports `searching`, not `error`, and
 resumes on its own. That needs discovery to be re-armed after **every** handover, because

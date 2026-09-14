@@ -6,6 +6,7 @@
 #include <aasdk/Transport/USBTransport.hpp>
 
 #include <cstdlib>
+#include <thread>
 
 #include <libusb.h>
 
@@ -20,6 +21,29 @@ namespace aa {
 namespace {
 
 namespace control_pb = aap_protobuf::service::control::message;
+
+// Widens the window inside Start() between the messenger existing and the channels
+// being handed it, so that a stop pressed during it lands there every time.
+//
+// That window is microseconds wide in normal running, which is why the crash it used to
+// cause took a person pressing the buttons by hand to find once and could not be
+// reproduced by a script at all. Everything a stop touches is torn down in it.
+//
+//   AA_FAULT_SLOW_START=3000 tools/run-example.sh --bundle
+//
+// Unset, nothing stalls and this costs one getenv per connection.
+void StallStart() {
+  const char* after = std::getenv("AA_FAULT_SLOW_START");
+  if (after == nullptr || *after == '\0') {
+    return;
+  }
+  const int milliseconds = std::atoi(after);
+  if (milliseconds <= 0) {
+    return;
+  }
+  AASDK_LOG(info) << "[Fault] stalling inside Start() for " << milliseconds << " ms";
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+}
 
 }  // namespace
 
@@ -130,6 +154,13 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
 ProtocolSession::~ProtocolSession() { Stop(); }
 
 void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
+  std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+  if (stopped_.load()) {
+    // Stopped before this ever ran, which is what pressing start and then stop quickly
+    // looks like from in here. Building the connection now would leave one that nothing
+    // is going to tear down.
+    return;
+  }
   device_ = std::move(device);
 
   transport_ = std::make_shared<aasdk::transport::USBTransport>(io_context_, device_);
@@ -145,8 +176,15 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
   messenger_ = std::make_shared<aasdk::messenger::Messenger>(
       io_context_, std::move(in_stream), std::move(out_stream));
 
-  control_channel_ =
-      std::make_shared<aasdk::channel::control::ControlServiceChannel>(strand_, messenger_);
+  // Fault injection only, and placed here deliberately: this is the exact point where a
+  // concurrent stop used to reset messenger_ out from under the lines below.
+  StallStart();
+
+  {
+    std::lock_guard<std::mutex> control_lock(control_mutex_);
+    control_channel_ = std::make_shared<aasdk::channel::control::ControlServiceChannel>(
+        strand_, messenger_);
+  }
   relay_ = std::make_shared<ControlEventRelay>(weak_from_this());
 
   // Armed now rather than after service discovery. The messenger buffers a message that
@@ -192,11 +230,20 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
       });
   support_channels_->Start();
 
+  // A stop that landed while this was building has been waiting on the lock ever since,
+  // so do not open a conversation with a phone that is about to be said goodbye to.
+  // What has been built so far is torn down by the Stop() that runs next.
+  if (stopped_.load()) {
+    return;
+  }
+
   ReportState(AA_STATE_HANDSHAKING, "Phone found, negotiating protocol version.");
 
   ArmFaultInjection();
   Listen();
-  control_channel_->sendVersionRequest(MakeSendPromise("version request"));
+  if (auto control = Control()) {
+    control->sendVersionRequest(MakeSendPromise("version request"));
+  }
 }
 
 void ProtocolSession::ArmFaultInjection() {
@@ -235,14 +282,31 @@ void ProtocolSession::ArmFaultInjection() {
 }
 
 void ProtocolSession::Listen() {
-  if (stopped_) {
-    return;
+  if (auto control = Control()) {
+    control->receive(relay_);
   }
-  control_channel_->receive(relay_);
+}
+
+aasdk::channel::control::IControlServiceChannel::Pointer ProtocolSession::Control()
+    const {
+  if (stopped_.load()) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(control_mutex_);
+  return control_channel_;
 }
 
 void ProtocolSession::Shutdown() {
-  if (stopped_ || !control_channel_) {
+  // Before the lock, not after: a Start() being waited on here can fail while it is
+  // still finishing, and that failure is part of this teardown rather than news.
+  shutting_down_ = true;
+  // Waits out a Start() still building on an io thread, so that a stop pressed a
+  // moment after a start still has a control channel to say goodbye on.
+  std::unique_lock<std::mutex> lifecycle(lifecycle_mutex_);
+  auto control = Control();
+  if (stopped_.load() || !control) {
+    // Nothing to say goodbye with. Stop() takes the same lock, so let go of it first.
+    lifecycle.unlock();
     Stop();
     return;
   }
@@ -255,7 +319,7 @@ void ProtocolSession::Shutdown() {
   }
   control_pb::ByeByeRequest request;
   request.set_reason(control_pb::USER_SELECTION);
-  control_channel_->sendShutdownRequest(request, MakeSendPromise("shutdown request"));
+  control->sendShutdownRequest(request, MakeSendPromise("shutdown request"));
   // Make sure a receive is outstanding, otherwise the acknowledgement has nowhere to
   // land and we would wait out the whole timeout for a reply that did arrive.
   Listen();
@@ -275,10 +339,12 @@ void ProtocolSession::NoteShutdownAcknowledged() {
 }
 
 void ProtocolSession::Stop() {
-  if (stopped_) {
+  if (stopped_.exchange(true)) {
     return;
   }
-  stopped_ = true;
+  // Waits out a Start() still building on an io thread. Tearing a session down while it
+  // is half built is what left a channel holding a null messenger.
+  std::lock_guard<std::mutex> lock(lifecycle_mutex_);
   fault_timer_.cancel();
 
   if (messenger_) {
@@ -318,7 +384,10 @@ void ProtocolSession::Stop() {
   if (decoder_) {
     decoder_->Flush();
   }
-  control_channel_.reset();
+  {
+    std::lock_guard<std::mutex> control_lock(control_mutex_);
+    control_channel_.reset();
+  }
   messenger_.reset();
   transport_.reset();
   device_.reset();
@@ -342,6 +411,17 @@ aasdk::channel::SendPromise::Pointer ProtocolSession::MakeSendPromise(const char
 }
 
 void ProtocolSession::ReportState(int state, const std::string& message) {
+  // Once the owner has asked this connection to go away, nothing it has left to say is
+  // news. Its channels fail one after another as the link comes down, and reporting
+  // those as errors made aa_core.cc treat a deliberate stop as a phone that had gone
+  // wrong: it bounced the device and re-armed discovery in the middle of the user's
+  // stop, which is how a stop ended with the phone still showing Android Auto. A
+  // connected report is just as wrong here, since it puts the projection back up after
+  // it has ended. Everything else still goes out, including the goodbye itself.
+  if ((stopped_.load() || shutting_down_.load()) &&
+      (state == AA_STATE_ERROR || state == AA_STATE_CONNECTED)) {
+    return;
+  }
   if (on_state_) {
     on_state_(state, message);
   }
@@ -375,8 +455,10 @@ void ProtocolSession::onVersionResponse(uint16_t major, uint16_t minor,
 }
 
 void ProtocolSession::SendHandshakeStep() {
-  control_channel_->sendHandshake(cryptor_->readHandshakeBuffer(),
-                                  MakeSendPromise("SSL handshake"));
+  if (auto control = Control()) {
+    control->sendHandshake(cryptor_->readHandshakeBuffer(),
+                           MakeSendPromise("SSL handshake"));
+  }
 }
 
 void ProtocolSession::onHandshake(const aasdk::common::DataConstBuffer& payload) {
@@ -398,7 +480,9 @@ void ProtocolSession::onHandshake(const aasdk::common::DataConstBuffer& payload)
     ReportState(AA_STATE_HANDSHAKING, "SSL established, authenticating.");
     control_pb::AuthResponse response;
     response.set_status(0);
-    control_channel_->sendAuthComplete(response, MakeSendPromise("auth complete"));
+    if (auto control = Control()) {
+      control->sendAuthComplete(response, MakeSendPromise("auth complete"));
+    }
   }
   Listen();
 }
@@ -425,8 +509,9 @@ void ProtocolSession::onServiceDiscoveryRequest(
         static_cast<aasdk::messenger::ChannelId>(channel.id())));
   }
 
-  control_channel_->sendServiceDiscoveryResponse(response,
-                                                 MakeSendPromise("service discovery"));
+  if (auto control = Control()) {
+    control->sendServiceDiscoveryResponse(response, MakeSendPromise("service discovery"));
+  }
 
   std::string channels;
   for (size_t i = 0; i < opened_channels_.size(); ++i) {
@@ -444,7 +529,9 @@ void ProtocolSession::onAudioFocusRequest(const control_pb::AudioFocusRequest& r
       request.audio_focus_type() == control_pb::AUDIO_FOCUS_RELEASE
           ? control_pb::AUDIO_FOCUS_STATE_LOSS
           : control_pb::AUDIO_FOCUS_STATE_GAIN);
-  control_channel_->sendAudioFocusResponse(response, MakeSendPromise("audio focus"));
+  if (auto control = Control()) {
+    control->sendAudioFocusResponse(response, MakeSendPromise("audio focus"));
+  }
   Listen();
 }
 
@@ -452,15 +539,18 @@ void ProtocolSession::onNavigationFocusRequest(
     const control_pb::NavFocusRequestNotification& request) {
   control_pb::NavFocusNotification response;
   response.set_focus_type(control_pb::NAV_FOCUS_PROJECTED);
-  control_channel_->sendNavigationFocusResponse(response,
-                                                MakeSendPromise("navigation focus"));
+  if (auto control = Control()) {
+    control->sendNavigationFocusResponse(response, MakeSendPromise("navigation focus"));
+  }
   Listen();
 }
 
 void ProtocolSession::onPingRequest(const control_pb::PingRequest& request) {
   control_pb::PingResponse response;
   response.set_timestamp(request.timestamp());
-  control_channel_->sendPingResponse(response, MakeSendPromise("ping response"));
+  if (auto control = Control()) {
+    control->sendPingResponse(response, MakeSendPromise("ping response"));
+  }
   Listen();
 }
 
@@ -471,7 +561,9 @@ void ProtocolSession::onPingResponse(const control_pb::PingResponse& response) {
 void ProtocolSession::onByeByeRequest(const control_pb::ByeByeRequest& request) {
   ReportState(AA_STATE_IDLE, "The phone ended the session.");
   control_pb::ByeByeResponse response;
-  control_channel_->sendShutdownResponse(response, MakeSendPromise("shutdown response"));
+  if (auto control = Control()) {
+    control->sendShutdownResponse(response, MakeSendPromise("shutdown response"));
+  }
   NoteShutdownAcknowledged();
 }
 
@@ -494,6 +586,15 @@ void ProtocolSession::onVoiceSessionRequest(
 
 void ProtocolSession::onChannelError(const aasdk::error::Error& error) {
   if (error.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED) {
+    return;
+  }
+  // A session that has already stopped has no news to report. Its own teardown is what
+  // killed the link: aa_session_stop resets the USB device the moment Stop() returns,
+  // and the read that was in flight then fails with NO_DEVICE. Reporting that made
+  // every deliberate stop look like a lost cable, and the recovery in aa_core.cc
+  // answered it by bouncing the phone a second time, which left the next start unable
+  // to enumerate it for tens of seconds.
+  if (stopped_.load() || shutting_down_.load()) {
     return;
   }
   ReportState(AA_STATE_ERROR, std::string("Control channel error: ") + error.what());

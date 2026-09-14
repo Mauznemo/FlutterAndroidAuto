@@ -14,6 +14,7 @@
 #ifndef ANDROID_AUTO_LINUX_SESSION_PROTOCOL_SESSION_H_
 #define ANDROID_AUTO_LINUX_SESSION_PROTOCOL_SESSION_H_
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -120,6 +121,11 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // Asks the phone to end its side of the session. Returns immediately; the phone's
   // acknowledgement arrives asynchronously, so pair this with WaitForShutdown.
   //
+  // Blocks briefly if a Start() is still building the session on an io thread, because
+  // a goodbye sent before there is a control channel to send it on is no goodbye at
+  // all: the phone keeps Android Auto running and the user sees it still on the screen
+  // after pressing stop.
+  //
   // This matters more than it looks. Android Auto on the phone keeps its session, and
   // its hold on the USB interface, until it is told the head unit is going away. Drop
   // the link without saying so and the phone stays in Android Auto with its persistent
@@ -162,6 +168,13 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   void onChannelError(const aasdk::error::Error& error);
 
  private:
+  // A reference to the live control channel, or nullptr once stopped.
+  //
+  // The same rule as VideoChannel::Channel(), for the same reason: every handler here
+  // runs on an io_context thread while Stop() drops the channel from Flutter's platform
+  // thread. A caller takes its own reference and works from that.
+  aasdk::channel::control::IControlServiceChannel::Pointer Control() const;
+
   void SendHandshakeStep();
   // Arms AA_FAULT_TRANSPORT_AFTER, see the note in the .cc file.
   void ArmFaultInjection();
@@ -182,6 +195,9 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   aasdk::transport::ITransport::Pointer transport_;
   aasdk::messenger::ICryptor::Pointer cryptor_;
   aasdk::messenger::IMessenger::Pointer messenger_;
+  // Guards control_channel_ only, and is always taken after lifecycle_mutex_ where both
+  // are held.
+  mutable std::mutex control_mutex_;
   aasdk::channel::control::IControlServiceChannel::Pointer control_channel_;
   std::shared_ptr<ControlEventRelay> relay_;
   std::shared_ptr<VideoDecoder> decoder_;
@@ -190,7 +206,24 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   std::shared_ptr<SupportChannels> support_channels_;
 
   std::vector<std::string> opened_channels_;
-  bool stopped_ = false;
+
+  // Serialises building the session against tearing it down.
+  //
+  // Start() runs on an io_context thread, when the connector hands over a phone that
+  // has reached accessory mode. Stop() and Shutdown() arrive on Flutter's platform
+  // thread, from aa_session_stop. Without this, a stop pressed a moment after a start
+  // resets messenger_ between two of the lines in Start() that hand it to a channel,
+  // and that channel dereferences a null messenger on its first receive: a segfault in
+  // InputSourceService::receive that takes the whole app down.
+  //
+  // Stop() sets stopped_ before it waits for this, so a Start() already in flight
+  // finishes and is then torn down whole rather than being taken apart halfway.
+  std::mutex lifecycle_mutex_;
+  std::atomic<bool> stopped_{false};
+  // Set the moment the owner asks for a shutdown, which is before the goodbye goes out
+  // and a second or more before Stop() runs. Everything this connection reports from
+  // then on is its own teardown, see ReportState.
+  std::atomic<bool> shutting_down_{false};
 
   // Fault injection only, see ArmFaultInjection.
   boost::asio::steady_timer fault_timer_;

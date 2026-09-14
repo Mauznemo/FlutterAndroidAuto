@@ -109,6 +109,11 @@ void VideoChannel::Start() {
   relay_ = std::make_shared<VideoEventRelay>(weak_from_this());
   {
     std::lock_guard<std::mutex> lock(channel_mutex_);
+    // No messenger means the session was torn down while it was being built. A channel
+    // made now would hold a null messenger and segfault on its first receive.
+    if (stopped_.load() || !messenger_) {
+      return;
+    }
     channel_ = std::make_shared<aasdk::channel::mediasink::video::VideoMediaSinkService>(
         strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SINK_VIDEO);
   }
@@ -285,6 +290,11 @@ void VideoChannel::onMediaWithTimestampIndication(
 
 void VideoChannel::onChannelError(const aasdk::error::Error& error) {
   if (error.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED) {
+    return;
+  }
+  // Already stopped: the failure is this channel's own teardown coming back, and
+  // reporting it would put a connected state back up after the session had ended.
+  if (stopped_.load()) {
     return;
   }
   Log(std::string("Video channel error: ") + error.what());

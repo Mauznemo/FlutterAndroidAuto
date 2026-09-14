@@ -153,6 +153,12 @@ struct AaSession {
     return description;
   }
 
+  // The live connection, as a reference of the caller's own. See protocol_mutex.
+  std::shared_ptr<aa::ProtocolSession> Protocol() const {
+    std::lock_guard<std::mutex> lock(protocol_mutex);
+    return protocol;
+  }
+
   Config config;
   aa::EventBus events;
   aa::FrameRing ring;
@@ -163,6 +169,13 @@ struct AaSession {
   std::shared_ptr<aa::VideoDecoder> decoder;
 
   std::unique_ptr<aa::UsbConnector> usb;
+  // The live connection, or nullptr between them.
+  //
+  // Assigned from an io_context thread when a phone reaches accessory mode, and read
+  // from Flutter's platform thread by stop, so a quick start then stop has one thread
+  // writing the pointer while the other is copying it. Reach it through Protocol(),
+  // which hands back a reference of your own.
+  mutable std::mutex protocol_mutex;
   std::shared_ptr<aa::ProtocolSession> protocol;
   // The input channel of whichever connection is live, published by the protocol
   // session as it comes and goes. Weak, so a stale entry cannot keep a finished
@@ -170,13 +183,17 @@ struct AaSession {
   // io_context thread and read from Flutter's platform thread on every touch.
   std::mutex input_mutex;
   std::weak_ptr<aa::InputChannel> input;
+
   // Recovery from a phone left wedged by a previous run. Bounded, so a genuinely broken
   // phone reports an error instead of looping forever.
-  int recovery_attempts = 0;
-  bool reached_connected = false;
+  //
+  // These three are written from io_context threads, in the state handler, and read
+  // from the platform thread by start and stop.
+  std::atomic<int> recovery_attempts{0};
+  std::atomic<bool> reached_connected{false};
   // Whether a bounce is already in flight, see the note where it is set. Without it one
   // dead transport bounces the phone once per channel.
-  bool recovering = false;
+  std::atomic<bool> recovering{false};
   // Outlives every protocol session built on it, see the note on ProtocolSession::Create.
   std::unique_ptr<aasdk::Strand> channel_strand;
 
@@ -187,7 +204,7 @@ struct AaSession {
   std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>
       work_guard;
   std::vector<std::thread> io_threads;
-  bool running = false;
+  std::atomic<bool> running{false};
 };
 
 namespace {
@@ -338,13 +355,13 @@ int32_t aa_session_start(AaSession* session) {
       [session](aasdk::usb::IAOAPDevice::Pointer device) {
         // A phone reached accessory mode. Hand it to a fresh protocol session; any
         // previous one belongs to a connection that has already gone away.
-        if (session->protocol) {
-          session->protocol->Stop();
+        if (auto previous = session->Protocol()) {
+          previous->Stop();
         }
         session->reached_connected = false;
         // A device arrived, so whatever bounce was in flight has done its job.
         session->recovering = false;
-        session->protocol = aa::ProtocolSession::Create(
+        auto protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
             session->decoder,
             [session](int state, const std::string& message) {
@@ -416,7 +433,13 @@ int32_t aa_session_start(AaSession* session) {
               std::lock_guard<std::mutex> lock(session->input_mutex);
               session->input = input;
             });
-        session->protocol->Start(std::move(device));
+        {
+          std::lock_guard<std::mutex> lock(session->protocol_mutex);
+          session->protocol = protocol;
+        }
+        // Started from the local reference: a stop landing right now can take the
+        // member away, and Start() itself waits for that stop rather than racing it.
+        protocol->Start(std::move(device));
       },
       [session](const std::string& message) {
         session->events.Emit(AA_STATE_ERROR, message);
@@ -444,20 +467,25 @@ int32_t aa_session_stop(AaSession* session) {
   // Ask, but do not yet destroy. Both of these only queue cancellations onto the
   // io_context, and those queued handlers still need libusb and the USB device to be
   // alive when they run.
-  if (session->protocol) {
+  if (auto protocol = session->Protocol()) {
     // Say goodbye and actually wait to be heard. A fixed sleep was not enough: the
     // phone keeps Android Auto running, and its claim on the USB interface, until it
     // acknowledges. Waiting for the acknowledgement is what makes resuming work.
-    session->protocol->Shutdown();
+    //
+    // Shutdown() blocks until a connection still being built on an io thread has
+    // finished, so that a stop pressed a moment after a start still says goodbye on a
+    // real control channel instead of finding none and leaving Android Auto running on
+    // the phone.
+    protocol->Shutdown();
     const bool acknowledged =
-        session->protocol->WaitForShutdown(std::chrono::milliseconds(1500));
+        protocol->WaitForShutdown(std::chrono::milliseconds(1500));
     if (!acknowledged) {
       session->events.Emit(
           AA_STATE_IDLE,
           "The phone did not acknowledge the shutdown. It may keep Android Auto running, "
           "which can delay the next connection.");
     }
-    session->protocol->Stop();
+    protocol->Stop();
   }
   if (session->usb) {
     session->usb->Stop();
@@ -467,6 +495,7 @@ int32_t aa_session_stop(AaSession* session) {
     session->usb->ResetDevice();
   }
   if (!session->running) {
+    std::lock_guard<std::mutex> lock(session->protocol_mutex);
     session->protocol.reset();
     return 0;
   }
@@ -505,7 +534,10 @@ int32_t aa_session_stop(AaSession* session) {
   // The protocol session is rebuilt on every connection, so drop it. The USB connector
   // is not: see the note on UsbConnector::Start about why its aasdk objects have to
   // outlive the hotplug callback libusb holds.
-  session->protocol.reset();
+  {
+    std::lock_guard<std::mutex> lock(session->protocol_mutex);
+    session->protocol.reset();
+  }
 
   session->io_context.restart();
   session->running = false;

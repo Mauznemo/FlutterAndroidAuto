@@ -447,6 +447,10 @@ void SupportChannels::OnChannelError(const std::string& what,
   if (error.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED) {
     return;
   }
+  // Already stopped: see the note on VideoChannel::onChannelError.
+  if (stopped_.load()) {
+    return;
+  }
   Log("The " + what + " channel failed: " + error.what());
 }
 

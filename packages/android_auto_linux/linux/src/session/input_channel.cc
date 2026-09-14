@@ -102,6 +102,12 @@ void InputChannel::Start() {
   relay_ = std::make_shared<InputEventRelay>(weak_from_this());
   {
     std::lock_guard<std::mutex> lock(channel_mutex_);
+    // No messenger means the session was torn down while it was being built. A channel
+    // made now would hold a null messenger and segfault on its first receive, which is
+    // exactly the crash a quick start then stop used to produce.
+    if (stopped_.load() || !messenger_) {
+      return;
+    }
     channel_ = std::make_shared<aasdk::channel::inputsource::InputSourceService>(
         strand_, messenger_);
   }
@@ -322,6 +328,10 @@ void InputChannel::SendRotary(int32_t steps) {
 
 void InputChannel::onChannelError(const aasdk::error::Error& error) {
   if (error.getCode() == aasdk::error::ErrorCode::OPERATION_ABORTED) {
+    return;
+  }
+  // Already stopped: see the note on VideoChannel::onChannelError.
+  if (stopped_.load()) {
     return;
   }
   Log(std::string("Input channel error: ") + error.what());
