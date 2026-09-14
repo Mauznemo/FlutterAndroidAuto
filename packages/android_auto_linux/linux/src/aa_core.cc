@@ -17,6 +17,8 @@
 #include <thread>
 #include <vector>
 
+#include "audio/audio_output.h"
+#include "audio/pcm_sink.h"
 #include "event_bus.h"
 #include "frame_ring.h"
 #include "present/gl_adapter.h"
@@ -34,6 +36,16 @@ constexpr int kMaxRecoveryAttempts = 3;
 
 std::string CopyOrEmpty(const char* value) {
   return value == nullptr ? std::string() : std::string(value);
+}
+
+// Turns an AaAudioStream integer into the enum, defaulting rather than failing: the
+// three values are a closed set the Dart side cannot get wrong except by arithmetic.
+bool ToAudioStream(int32_t value, aa::AudioStream* stream) {
+  if (value < 0 || value >= aa::kAudioStreamCount) {
+    return false;
+  }
+  *stream = static_cast<aa::AudioStream>(value);
+  return true;
 }
 
 // Narrows or widens the advertised channel set, from AA_SERVICES in the environment.
@@ -136,12 +148,12 @@ struct AaSession {
     description.car_year = config.car_year;
     // Everything, including the channels whose real implementations are still ahead.
     //
-    // This is not a choice. A head unit that advertises only video, input and sensors
-    // is one Android Auto refuses to project to at all: it reads the response, says
-    // nothing, and drops out of accessory mode a second later. Offering the audio sinks
-    // and the microphone as well is what makes it open the channels and start encoding,
-    // so src/session/support_channels.cc answers them and discards what they carry
-    // until M6 and M7 make them real.
+    // This is not a choice. A head unit that advertises only video, input and audio is
+    // one Android Auto refuses to project to at all: it reads the response, says
+    // nothing, and drops out of accessory mode a second later. Offering the microphone
+    // as well is what makes it open the channels and start encoding, so
+    // src/session/support_channels.cc answers it and captures nothing until M7 makes it
+    // real.
     description.enable_video = true;
     description.enable_input = true;
     description.enable_sensors = true;
@@ -167,6 +179,12 @@ struct AaSession {
   // Built once and kept across connections: opening VA-API costs tens of milliseconds
   // and a phone that comes and goes should not pay it every time.
   std::shared_ptr<aa::VideoDecoder> decoder;
+  // The same reasoning, and one more: volume, mute and the chosen output describe the
+  // head unit rather than the phone, so they have to survive a reconnect.
+  std::shared_ptr<aa::AudioOutput> audio;
+  // The Dart side's raw PCM tap, or null. Written from the platform thread and read
+  // from the audio writer threads, hence atomic.
+  std::atomic<AaAudioCallback> audio_callback{nullptr};
 
   std::unique_ptr<aa::UsbConnector> usb;
   // The live connection, or nullptr between them.
@@ -225,6 +243,21 @@ extern "C" {
 
 void aa_string_free(char* message) { free(message); }
 
+void aa_audio_buffer_free(uint8_t* data) { free(data); }
+
+char* aa_audio_devices(void) {
+  std::string listing;
+  for (const aa::PcmDevice& device : aa::ListPcmDevices()) {
+    listing += device.name;
+    listing += '\t';
+    listing += device.description;
+    listing += '\t';
+    listing += device.is_default ? '1' : '0';
+    listing += '\n';
+  }
+  return strdup(listing.c_str());
+}
+
 AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
   ApplyAasdkLogLevel();
   auto* session = new AaSession(on_event);
@@ -263,6 +296,12 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
   // and it only knows once Flutter has drawn once. Asking it lazily, per open, is what
   // lets a machine without the EGL extension end up on software decode by itself.
   session->decoder->SetDmabufProbe([]() { return aa::GlAdapter::DmabufSupported(); });
+
+  session->audio = std::make_shared<aa::AudioOutput>([session](const std::string& message) {
+    // Audio news is not a lifecycle change, so it keeps whatever state the session is
+    // already in rather than inventing one, exactly as the decoder's does.
+    session->events.Emit(session->events.last_state(), message);
+  });
   return session;
 }
 
@@ -277,6 +316,13 @@ void aa_session_destroy(AaSession* session) {
   if (session->decoder) {
     session->decoder->Stop();
   }
+  if (session->audio) {
+    // Same reasoning as closing the bus: a buffer in flight must not reach a
+    // NativeCallable the Dart side is about to tear down.
+    session->audio->SetTap(nullptr);
+    session->audio->Stop();
+  }
+  session->audio_callback = nullptr;
   session->gl.reset();
   if (session->usb) {
     // The connector outlives this session, so cut its link back to it first.
@@ -344,6 +390,7 @@ int32_t aa_session_start(AaSession* session) {
   session->running = true;
   session->recovering = false;
   session->decoder->Start();
+  session->audio->Start();
 
   if (!session->usb) {
     session->usb = std::make_unique<aa::UsbConnector>(session->io_context);
@@ -363,7 +410,7 @@ int32_t aa_session_start(AaSession* session) {
         session->recovering = false;
         auto protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
-            session->decoder,
+            session->decoder, session->audio,
             [session](int state, const std::string& message) {
               if (state == AA_STATE_CONNECTED) {
                 session->reached_connected = true;
@@ -463,6 +510,11 @@ int32_t aa_session_stop(AaSession* session) {
   }
   if (session->decoder) {
     session->decoder->Stop();
+  }
+  if (session->audio) {
+    // Before the protocol teardown, so the speakers go quiet when the user presses stop
+    // rather than a buffer later.
+    session->audio->Stop();
   }
   // Ask, but do not yet destroy. Both of these only queue cancellations onto the
   // io_context, and those queued handlers still need libusb and the USB device to be
@@ -613,6 +665,133 @@ int32_t aa_session_send_rotary(AaSession* session, int32_t steps) {
   }
   input->SendRotary(steps);
   return 0;
+}
+
+int32_t aa_session_set_audio_volume(AaSession* session, int32_t stream,
+                                    double volume) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return -1;
+  }
+  session->audio->SetVolume(which, volume);
+  return 0;
+}
+
+double aa_session_audio_volume(AaSession* session, int32_t stream) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return 0.0;
+  }
+  return session->audio->Volume(which);
+}
+
+int32_t aa_session_set_audio_muted(AaSession* session, int32_t stream, int32_t muted) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return -1;
+  }
+  session->audio->SetMuted(which, muted != 0);
+  return 0;
+}
+
+int32_t aa_session_audio_muted(AaSession* session, int32_t stream) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return 0;
+  }
+  return session->audio->Muted(which) ? 1 : 0;
+}
+
+int32_t aa_session_set_audio_device(AaSession* session, const char* device) {
+  if (session == nullptr || !session->audio) {
+    return -1;
+  }
+  session->audio->SetDevice(CopyOrEmpty(device));
+  return 0;
+}
+
+char* aa_session_audio_device(AaSession* session) {
+  const std::string device =
+      session == nullptr || !session->audio ? std::string() : session->audio->device();
+  return strdup(device.c_str());
+}
+
+int32_t aa_session_set_audio_output_enabled(AaSession* session, int32_t enabled) {
+  if (session == nullptr || !session->audio) {
+    return -1;
+  }
+  session->audio->SetOutputEnabled(enabled != 0);
+  return 0;
+}
+
+int32_t aa_session_audio_output_enabled(AaSession* session) {
+  if (session == nullptr || !session->audio) {
+    return 0;
+  }
+  return session->audio->output_enabled() ? 1 : 0;
+}
+
+int32_t aa_session_set_audio_callback(AaSession* session, AaAudioCallback on_audio) {
+  if (session == nullptr || !session->audio) {
+    return -1;
+  }
+  session->audio_callback = on_audio;
+  if (on_audio == nullptr) {
+    session->audio->SetTap(nullptr);
+    return 0;
+  }
+  session->audio->SetTap([session](aa::AudioStream stream, const aa::PcmFormat& format,
+                                   const uint8_t* data, size_t size) {
+    // Read once. The Dart side can clear the tap from the platform thread while this
+    // runs, and a second load could see the null.
+    AaAudioCallback callback = session->audio_callback.load();
+    if (callback == nullptr || size == 0) {
+      return;
+    }
+    // Copied onto the heap because the callback is a NativeCallable.listener: the call
+    // is delivered to the isolate after this returns, so a pointer into the writer
+    // thread's buffer would already be gone by the time Dart read it. Ownership passes
+    // to Dart, which hands it back to aa_audio_buffer_free.
+    auto* copy = static_cast<uint8_t*>(malloc(size));
+    if (copy == nullptr) {
+      return;
+    }
+    memcpy(copy, data, size);
+    callback(static_cast<int32_t>(stream), copy, static_cast<int32_t>(size),
+             format.sample_rate, format.channels);
+  });
+  return 0;
+}
+
+char* aa_session_audio_backend(AaSession* session) {
+  const std::string name = session == nullptr || !session->audio
+                               ? std::string("none")
+                               : session->audio->backend_name();
+  return strdup(name.c_str());
+}
+
+int64_t aa_session_audio_underruns(AaSession* session, int32_t stream) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return 0;
+  }
+  return static_cast<int64_t>(session->audio->Underruns(which));
+}
+
+int64_t aa_session_audio_dropped(AaSession* session, int32_t stream) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return 0;
+  }
+  return static_cast<int64_t>(session->audio->Dropped(which));
+}
+
+int64_t aa_session_audio_latency(AaSession* session, int32_t stream) {
+  aa::AudioStream which;
+  if (session == nullptr || !session->audio || !ToAudioStream(stream, &which)) {
+    return 0;
+  }
+  return session->audio->LatencyMicros(which);
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

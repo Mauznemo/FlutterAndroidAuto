@@ -57,6 +57,16 @@ typedef struct {
   int32_t y;
 } AaTouchPoint;
 
+// Which of the three PCM sinks a call is about, mirrored by AudioStream in
+// audio/audio_output.h and AndroidAutoAudioStream in Dart. Android Auto sends these as
+// three separate streams and leaves the mixing to the head unit, which is why they are
+// controlled separately rather than through one volume.
+typedef enum {
+  AA_AUDIO_STREAM_MEDIA = 0,
+  AA_AUDIO_STREAM_SYSTEM = 1,
+  AA_AUDIO_STREAM_SPEECH = 2,
+} AaAudioStream;
+
 // How the head unit describes itself to the phone during service discovery.
 typedef struct {
   int32_t width;
@@ -79,8 +89,34 @@ typedef struct {
 // to say.
 typedef void (*AaEventCallback)(int32_t state, char* message);
 
+// Called with one buffer of PCM, exactly as the phone sent it, before this head unit's
+// volume or ducking is applied. For a host app that wants to mix the audio itself;
+// pair it with aa_session_set_audio_output_enabled(session, 0).
+//
+// Invoked from an audio writer thread, so the Dart side must use a
+// NativeCallable.listener. `data` is heap allocated by the core and ownership passes to
+// the callee, which must hand it back to aa_audio_buffer_free once it has been copied
+// into Dart. `stream` is an AaAudioStream.
+typedef void (*AaAudioCallback)(int32_t stream, uint8_t* data, int32_t size,
+                                int32_t sample_rate, int32_t channels);
+
 // Frees a string handed out through AaEventCallback. Safe to call with NULL.
 AA_EXPORT void aa_string_free(char* message);
+
+// Frees a buffer handed out through AaAudioCallback. Safe to call with NULL.
+AA_EXPORT void aa_audio_buffer_free(uint8_t* data);
+
+// The outputs the audio server is offering, so a host app can present a picker.
+//
+// One device per line, three tab separated fields: the name to hand to
+// aa_session_set_audio_device, a human readable description, and "1" for the device the
+// server would use by default or "0" otherwise. Empty when no audio server can be
+// reached. The returned string is heap allocated and must be handed back to
+// aa_string_free.
+//
+// Takes no session because it describes the machine rather than a connection, and
+// blocks for up to a second, so call it from Dart rather than from a hot path.
+AA_EXPORT char* aa_audio_devices(void);
 
 // Creates a session. Does not touch any hardware and does not start any threads yet.
 // `on_event` may be NULL, though then nothing will ever be reported.
@@ -141,6 +177,55 @@ AA_EXPORT int32_t aa_session_send_key(AaSession* session, int32_t keycode, int32
 // of treating every detent as a button press. Same return values as
 // aa_session_send_touch.
 AA_EXPORT int32_t aa_session_send_rotary(AaSession* session, int32_t steps);
+
+// === audio ===
+//
+// All of these are safe from the Dart main isolate and return immediately. Volume and
+// mute are per stream and survive a phone reconnecting, because they describe the head
+// unit rather than the phone. Each returns 0 on success and -1 on a bad argument.
+
+// 0.0 to 1.0, clamped. Applied in software with a short ramp, so a change mid track is
+// a fade rather than a click.
+AA_EXPORT int32_t aa_session_set_audio_volume(AaSession* session, int32_t stream,
+                                              double volume);
+AA_EXPORT double aa_session_audio_volume(AaSession* session, int32_t stream);
+
+// A muted stream is written as silence rather than not written at all, so the stream
+// clock keeps running and unmuting is instant.
+AA_EXPORT int32_t aa_session_set_audio_muted(AaSession* session, int32_t stream,
+                                             int32_t muted);
+AA_EXPORT int32_t aa_session_audio_muted(AaSession* session, int32_t stream);
+
+// Which output to play through, as a name from aa_audio_devices. NULL or empty means
+// the audio server's default. Takes effect on the next buffer of each stream, which for
+// a stream that is playing is immediately.
+AA_EXPORT int32_t aa_session_set_audio_device(AaSession* session, const char* device);
+// The device currently selected, or an empty string for the default. Heap allocated,
+// free with aa_string_free.
+AA_EXPORT char* aa_session_audio_device(AaSession* session);
+
+// Turns the speakers off without touching the protocol: the phone keeps sending, the
+// audio callback keeps firing, and nothing is played. For an infotainment system that
+// routes audio itself, or an app doing its own mixing.
+AA_EXPORT int32_t aa_session_set_audio_output_enabled(AaSession* session,
+                                                      int32_t enabled);
+AA_EXPORT int32_t aa_session_audio_output_enabled(AaSession* session);
+
+// Installs the raw PCM tap, or clears it with NULL. See AaAudioCallback.
+AA_EXPORT int32_t aa_session_set_audio_callback(AaSession* session,
+                                                AaAudioCallback on_audio);
+
+// Which audio backend is playing: "PulseAudio", or "none" before the first buffer or on
+// a machine with no audio server. Heap allocated, free with aa_string_free.
+AA_EXPORT char* aa_session_audio_backend(AaSession* session);
+
+// Times this stream came close to running the speakers dry, since the session started.
+// The number to watch for "no audible glitches": it should stay at zero.
+AA_EXPORT int64_t aa_session_audio_underruns(AaSession* session, int32_t stream);
+// Buffers thrown away because the phone sent faster than they could be played.
+AA_EXPORT int64_t aa_session_audio_dropped(AaSession* session, int32_t stream);
+// How far behind the head unit the speakers are, in microseconds.
+AA_EXPORT int64_t aa_session_audio_latency(AaSession* session, int32_t stream);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Started life as M2

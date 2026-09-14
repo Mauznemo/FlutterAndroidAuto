@@ -5,6 +5,8 @@
 /// `docs/architecture.md`.
 library;
 
+import 'dart:typed_data';
+
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 /// Where a head unit session is in its lifecycle.
@@ -219,6 +221,103 @@ enum AndroidAutoKey {
   const AndroidAutoKey(this.code);
 }
 
+/// One of the three audio streams a head unit plays.
+///
+/// Android Auto sends these separately and leaves the mixing to the head unit, which is
+/// why they have separate volumes rather than one. It is also why the head unit is the
+/// one that has to duck: by the time the music and the navigation prompt leave the
+/// phone they are already on different channels, so nothing on the phone can turn one
+/// down under the other.
+enum AndroidAutoAudioStream {
+  /// Music, podcasts, anything the phone calls media. 48 kHz stereo.
+  ///
+  /// Turned down automatically while [speech] is playing, and back up afterwards.
+  media,
+
+  /// Interface and notification sounds. 16 kHz mono.
+  system,
+
+  /// Navigation prompts and the Assistant. 16 kHz mono.
+  speech,
+}
+
+/// An audio output the machine can play through.
+///
+/// An infotainment system often routes audio itself, through an amplifier the head unit
+/// does not control, so picking the output is the host app's business rather than
+/// something this plugin should decide.
+class AndroidAutoAudioDevice {
+  /// What to hand to [AndroidAutoPlatform.setAudioDevice]. Stable, not human friendly.
+  final String name;
+
+  /// What to show a person, such as `Built-in Audio Analogue Stereo`.
+  final String description;
+
+  /// Whether the audio server would have picked this one anyway.
+  final bool isDefault;
+
+  /// Creates a description of one output.
+  const AndroidAutoAudioDevice({
+    required this.name,
+    required this.description,
+    this.isDefault = false,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is AndroidAutoAudioDevice &&
+      other.name == name &&
+      other.description == description &&
+      other.isDefault == isDefault;
+
+  @override
+  int get hashCode => Object.hash(name, description, isDefault);
+
+  @override
+  String toString() => 'AndroidAutoAudioDevice($description)';
+}
+
+/// One buffer of PCM, exactly as the phone sent it.
+///
+/// Delivered to apps that want to mix the audio themselves. It is the raw stream,
+/// before this head unit's volume or ducking, so an app reading these should also turn
+/// the built in output off with
+/// [AndroidAutoPlatform.setAudioOutputEnabled] or it will hear both.
+class AndroidAutoAudioBuffer {
+  /// Which of the three streams this belongs to.
+  final AndroidAutoAudioStream stream;
+
+  /// Samples per second, 48000 for media and 16000 for the other two.
+  final int sampleRate;
+
+  /// 2 for media, 1 for the other two.
+  final int channels;
+
+  /// Signed 16 bit little endian samples, interleaved when there is more than one
+  /// channel. Owned by the caller, and a fresh copy per buffer.
+  final Uint8List samples;
+
+  /// Creates one buffer of raw PCM.
+  const AndroidAutoAudioBuffer({
+    required this.stream,
+    required this.sampleRate,
+    required this.channels,
+    required this.samples,
+  });
+
+  /// How long this buffer takes to play.
+  Duration get duration => Duration(
+    microseconds:
+        sampleRate == 0 || channels == 0
+            ? 0
+            : samples.lengthInBytes * 1000000 ~/ (sampleRate * channels * 2),
+  );
+
+  @override
+  String toString() =>
+      'AndroidAutoAudioBuffer(${stream.name}, ${samples.lengthInBytes} bytes)';
+}
+
 /// Something the native session wants the Dart side to know about.
 class AndroidAutoEvent {
   /// The lifecycle state the session moved into.
@@ -325,6 +424,67 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// Sent as a relative axis rather than a key, which is what makes the phone scroll a
   /// list by steps instead of treating every detent as a button press.
   void sendRotary(int steps) {}
+
+  /// Playback volume of one stream, 0.0 to 1.0.
+  double audioVolume(AndroidAutoAudioStream stream) => 1.0;
+
+  /// Sets the playback volume of one stream. Values outside 0.0 to 1.0 are clamped.
+  ///
+  /// Applied in software with a short ramp, so a change while music is playing is a
+  /// fade rather than a click. Survives a phone disconnecting and reconnecting, because
+  /// it describes the head unit rather than the phone.
+  void setAudioVolume(AndroidAutoAudioStream stream, double volume) {}
+
+  /// Whether one stream is muted.
+  bool audioMuted(AndroidAutoAudioStream stream) => false;
+
+  /// Mutes or unmutes one stream. A muted stream is played as silence rather than not
+  /// played at all, so unmuting takes effect at once.
+  void setAudioMuted(AndroidAutoAudioStream stream, bool muted) {}
+
+  /// The outputs this machine offers, for a host app that wants to present a picker.
+  ///
+  /// Blocks briefly in the native layer, so it is a future. Empty when no audio server
+  /// can be reached.
+  Future<List<AndroidAutoAudioDevice>> audioDevices() async =>
+      const <AndroidAutoAudioDevice>[];
+
+  /// The selected output's [AndroidAutoAudioDevice.name], or empty for the default.
+  String get audioDevice => '';
+
+  /// Chooses the output to play through. Null or empty means the system default.
+  void setAudioDevice(String? name) {}
+
+  /// Whether the plugin is playing the phone's audio itself.
+  bool get audioOutputEnabled => true;
+
+  /// Turns the plugin's own playback off without touching the protocol.
+  ///
+  /// The phone keeps sending and [audioBuffers] keeps delivering, so this is what an
+  /// app doing its own mixing, or an infotainment system routing audio through its own
+  /// amplifier, turns off first.
+  void setAudioOutputEnabled(bool enabled) {}
+
+  /// Which audio backend is playing: `PulseAudio`, or `none` before the first buffer.
+  String get audioBackend => 'none';
+
+  /// Times this stream came close to running the speakers dry since the session
+  /// started. Should stay at zero; anything else is an audible glitch.
+  int audioUnderruns(AndroidAutoAudioStream stream) => 0;
+
+  /// Buffers thrown away because the phone sent faster than they could be played.
+  int audioDropped(AndroidAutoAudioStream stream) => 0;
+
+  /// How far behind the head unit the speakers are.
+  Duration audioLatency(AndroidAutoAudioStream stream) => Duration.zero;
+
+  /// The phone's PCM, before this head unit touches it.
+  ///
+  /// Only worth listening to for an app that mixes the audio itself; the plugin plays
+  /// these already. Listening costs a copy per buffer, so nothing is delivered until
+  /// something is listening.
+  Stream<AndroidAutoAudioBuffer> get audioBuffers =>
+      const Stream<AndroidAutoAudioBuffer>.empty();
 
   /// Releases everything the implementation holds.
   ///

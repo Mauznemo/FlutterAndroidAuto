@@ -6,6 +6,9 @@ library;
 
 export 'package:android_auto_platform_interface/android_auto_platform_interface.dart'
     show
+        AndroidAutoAudioBuffer,
+        AndroidAutoAudioDevice,
+        AndroidAutoAudioStream,
         AndroidAutoConfig,
         AndroidAutoConnectionState,
         AndroidAutoEvent,

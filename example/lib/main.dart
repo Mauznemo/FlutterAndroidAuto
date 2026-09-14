@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:android_auto/android_auto.dart';
 import 'package:flutter/material.dart';
 
@@ -38,6 +40,11 @@ class _TestBenchPageState extends State<TestBenchPage> {
   int _tapCount = 0;
   bool _patternRunning = false;
   String _lastInput = 'none';
+  bool _audioPanelOpen = false;
+  List<AndroidAutoAudioDevice> _audioDevices = const [];
+  StreamSubscription<AndroidAutoAudioBuffer>? _pcmSubscription;
+  int _pcmBytes = 0;
+  double _pcmPeak = 0;
 
   @override
   void initState() {
@@ -49,10 +56,49 @@ class _TestBenchPageState extends State<TestBenchPage> {
 
   @override
   void dispose() {
+    _pcmSubscription?.cancel();
     _controller
       ..removeListener(_onControllerChanged)
       ..dispose();
     super.dispose();
+  }
+
+  /// Subscribes to the raw PCM the phone is sending, for apps that mix it themselves.
+  ///
+  /// Nothing is copied out of the core while nobody is listening, so this switch is
+  /// what turns the tap on. Pair it with Play here off to hear the difference between
+  /// the plugin playing the audio and the app being handed it.
+  void _togglePcmTap(bool on) {
+    if (!on) {
+      _pcmSubscription?.cancel();
+      setState(() {
+        _pcmSubscription = null;
+        _pcmBytes = 0;
+        _pcmPeak = 0;
+      });
+      return;
+    }
+    setState(() {
+      _pcmSubscription = _controller.audioBuffers.listen((buffer) {
+        // Peak of the buffer, so the meter says something arrived rather than only
+        // that bytes did. Signed 16 bit little endian, which is all the protocol sends.
+        final samples = buffer.samples.buffer.asInt16List(
+          buffer.samples.offsetInBytes,
+          buffer.samples.lengthInBytes ~/ 2,
+        );
+        var peak = 0;
+        for (final sample in samples) {
+          final magnitude = sample.abs();
+          if (magnitude > peak) {
+            peak = magnitude;
+          }
+        }
+        setState(() {
+          _pcmBytes += buffer.samples.lengthInBytes;
+          _pcmPeak = peak / 32768;
+        });
+      });
+    });
   }
 
   Future<void> _togglePattern() async {
@@ -79,6 +125,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
             placeholder: const _ProjectionPlaceholder(),
           ),
           Positioned(top: 0, left: 0, right: 0, child: _statusBar()),
+          if (_audioPanelOpen)
+            Positioned(top: 60, right: 20, width: 360, child: _audioPanel()),
           Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
         ],
       ),
@@ -111,6 +159,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
           ),
           const SizedBox(width: 24),
           Text('Last input: $_lastInput'),
+          const SizedBox(width: 24),
+          Text('Audio: ${_controller.audioBackend}$_underrunSuffix'),
           const Spacer(),
           Text('Overlay taps: $_tapCount'),
         ],
@@ -151,6 +201,142 @@ class _TestBenchPageState extends State<TestBenchPage> {
         key(Icons.rotate_right, 'Rotary clockwise', () => _rotate(1)),
       ],
     );
+  }
+
+  /// Per stream volume, mute and the output device.
+  ///
+  /// The three streams are separate because Android Auto sends them separately and
+  /// leaves the mixing to the head unit. Media ducking under speech is automatic, so
+  /// the thing to watch here is the speech slider: turning it up and letting a
+  /// navigation prompt play should visibly pull the media level down and let it back up.
+  Widget _audioPanel() {
+    Widget stream(String label, AndroidAutoAudioStream which) {
+      final muted = _controller.muted(which);
+      return Row(
+        children: [
+          SizedBox(width: 62, child: Text(label)),
+          IconButton(
+            tooltip: muted ? 'Unmute' : 'Mute',
+            onPressed: () => setState(() => _controller.setMuted(which, !muted)),
+            icon: Icon(muted ? Icons.volume_off : Icons.volume_up, size: 18),
+          ),
+          Expanded(
+            child: Slider(
+              value: _controller.volume(which),
+              onChanged: (value) =>
+                  setState(() => _controller.setVolume(which, value)),
+            ),
+          ),
+          SizedBox(
+            width: 38,
+            child: Text(
+              '${(_controller.volume(which) * 100).round()}%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Audio', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          stream('Media', AndroidAutoAudioStream.media),
+          stream('System', AndroidAutoAudioStream.system),
+          stream('Speech', AndroidAutoAudioStream.speech),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Text('Output', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: _controller.audioDevice,
+                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('System default')),
+                    for (final device in _audioDevices)
+                      DropdownMenuItem(
+                        value: device.name,
+                        child: Text(
+                          device.description,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _controller.setAudioDevice(value)),
+                ),
+              ),
+            ],
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Play here', style: TextStyle(fontSize: 12)),
+            subtitle: const Text(
+              'Off hands the PCM to the app and plays nothing',
+              style: TextStyle(fontSize: 11),
+            ),
+            value: _controller.audioOutputEnabled,
+            onChanged: (value) =>
+                setState(() => _controller.setAudioOutputEnabled(value)),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Tap raw PCM', style: TextStyle(fontSize: 12)),
+            subtitle: Text(
+              _pcmSubscription == null
+                  ? 'Nothing is copied out while nobody listens'
+                  : '${(_pcmBytes / 1024).round()} KB, peak '
+                        '${(_pcmPeak * 100).round()}%',
+              style: const TextStyle(fontSize: 11),
+            ),
+            value: _pcmSubscription != null,
+            onChanged: _togglePcmTap,
+          ),
+          Text(
+            'Latency ${_controller.audioLatency(AndroidAutoAudioStream.media).inMilliseconds} ms, '
+            'underruns $_totalUnderruns, dropped $_totalDropped',
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int get _totalUnderruns => AndroidAutoAudioStream.values
+      .map(_controller.audioUnderruns)
+      .fold(0, (a, b) => a + b);
+
+  int get _totalDropped => AndroidAutoAudioStream.values
+      .map(_controller.audioDropped)
+      .fold(0, (a, b) => a + b);
+
+  String get _underrunSuffix =>
+      _totalUnderruns == 0 ? '' : ' ($_totalUnderruns underruns)';
+
+  Future<void> _toggleAudioPanel() async {
+    final devices = _audioPanelOpen ? _audioDevices : await _controller.audioDevices();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _audioDevices = devices;
+      _audioPanelOpen = !_audioPanelOpen;
+    });
   }
 
   void _press(AndroidAutoKey key) {
@@ -197,6 +383,11 @@ class _TestBenchPageState extends State<TestBenchPage> {
               onPressed: _togglePattern,
               icon: Icon(_patternRunning ? Icons.pause : Icons.gradient),
               label: Text(_patternRunning ? 'Stop pattern' : 'Test pattern'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _toggleAudioPanel,
+              icon: const Icon(Icons.tune),
+              label: const Text('Audio'),
             ),
             OutlinedButton.icon(
               onPressed: () async {

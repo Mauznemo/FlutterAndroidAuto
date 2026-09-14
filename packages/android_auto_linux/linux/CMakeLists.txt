@@ -15,6 +15,8 @@ set(PLUGIN_NAME "android_auto_linux_plugin")
 list(APPEND PLUGIN_SOURCES
   "android_auto_linux_plugin.cc"
   "src/aa_core.cc"
+  "src/audio/audio_output.cc"
+  "src/audio/pulse_sink.cc"
   "src/event_bus.cc"
   "src/frame_ring.cc"
   "src/test_pattern.cc"
@@ -22,6 +24,7 @@ list(APPEND PLUGIN_SOURCES
   "src/present/texture_registry.cc"
   "src/session/usb_context.cc"
   "src/session/usb_connector.cc"
+  "src/session/audio_channels.cc"
   "src/session/service_discovery.cc"
   "src/session/input_channel.cc"
   "src/session/protocol_session.cc"
@@ -84,6 +87,15 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBUSB)
 # phone sends raw Annex-B.
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBAV)
+
+# === audio output ===
+#
+# libpulse-simple plays the PCM and libpulse enumerates the outputs. On this machine
+# that is PipeWire answering to PulseAudio's API, which is the point: the same code runs
+# on a PipeWire desktop, a PulseAudio one, and the compatibility layer most infotainment
+# images ship. See src/audio/pcm_sink.h for where a second backend would go.
+pkg_check_modules(LIBPULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple)
+target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBPULSE)
 
 # drm_fourcc.h is a header of macros with no library behind it, and it ships with the
 # kernel headers rather than with libdrm, so there is nothing to find_package and

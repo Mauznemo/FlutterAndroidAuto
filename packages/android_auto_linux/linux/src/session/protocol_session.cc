@@ -13,6 +13,8 @@
 #include <aasdk/Common/Log.hpp>
 
 #include "../aa_core.h"
+#include "../audio/audio_output.h"
+#include "audio_channels.h"
 #include "input_channel.h"
 #include "support_channels.h"
 #include "video_channel.h"
@@ -133,15 +135,16 @@ void ControlEventRelay::onChannelError(const aasdk::error::Error& error) {
 std::shared_ptr<ProtocolSession> ProtocolSession::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
     HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
-    StateHandler on_state, InputHandler on_input) {
+    std::shared_ptr<AudioOutput> audio, StateHandler on_state, InputHandler on_input) {
   return std::make_shared<ProtocolSession>(io_context, strand, std::move(description),
-                                           std::move(decoder), std::move(on_state),
-                                           std::move(on_input));
+                                           std::move(decoder), std::move(audio),
+                                           std::move(on_state), std::move(on_input));
 }
 
 ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
                                  aasdk::Strand& strand, HeadUnitDescription description,
                                  std::shared_ptr<VideoDecoder> decoder,
+                                 std::shared_ptr<AudioOutput> audio,
                                  StateHandler on_state, InputHandler on_input)
     : io_context_(io_context),
       strand_(strand),
@@ -149,6 +152,7 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
       on_state_(std::move(on_state)),
       on_input_(std::move(on_input)),
       decoder_(std::move(decoder)),
+      audio_(std::move(audio)),
       fault_timer_(io_context) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
@@ -217,6 +221,20 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
     if (on_input_) {
       on_input_(input_channel_);
     }
+  }
+
+  // The three PCM sinks. Armed here for the same reason as video: the phone opens them
+  // the instant it has the service discovery response.
+  if (description_.enable_media_audio || description_.enable_system_audio ||
+      description_.enable_speech_audio) {
+    audio_channels_ = AudioChannels::Create(
+        io_context_, strand_, messenger_, description_, audio_,
+        [weak = weak_from_this()](const std::string& message) {
+          if (auto self = weak.lock()) {
+            self->ReportState(AA_STATE_CONNECTED, message);
+          }
+        });
+    audio_channels_->Start();
   }
 
   // Everything else the phone opens. It will not project at all unless these answer,
@@ -374,6 +392,10 @@ void ProtocolSession::Stop() {
     input_channel_->Stop();
     input_channel_.reset();
   }
+  if (audio_channels_) {
+    audio_channels_->Stop();
+    audio_channels_.reset();
+  }
   if (support_channels_) {
     support_channels_->Stop();
     support_channels_.reset();
@@ -522,16 +544,47 @@ void ProtocolSession::onServiceDiscoveryRequest(
 }
 
 void ProtocolSession::onAudioFocusRequest(const control_pb::AudioFocusRequest& request) {
-  // Audio focus is a state machine, not a boolean, and M6 gives it a real one. Until
-  // then, granting what is asked for keeps the phone from tearing the session down.
+  // The phone asking the head unit for permission to make noise, and the head unit
+  // answering with what it granted rather than with what was asked for. There is
+  // nothing else in this head unit competing for the speakers yet, so everything is
+  // granted; what matters is granting the *right* state, because the phone changes its
+  // own behaviour according to the answer.
+  //
+  // Deliberately not wired to the ducking. A phone asks for GAIN_TRANSIENT_MAY_DUCK
+  // before its own media as well as before a navigation prompt, so ducking on the
+  // request would have the media stream duck against itself. Ducking is driven by the
+  // speech stream actually carrying audio, in AudioOutput, where the question has an
+  // unambiguous answer.
+  control_pb::AudioFocusStateType granted = control_pb::AUDIO_FOCUS_STATE_GAIN;
+  switch (request.audio_focus_type()) {
+    case control_pb::AUDIO_FOCUS_RELEASE:
+      granted = control_pb::AUDIO_FOCUS_STATE_LOSS;
+      break;
+    case control_pb::AUDIO_FOCUS_GAIN_TRANSIENT:
+    case control_pb::AUDIO_FOCUS_GAIN_TRANSIENT_MAY_DUCK:
+      // Transient means the phone will hand it back, and it wants to be told that this
+      // is what it was given: answering plain GAIN to a transient request makes some
+      // builds skip the release, leaving the head unit believing the phone still holds
+      // focus it has finished with.
+      granted = control_pb::AUDIO_FOCUS_STATE_GAIN_TRANSIENT;
+      break;
+    case control_pb::AUDIO_FOCUS_GAIN:
+    default:
+      granted = control_pb::AUDIO_FOCUS_STATE_GAIN;
+      break;
+  }
+  audio_focus_ = static_cast<int32_t>(granted);
+
   control_pb::AudioFocusNotification response;
-  response.set_focus_state(
-      request.audio_focus_type() == control_pb::AUDIO_FOCUS_RELEASE
-          ? control_pb::AUDIO_FOCUS_STATE_LOSS
-          : control_pb::AUDIO_FOCUS_STATE_GAIN);
+  response.set_focus_state(granted);
+  // Solicited: this is an answer, and a phone that reads it as an unprompted change of
+  // its own focus will release what it has just been granted.
+  response.set_unsolicited(false);
   if (auto control = Control()) {
     control->sendAudioFocusResponse(response, MakeSendPromise("audio focus"));
   }
+  AASDK_LOG(debug) << "[AudioFocus] phone asked for " << request.audio_focus_type()
+                   << ", granted " << granted;
   Listen();
 }
 

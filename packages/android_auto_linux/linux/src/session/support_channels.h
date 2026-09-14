@@ -1,42 +1,39 @@
 // The channels that have to answer before the phone will send a single video frame.
 //
-// Android Auto does not treat service discovery as a menu. A head unit that offers
-// only video, input and sensors is not a head unit it is willing to project to: it
-// reads the response, sends nothing at all, and drops out of accessory mode a second
-// later, with no error anywhere. Offering the three audio sinks and the microphone as
-// well is what makes it open every channel and start encoding. That was measured, not
-// guessed; see PLAN.md under M4.
+// Android Auto does not treat service discovery as a menu. A head unit that offers only
+// video, input and audio is not a head unit it is willing to project to: it reads the
+// response, sends nothing at all, and drops out of accessory mode a second later, with
+// no error anywhere. Offering the microphone and the sensors as well is what makes it
+// open every channel and start encoding. That was measured, not guessed; see PLAN.md
+// under M4.
 //
 // So these exist to keep the phone happy, not to do their jobs:
 //
-//   audio sinks   accept the stream and acknowledge it, then discard the PCM   (M6)
 //   microphone    accept the channel, never actually capture anything          (M7)
 //   sensors       answer the start request, then report "parked" and "day"     (M8)
 //
-// Input used to be on that list. M5 gave it a real implementation, so it moved out to
-// session/input_channel.cc, which is the shape every one of these is headed for.
+// Input and the three audio sinks used to be on that list. M5 and M6 gave them real
+// implementations, so they moved out to session/input_channel.cc and
+// session/audio_channels.cc, which is the shape both of these are headed for.
 //
-// The sensor one is not merely polite. Android Auto locks most of its UI until the
-// head unit has told it the driving status, so without it the projection is a phone
-// screen saying the car is not ready.
+// The sensor one is not merely polite. Android Auto locks most of its UI until the head
+// unit has told it the driving status, so without it the projection is a phone screen
+// saying the car is not ready.
 //
 // Each of these becomes a real service in its own milestone. Nothing here is meant to
-// survive that: when M6 lands, the audio sink handling moves out of this file wholesale.
+// survive that.
 
 #ifndef ANDROID_AUTO_LINUX_SESSION_SUPPORT_CHANNELS_H_
 #define ANDROID_AUTO_LINUX_SESSION_SUPPORT_CHANNELS_H_
 
 #include <atomic>
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 
 #include <boost/asio.hpp>
 
-#include <aasdk/Channel/MediaSink/Audio/AudioMediaSinkService.hpp>
-#include <aasdk/Channel/MediaSink/Audio/IAudioMediaSinkServiceEventHandler.hpp>
 #include <aasdk/Channel/MediaSource/IMediaSourceServiceEventHandler.hpp>
 #include <aasdk/Channel/MediaSource/MediaSourceService.hpp>
 #include <aasdk/Channel/SensorSource/ISensorSourceServiceEventHandler.hpp>
@@ -50,34 +47,10 @@ namespace aa {
 
 class SupportChannels;
 
-// The three relays below all exist for the reason spelled out on ControlEventRelay:
-// a channel binds its event handler into a promise the messenger owns, so a handler
-// that owns the channel makes a cycle nothing can break, and a session that never dies
-// never releases the USB interface. Every one of them holds a weak reference.
-
-class AudioSinkRelay
-    : public aasdk::channel::mediasink::audio::IAudioMediaSinkServiceEventHandler {
- public:
-  AudioSinkRelay(std::weak_ptr<SupportChannels> owner, aasdk::messenger::ChannelId channel);
-
-  void onChannelOpenRequest(
-      const aap_protobuf::service::control::message::ChannelOpenRequest& request) override;
-  void onMediaChannelSetupRequest(
-      const aap_protobuf::service::media::shared::message::Setup& request) override;
-  void onMediaChannelStartIndication(
-      const aap_protobuf::service::media::shared::message::Start& indication) override;
-  void onMediaChannelStopIndication(
-      const aap_protobuf::service::media::shared::message::Stop& indication) override;
-  void onMediaWithTimestampIndication(
-      aasdk::messenger::Timestamp::ValueType timestamp,
-      const aasdk::common::DataConstBuffer& buffer) override;
-  void onMediaIndication(const aasdk::common::DataConstBuffer& buffer) override;
-  void onChannelError(const aasdk::error::Error& error) override;
-
- private:
-  std::weak_ptr<SupportChannels> owner_;
-  aasdk::messenger::ChannelId channel_;
-};
+// Both relays below exist for the reason spelled out on ControlEventRelay: a channel
+// binds its event handler into a promise the messenger owns, so a handler that owns the
+// channel makes a cycle nothing can break, and a session that never dies never releases
+// the USB interface. Both hold a weak reference.
 
 class MicrophoneRelay
     : public aasdk::channel::mediasource::IMediaSourceServiceEventHandler {
@@ -135,11 +108,6 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
   void Stop();
 
   // Called by the relays, never by aasdk directly.
-  void OnAudioOpen(aasdk::messenger::ChannelId channel);
-  void OnAudioSetup(aasdk::messenger::ChannelId channel);
-  void OnAudioStart(aasdk::messenger::ChannelId channel, int32_t session_id);
-  void OnAudioStop(aasdk::messenger::ChannelId channel);
-  void OnAudioData(aasdk::messenger::ChannelId channel);
   void OnMicrophoneOpen();
   void OnMicrophoneSetup();
   void OnMicrophoneRequest(bool open);
@@ -150,33 +118,22 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
   void OnChannelError(const std::string& what, const aasdk::error::Error& error);
 
  private:
-  struct AudioSink {
-    aasdk::channel::mediasink::audio::IAudioMediaSinkService::Pointer channel;
-    std::shared_ptr<AudioSinkRelay> relay;
-    int32_t session_id = -1;
-  };
-
-  // A copy of one audio sink, or one with a null channel if there is no such sink or
-  // the session has stopped. Microphone() and Sensor() are the same idea.
+  // The live microphone channel, or nullptr if there is none or the session has
+  // stopped. Sensor() is the same idea.
   //
   // The same reasoning as InputChannel::Channel(), for a different pair of threads.
   // Every handler here runs on the io_context, but Stop() does not: it is reached from
   // aa_session_stop() on Flutter's platform thread as well as from io threads, so a
-  // buffer can be halfway through being acknowledged while the channels are being
-  // dropped. A caller works from its own copy, so a teardown mid handler drops the
-  // channel when the last reference goes rather than out from under whoever is using
-  // it.
-  AudioSink Audio(aasdk::messenger::ChannelId channel) const;
+  // message can be halfway through being answered while the channels are being dropped.
+  // A caller works from its own copy, so a teardown mid handler drops the channel when
+  // the last reference goes rather than out from under whoever is using it.
   aasdk::channel::mediasource::IMediaSourceService::Pointer Microphone() const;
   aasdk::channel::sensorsource::ISensorSourceService::Pointer Sensor() const;
-  void SetAudioSession(aasdk::messenger::ChannelId channel, int32_t session_id);
 
-  void ListenAudio(aasdk::messenger::ChannelId channel);
   void ListenMicrophone();
   void ListenSensor();
   // Each of these builds its channel under the lock and arms the receive outside it,
   // which is the only ordering that neither races Stop() nor takes the lock twice.
-  void AddAudioSink(aasdk::messenger::ChannelId channel);
   void AddMicrophone();
   void AddSensor();
   aasdk::channel::SendPromise::Pointer MakeSendPromise(const char* what);
@@ -188,10 +145,9 @@ class SupportChannels : public std::enable_shared_from_this<SupportChannels> {
   HeadUnitDescription description_;
   LogHandler log_;
 
-  // Guards audio_, microphone_, sensor_ and messenger_. Held for the length of a
-  // pointer copy, never across a send.
+  // Guards microphone_, sensor_ and messenger_. Held for the length of a pointer copy,
+  // never across a send.
   mutable std::mutex channels_mutex_;
-  std::map<aasdk::messenger::ChannelId, AudioSink> audio_;
   aasdk::channel::mediasource::IMediaSourceService::Pointer microphone_;
   std::shared_ptr<MicrophoneRelay> microphone_relay_;
   aasdk::channel::sensorsource::ISensorSourceService::Pointer sensor_;

@@ -38,6 +38,39 @@ class AaCoreBindings {
   late final _aa_string_free = _aa_string_freePtr
       .asFunction<void Function(ffi.Pointer<ffi.Char>)>();
 
+  /// Frees a buffer handed out through AaAudioCallback. Safe to call with NULL.
+  void aa_audio_buffer_free(ffi.Pointer<ffi.Uint8> data) {
+    return _aa_audio_buffer_free(data);
+  }
+
+  late final _aa_audio_buffer_freePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Uint8>)>>(
+        'aa_audio_buffer_free',
+      );
+  late final _aa_audio_buffer_free = _aa_audio_buffer_freePtr
+      .asFunction<void Function(ffi.Pointer<ffi.Uint8>)>();
+
+  /// The outputs the audio server is offering, so a host app can present a picker.
+  ///
+  /// One device per line, three tab separated fields: the name to hand to
+  /// aa_session_set_audio_device, a human readable description, and "1" for the device the
+  /// server would use by default or "0" otherwise. Empty when no audio server can be
+  /// reached. The returned string is heap allocated and must be handed back to
+  /// aa_string_free.
+  ///
+  /// Takes no session because it describes the machine rather than a connection, and
+  /// blocks for up to a second, so call it from Dart rather than from a hot path.
+  ffi.Pointer<ffi.Char> aa_audio_devices() {
+    return _aa_audio_devices();
+  }
+
+  late final _aa_audio_devicesPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'aa_audio_devices',
+      );
+  late final _aa_audio_devices = _aa_audio_devicesPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
   /// Creates a session. Does not touch any hardware and does not start any threads yet.
   /// `on_event` may be NULL, though then nothing will ever be reported.
   ffi.Pointer<AaSession> aa_session_create(
@@ -244,6 +277,217 @@ class AaCoreBindings {
   late final _aa_session_send_rotary = _aa_session_send_rotaryPtr
       .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
 
+  /// 0.0 to 1.0, clamped. Applied in software with a short ramp, so a change mid track is
+  /// a fade rather than a click.
+  int aa_session_set_audio_volume(
+    ffi.Pointer<AaSession> session,
+    int stream,
+    double volume,
+  ) {
+    return _aa_session_set_audio_volume(session, stream, volume);
+  }
+
+  late final _aa_session_set_audio_volumePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32, ffi.Double)
+        >
+      >('aa_session_set_audio_volume');
+  late final _aa_session_set_audio_volume = _aa_session_set_audio_volumePtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int, double)>();
+
+  double aa_session_audio_volume(ffi.Pointer<AaSession> session, int stream) {
+    return _aa_session_audio_volume(session, stream);
+  }
+
+  late final _aa_session_audio_volumePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Double Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_audio_volume');
+  late final _aa_session_audio_volume = _aa_session_audio_volumePtr
+      .asFunction<double Function(ffi.Pointer<AaSession>, int)>();
+
+  /// A muted stream is written as silence rather than not written at all, so the stream
+  /// clock keeps running and unmuting is instant.
+  int aa_session_set_audio_muted(
+    ffi.Pointer<AaSession> session,
+    int stream,
+    int muted,
+  ) {
+    return _aa_session_set_audio_muted(session, stream, muted);
+  }
+
+  late final _aa_session_set_audio_mutedPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32, ffi.Int32)
+        >
+      >('aa_session_set_audio_muted');
+  late final _aa_session_set_audio_muted = _aa_session_set_audio_mutedPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int, int)>();
+
+  int aa_session_audio_muted(ffi.Pointer<AaSession> session, int stream) {
+    return _aa_session_audio_muted(session, stream);
+  }
+
+  late final _aa_session_audio_mutedPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_audio_muted');
+  late final _aa_session_audio_muted = _aa_session_audio_mutedPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// Which output to play through, as a name from aa_audio_devices. NULL or empty means
+  /// the audio server's default. Takes effect on the next buffer of each stream, which for
+  /// a stream that is playing is immediately.
+  int aa_session_set_audio_device(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<ffi.Char> device,
+  ) {
+    return _aa_session_set_audio_device(session, device);
+  }
+
+  late final _aa_session_set_audio_devicePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
+        >
+      >('aa_session_set_audio_device');
+  late final _aa_session_set_audio_device = _aa_session_set_audio_devicePtr
+      .asFunction<
+        int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
+      >();
+
+  /// The device currently selected, or an empty string for the default. Heap allocated,
+  /// free with aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_audio_device(
+    ffi.Pointer<AaSession> session,
+  ) {
+    return _aa_session_audio_device(session);
+  }
+
+  late final _aa_session_audio_devicePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)
+        >
+      >('aa_session_audio_device');
+  late final _aa_session_audio_device = _aa_session_audio_devicePtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
+
+  /// Turns the speakers off without touching the protocol: the phone keeps sending, the
+  /// audio callback keeps firing, and nothing is played. For an infotainment system that
+  /// routes audio itself, or an app doing its own mixing.
+  int aa_session_set_audio_output_enabled(
+    ffi.Pointer<AaSession> session,
+    int enabled,
+  ) {
+    return _aa_session_set_audio_output_enabled(session, enabled);
+  }
+
+  late final _aa_session_set_audio_output_enabledPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_set_audio_output_enabled');
+  late final _aa_session_set_audio_output_enabled =
+      _aa_session_set_audio_output_enabledPtr
+          .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  int aa_session_audio_output_enabled(ffi.Pointer<AaSession> session) {
+    return _aa_session_audio_output_enabled(session);
+  }
+
+  late final _aa_session_audio_output_enabledPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_audio_output_enabled',
+      );
+  late final _aa_session_audio_output_enabled =
+      _aa_session_audio_output_enabledPtr
+          .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Installs the raw PCM tap, or clears it with NULL. See AaAudioCallback.
+  int aa_session_set_audio_callback(
+    ffi.Pointer<AaSession> session,
+    AaAudioCallback on_audio,
+  ) {
+    return _aa_session_set_audio_callback(session, on_audio);
+  }
+
+  late final _aa_session_set_audio_callbackPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, AaAudioCallback)
+        >
+      >('aa_session_set_audio_callback');
+  late final _aa_session_set_audio_callback = _aa_session_set_audio_callbackPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, AaAudioCallback)>();
+
+  /// Which audio backend is playing: "PulseAudio", or "none" before the first buffer or on
+  /// a machine with no audio server. Heap allocated, free with aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_audio_backend(
+    ffi.Pointer<AaSession> session,
+  ) {
+    return _aa_session_audio_backend(session);
+  }
+
+  late final _aa_session_audio_backendPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)
+        >
+      >('aa_session_audio_backend');
+  late final _aa_session_audio_backend = _aa_session_audio_backendPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
+
+  /// Times this stream came close to running the speakers dry, since the session started.
+  /// The number to watch for "no audible glitches": it should stay at zero.
+  int aa_session_audio_underruns(ffi.Pointer<AaSession> session, int stream) {
+    return _aa_session_audio_underruns(session, stream);
+  }
+
+  late final _aa_session_audio_underrunsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int64 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_audio_underruns');
+  late final _aa_session_audio_underruns = _aa_session_audio_underrunsPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// Buffers thrown away because the phone sent faster than they could be played.
+  int aa_session_audio_dropped(ffi.Pointer<AaSession> session, int stream) {
+    return _aa_session_audio_dropped(session, stream);
+  }
+
+  late final _aa_session_audio_droppedPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int64 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_audio_dropped');
+  late final _aa_session_audio_dropped = _aa_session_audio_droppedPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// How far behind the head unit the speakers are, in microseconds.
+  int aa_session_audio_latency(ffi.Pointer<AaSession> session, int stream) {
+    return _aa_session_audio_latency(session, stream);
+  }
+
+  late final _aa_session_audio_latencyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int64 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_audio_latency');
+  late final _aa_session_audio_latency = _aa_session_audio_latencyPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Started life as M2
   /// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
@@ -332,6 +576,26 @@ final class AaTouchPoint extends ffi.Struct {
   external int y;
 }
 
+/// Which of the three PCM sinks a call is about, mirrored by AudioStream in
+/// audio/audio_output.h and AndroidAutoAudioStream in Dart. Android Auto sends these as
+/// three separate streams and leaves the mixing to the head unit, which is why they are
+/// controlled separately rather than through one volume.
+enum AaAudioStream {
+  AA_AUDIO_STREAM_MEDIA(0),
+  AA_AUDIO_STREAM_SYSTEM(1),
+  AA_AUDIO_STREAM_SPEECH(2);
+
+  final int value;
+  const AaAudioStream(this.value);
+
+  static AaAudioStream fromValue(int value) => switch (value) {
+    0 => AA_AUDIO_STREAM_MEDIA,
+    1 => AA_AUDIO_STREAM_SYSTEM,
+    2 => AA_AUDIO_STREAM_SPEECH,
+    _ => throw ArgumentError('Unknown value for AaAudioStream: $value'),
+  };
+}
+
 /// How the head unit describes itself to the phone during service discovery.
 final class AaConfig extends ffi.Struct {
   @ffi.Int32()
@@ -367,5 +631,26 @@ typedef AaEventCallback =
     ffi.Pointer<
       ffi.NativeFunction<
         ffi.Void Function(ffi.Int32 state, ffi.Pointer<ffi.Char> message)
+      >
+    >;
+
+/// Called with one buffer of PCM, exactly as the phone sent it, before this head unit's
+/// volume or ducking is applied. For a host app that wants to mix the audio itself;
+/// pair it with aa_session_set_audio_output_enabled(session, 0).
+///
+/// Invoked from an audio writer thread, so the Dart side must use a
+/// NativeCallable.listener. `data` is heap allocated by the core and ownership passes to
+/// the callee, which must hand it back to aa_audio_buffer_free once it has been copied
+/// into Dart. `stream` is an AaAudioStream.
+typedef AaAudioCallback =
+    ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Int32 stream,
+          ffi.Pointer<ffi.Uint8> data,
+          ffi.Int32 size,
+          ffi.Int32 sample_rate,
+          ffi.Int32 channels,
+        )
       >
     >;

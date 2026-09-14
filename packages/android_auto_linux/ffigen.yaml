@@ -28,9 +28,11 @@ enums:
   include:
     - 'AaState'
     - 'AaTouchAction'
+    - 'AaAudioStream'
 typedefs:
   include:
     - 'AaEventCallback'
+    - 'AaAudioCallback'
 comments:
   style: any
   length: full

@@ -95,6 +95,74 @@ class AndroidAutoController extends ChangeNotifier {
   /// Pair it with [pressKey] and [AndroidAutoKey.enter] for the encoder's push.
   void sendRotary(int steps) => _platform.sendRotary(steps);
 
+  /// Playback volume of one audio stream, 0.0 to 1.0.
+  double volume(AndroidAutoAudioStream stream) => _platform.audioVolume(stream);
+
+  /// Sets the playback volume of one audio stream.
+  ///
+  /// The three streams are separate because the phone sends them separately. Media is
+  /// ducked automatically while speech is playing, so an app does not have to do that
+  /// itself.
+  void setVolume(AndroidAutoAudioStream stream, double volume) {
+    _platform.setAudioVolume(stream, volume);
+    notifyListeners();
+  }
+
+  /// Whether one audio stream is muted.
+  bool muted(AndroidAutoAudioStream stream) => _platform.audioMuted(stream);
+
+  /// Mutes or unmutes one audio stream.
+  void setMuted(AndroidAutoAudioStream stream, bool muted) {
+    _platform.setAudioMuted(stream, muted);
+    notifyListeners();
+  }
+
+  /// The audio outputs this machine offers, for presenting a picker.
+  Future<List<AndroidAutoAudioDevice>> audioDevices() => _platform.audioDevices();
+
+  /// The selected output's [AndroidAutoAudioDevice.name], or empty for the default.
+  String get audioDevice => _platform.audioDevice;
+
+  /// Chooses the audio output. Null or empty means the system default.
+  void setAudioDevice(String? name) {
+    _platform.setAudioDevice(name);
+    notifyListeners();
+  }
+
+  /// Whether the plugin plays the phone's audio itself.
+  bool get audioOutputEnabled => _platform.audioOutputEnabled;
+
+  /// Turns the plugin's own playback off without touching the protocol.
+  ///
+  /// For an infotainment system that routes audio through its own amplifier, or an app
+  /// that mixes [audioBuffers] itself.
+  void setAudioOutputEnabled(bool enabled) {
+    _platform.setAudioOutputEnabled(enabled);
+    notifyListeners();
+  }
+
+  /// Which audio backend is playing: `PulseAudio`, or `none` before the first buffer.
+  String get audioBackend => _platform.audioBackend;
+
+  /// Times a stream came close to running the speakers dry since the session started.
+  /// Should stay at zero.
+  int audioUnderruns(AndroidAutoAudioStream stream) =>
+      _platform.audioUnderruns(stream);
+
+  /// Buffers thrown away because the phone sent faster than they could be played.
+  int audioDropped(AndroidAutoAudioStream stream) => _platform.audioDropped(stream);
+
+  /// How far behind the head unit the speakers are.
+  Duration audioLatency(AndroidAutoAudioStream stream) =>
+      _platform.audioLatency(stream);
+
+  /// The phone's PCM, before this head unit touches it.
+  ///
+  /// Only worth listening to for an app that mixes the audio itself, which should pair
+  /// it with `setAudioOutputEnabled(false)`. Nothing is delivered while nothing is
+  /// listening.
+  Stream<AndroidAutoAudioBuffer> get audioBuffers => _platform.audioBuffers;
+
   /// Re-reads the texture id and the incoming video description from the platform.
   Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;
