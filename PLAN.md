@@ -25,6 +25,7 @@ implementation can be added later without touching the app-facing API.
 | M5 | Input channel (touch, keys, rotary) | **done** |
 | M6 | Audio output (media, system, speech) | **done** |
 | M7 | Microphone input | **done** |
+| M7b | Phone calls over Bluetooth HFP | **done**, bar a two way call |
 | M8 | Sensors (night mode, GPS, driving status) | **next** |
 | M9 | Metadata channels for native Flutter UI | not started |
 | M10 | Wireless Android Auto | not started |
@@ -681,6 +682,115 @@ against a device that had worked a minute earlier. That looked exactly like a bu
 capture code and was not one. Unload it before concluding anything.
 
 ---
+
+## M7b. Phone calls over Bluetooth HFP
+
+Numbered M7b rather than inserted as M8 because it was never in the plan, and renumbering
+everything after it would make "M8" mean two different things depending on which commit
+you are reading.
+
+Goal: a call made on the phone is heard and answered through the car, not through the
+phone.
+
+- [x] Establish whether call audio can use the projection link at all. **It cannot.**
+- [x] Pair the phone and confirm Android Auto stops reporting no Bluetooth
+- [x] Confirm the downlink reaches the head unit's speakers
+- [x] Confirm the uplink is routed from the head unit's microphone to the phone
+- [x] Echo cancellation, measured rather than assumed
+- [x] Stop an empty device name following the audio server's default onto a phone
+- [ ] Confirm the far end actually hears the driver clearly. Needs a two way call with a
+      person on it, which no script on this machine can stand in for.
+- [ ] Confirm what media does while a call is up. Probably the phone's business, unchecked.
+
+**Checkpoint met, with one honest gap.** A call placed on the phone comes out of the
+machine's speakers and the machine's microphone goes back up to the phone, with the echo
+cancelled. What has not been confirmed is how the driver sounds at the other end, because
+that needs someone to listen.
+
+### Measured
+
+| | |
+|---|---|
+| Transport | Bluetooth HFP, this machine as the hands free unit |
+| Codec negotiated | LC3-SWB, super wideband |
+| Downlink routing | `bluez_input` to the default sink, made by WirePlumber |
+| Uplink routing | the default source to `bluez_output`, made by WirePlumber |
+| Code written here to carry call audio | **none** |
+| Echo reaching the microphone | +19.4 dB above the room floor |
+| Echo left after cancellation | 56.8 dB down, below the uplink's own idle noise floor |
+| Default sink or source moved onto the phone | never, across 166 snapshots |
+| Bluetooth node lifetime | created when SCO comes up, gone with the call |
+
+### Android Auto does not carry call audio, and the Bluetooth channel is not needed
+
+Calls go over HFP. The projection link carries media, system and guidance audio and the
+microphone, and that is the whole list. `AUDIO_STREAM_TELEPHONY` and
+`MEDIA_SINK_TELEPHONY_AUDIO` exist in the schema and aasdk even ships a
+`TelephonyAudioChannel`, but nothing opens them. Do not spend an evening on it.
+
+The expensive assumption that turned out to be wrong: that the head unit must advertise
+its Bluetooth address over the projection link, through aasdk's `BluetoothService`
+channel, before the phone would route a call to it. It does not. Ordinary out of band
+pairing was enough for Android Auto to stop reporting no Bluetooth and to put a call
+through. That channel may still earn its place in M10, where a wireless handover has no
+other way to hand the phone the head unit's details, but it is not what makes calling
+work.
+
+### Both directions are bridged by WirePlumber, which is why there is no code here
+
+With the phone paired, its card carries one profile, `Audio Gateway (A2DP Source &
+HSP/HFP AG)`, describing the **phone's** role: the phone is the gateway, this machine is
+the hands free unit. That is the car kit role.
+
+When a call starts, PipeWire creates two nodes, and they are ordinary streams rather than
+devices, which is the part that matters:
+
+```
+bluez_input.<addr>.0   ->  the default sink      (far end to the speakers)
+the default source     ->  bluez_output.<addr>.1 (microphone to the phone)
+```
+
+Because they follow the defaults, nothing has to be told a device name, on any machine.
+Both nodes exist only while SCO is up, so a snapshot taken between calls shows nothing and
+proves nothing. `tools/audio-graph.sh --watch` records across a call.
+
+### Echo cancellation is the whole of the work
+
+A head unit plays the far end through the car's speakers and listens in the same cabin, so
+without cancellation it sends the far end straight back, a few hundred milliseconds late.
+The phone will not do it: a phone on speakerphone cancels its own echo, but once the call
+is on a hands free unit it no longer knows what the speakers played or when. `ec_enabled`
+is the phone asking whether this was handled, not offering to handle it.
+
+This is configuration rather than code: a PipeWire drop-in in `tools/config/`, installed
+by `tools/install-echo-cancel.sh`, reasoned through in `docs/echo-cancellation.md`. It
+names no device, and the canceller's virtual source outranks every real capture device so
+it becomes the default input, which is what puts it in front of both the call uplink and
+the Android Auto microphone channel without either being wired to it.
+
+It needs no per machine calibration. The filter estimates the echo path, its delay and the
+way the cabin colours it, from the signals themselves at runtime, which is how it reached
+56.8 dB on a laptop it had been told nothing about. What it cannot survive is a microphone
+driven into clipping by the speakers, because that breaks the linear relationship it
+depends on. That is a gain staging problem, not a settings problem.
+
+The trap when measuring it: at a quiet volume the speakers never reach the microphone, so
+both recordings look identical and a canceller doing nothing at all looks perfect. The
+first measurement taken here fell into exactly that and reported 34.9 dB of cancellation
+that was not happening. Check the raw microphone actually rises above its silent floor
+first.
+
+### A phone must not be able to become the car's speakers
+
+An empty device name in the audio API used to mean "the audio server's default", and the
+audio server moves its default onto a Bluetooth device when one connects. Pairing a phone
+could therefore have dragged the head unit's own media onto the phone's uplink. It now
+means the head unit's own hardware, resolved to a concrete non Bluetooth device, and an
+explicitly named Bluetooth device still works. See `DefaultHeadUnitDevice` in
+`pulse_sink.cc`.
+
+This one is defensive. On this machine WirePlumber never actually moved either default,
+not once across a whole call, so it is a rule with no observed fault behind it.
 
 ## M8. Sensors
 

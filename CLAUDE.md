@@ -17,7 +17,8 @@ the top of `PLAN.md` when a milestone changes state.
 
 Background reading, only when relevant: `docs/research.md` (protocol and library
 evaluation), `docs/architecture.md` (how the pieces fit), `docs/dev-environment.md`
-(machine specifics).
+(machine specifics), `docs/echo-cancellation.md` (phone calls, which are not in this
+code).
 
 ## Layout
 
@@ -27,7 +28,7 @@ evaluation), `docs/architecture.md` (how the pieces fit), `docs/dev-environment.
 | `packages/android_auto_platform_interface` | the contract, pure Dart, no GPL code |
 | `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
 | `example/` | test bench app, run this to verify anything visually |
-| `tools/` | `ui.sh`, `run-example.sh`, `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh` |
+| `tools/` | `ui.sh`, `run-example.sh`, `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `audio-graph.sh`, and `config/` for the PipeWire drop-in the first of those installs |
 
 Keep aasdk code out of the two pure Dart packages. That split is what keeps a future
 permissive implementation possible.
@@ -286,10 +287,14 @@ protocol and `AudioInput` owns the capture thread.
 - **Buffers are 32 ms, produced on the capture thread, posted onto the channel strand.**
   The same shape as an input report, and for the same reason: everything that touches the
   channel happens on one thread.
-- **Echo and noise cancellation are not implemented.** The phone asks for both in
-  `anc_enabled` and `ec_enabled`; they are hints about what the head unit's hardware has
-  already done, so nothing is owed, but in a car with music playing they are what makes
-  recognition work. Logged at debug.
+- **Echo and noise cancellation are not implemented in this code, but they are no longer
+  absent.** The phone asks for both in `anc_enabled` and `ec_enabled`; they are hints
+  about what the head unit has already done, so nothing is owed on the wire, and they are
+  still only logged at debug. What changed is that the echo canceller installed for phone
+  calls becomes the default capture device, and this channel follows the default, so the
+  Assistant now gets cancellation and noise suppression for free. That matters: in a car
+  with music playing it is what makes recognition work at all. See
+  `docs/echo-cancellation.md`.
 - **"Hey Google" is not on this channel.** The hotword works, but the phone listens for
   it on its own microphone and only then asks the head unit for one, for the query that
   follows. Nothing here can make the hotword more reliable. Synthetic speech does not
@@ -306,6 +311,37 @@ Do **not** reach for `pactl load-module module-null-sink media.class=Audio/Sourc
 fake a microphone. It broke recording machine wide on this PipeWire, and the symptom was
 `pa_simple_new` timing out after 30 seconds against a device that had worked a minute
 earlier, which looks exactly like a bug in the capture code.
+
+## Phone calls, which are not in this code at all
+
+Android Auto does not carry call audio over the projection link. Calls go over Bluetooth
+HFP, with this machine as the hands free unit and the phone as the audio gateway. Once
+the phone is paired by any means, both directions are bridged by WirePlumber on its own:
+the far end arrives as a playback stream following the default sink, and the uplink is a
+capture stream following the default source. Verified end to end on 2026-09-16, on the
+LC3-SWB codec. Do not go looking for a telephony channel to implement.
+
+- **The aasdk Bluetooth channel is not needed for this.** Advertising `car_address` over
+  the projection link turned out not to be required: ordinary out of band pairing was
+  enough for Android Auto to stop reporting no Bluetooth and to route a call through the
+  machine. That channel may still earn its place in M10, where a wireless handover has no
+  other way to hand the phone the head unit's details.
+- **Echo cancellation is configuration, not code, and it is not optional.** Without it
+  every call sends the far end back to itself a few hundred milliseconds late, because
+  the microphone hears the speakers. The phone will not do it once the call is on a hands
+  free unit. `tools/install-echo-cancel.sh`, reasoning in `docs/echo-cancellation.md`.
+- **Both the call uplink and the microphone channel follow the default source.** That is
+  why the canceller's virtual source is given a priority that makes it the default,
+  rather than anything being wired to it by name. It is also why nothing in this
+  repository has to know a device name for calls to work.
+- **An empty device name means the head unit's own hardware**, not the audio server's
+  current default, and a Bluetooth device is never resolved to. A phone that connects
+  must not be able to become the car's speakers or the car's microphone. See
+  `DefaultHeadUnitDevice` in `pulse_sink.cc`. On this machine WirePlumber never actually
+  moved the default, so that rule is defensive rather than a fix for an observed fault.
+- `tools/audio-graph.sh` dumps the audio graph, and `--watch` records it over time. The
+  Bluetooth nodes only exist while a call is up, so a snapshot taken between calls shows
+  nothing and proves nothing.
 
 ## Stopping and resuming a session
 
