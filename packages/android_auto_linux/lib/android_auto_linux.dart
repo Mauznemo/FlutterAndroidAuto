@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -52,11 +53,27 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
 
   AaCoreBindings get _bindings => AaLibrary.instance.bindings;
 
+  /// What the phone has said about itself, one stream per kind plus the latest of the
+  /// three that are states rather than events.
+  ///
+  /// Unlike the audio settings and the sensors these are not replayed into a new
+  /// session: they came from a phone, and a phone that has been unplugged is not
+  /// playing anything. [stop] clears them for that reason.
+  final _navigation = StreamController<AndroidAutoNavigation>.broadcast();
+  final _mediaPlayback = StreamController<AndroidAutoMediaInfo>.broadcast();
+  final _phoneStatus = StreamController<AndroidAutoPhoneStatus>.broadcast();
+  final _notifications = StreamController<AndroidAutoNotification>.broadcast();
+  final _browseResults = StreamController<AndroidAutoBrowseNode>.broadcast();
+  AndroidAutoNavigation? _lastNavigation;
+  AndroidAutoMediaInfo? _lastMediaInfo;
+  AndroidAutoPhoneStatus? _lastPhoneStatus;
+
   Pointer<AaSession> _session = nullptr;
   NativeCallable<Void Function(Int32, Pointer<Char>)>? _callback;
   StreamController<AndroidAutoAudioBuffer>? _audioController;
   NativeCallable<Void Function(Int32, Pointer<Uint8>, Int32, Int32, Int32)>?
   _audioCallback;
+  NativeCallable<Void Function(Int32, Pointer<Char>)>? _metadataCallback;
 
   /// Called by the Flutter tooling through `dartPluginClass`.
   static void registerWith() {
@@ -133,7 +150,8 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..car_model = carModel.cast()
         ..car_year = carYear.cast()
         ..certificate_path = certificatePath?.cast() ?? nullptr
-        ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit);
+        ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit)
+        ..metadata = config.metadata.fold(0, (mask, kind) => mask | kind.bit);
 
       _session = _bindings.aa_session_create(native, _callback!.nativeFunction);
       if (_session == nullptr) {
@@ -142,6 +160,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
       }
       _applyAudioSettings();
       _applySensorSettings();
+      _installMetadataListener();
       final result = _bindings.aa_session_start(_session);
       if (result != 0) {
         _emit(
@@ -170,6 +189,12 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     if (_session != nullptr) {
       _bindings.aa_session_stop(_session);
     }
+    // What the phone was playing is not true any more. The core empties its own copy
+    // when the connection ends; this is the same statement on the Dart side, so a host
+    // app reading lastMediaInfo after a stop gets nothing rather than a stale track.
+    _lastNavigation = null;
+    _lastMediaInfo = null;
+    _lastPhoneStatus = null;
     _emit(AndroidAutoConnectionState.idle);
   }
 
@@ -186,8 +211,15 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     _callback = null;
     _audioCallback?.close();
     _audioCallback = null;
+    _metadataCallback?.close();
+    _metadataCallback = null;
     await _audioController?.close();
     _audioController = null;
+    await _navigation.close();
+    await _mediaPlayback.close();
+    await _phoneStatus.close();
+    await _notifications.close();
+    await _browseResults.close();
     await _events.close();
   }
 
@@ -600,6 +632,146 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   @override
   int get sensorBatches =>
       _session == nullptr ? 0 : _bindings.aa_session_sensor_batches(_session);
+
+  @override
+  Stream<AndroidAutoNavigation> get navigation => _navigation.stream;
+
+  @override
+  AndroidAutoNavigation? get lastNavigation => _lastNavigation;
+
+  @override
+  Stream<AndroidAutoMediaInfo> get mediaPlayback => _mediaPlayback.stream;
+
+  @override
+  AndroidAutoMediaInfo? get lastMediaInfo => _lastMediaInfo;
+
+  @override
+  Stream<AndroidAutoPhoneStatus> get phoneStatus => _phoneStatus.stream;
+
+  @override
+  AndroidAutoPhoneStatus? get lastPhoneStatus => _lastPhoneStatus;
+
+  @override
+  Stream<AndroidAutoNotification> get notifications => _notifications.stream;
+
+  @override
+  Stream<AndroidAutoBrowseNode> get browseResults => _browseResults.stream;
+
+  @override
+  bool browse({String path = '', int start = 0}) {
+    if (_session == nullptr) {
+      return false;
+    }
+    final native = path.isEmpty ? null : path.toNativeUtf8();
+    try {
+      return _bindings.aa_session_browse(
+            _session,
+            native?.cast() ?? nullptr,
+            start,
+          ) ==
+          0;
+    } finally {
+      if (native != null) {
+        calloc.free(native);
+      }
+    }
+  }
+
+  @override
+  bool browseSelect(String path) {
+    if (_session == nullptr || path.isEmpty) {
+      return false;
+    }
+    final native = path.toNativeUtf8();
+    try {
+      return _bindings.aa_session_browse_select(_session, native.cast()) == 0;
+    } finally {
+      calloc.free(native);
+    }
+  }
+
+  @override
+  Set<AndroidAutoMetadata> get metadataChannels {
+    if (_session == nullptr) {
+      return const <AndroidAutoMetadata>{};
+    }
+    final mask = _bindings.aa_session_metadata_channels(_session);
+    return {
+      for (final kind in AndroidAutoMetadata.values)
+        if (mask & kind.bit != 0) kind,
+    };
+  }
+
+  @override
+  int metadataUpdates(AndroidAutoMetadata kind) => _session == nullptr
+      ? 0
+      : _bindings.aa_session_metadata_updates(_session, kind.index);
+
+  /// Installs the native metadata listener, once, and points it at this object.
+  ///
+  /// Unlike the raw PCM tap this is armed whether or not anything is listening. The
+  /// updates are a few hundred bytes each and arrive when a track or a turn changes,
+  /// which is orders of magnitude rarer than an audio buffer, and arming it lazily
+  /// would mean a host app that subscribes after the phone has already said something
+  /// sees nothing until it says it again.
+  void _installMetadataListener() {
+    // A listener callable, not an isolate local closure: the core delivers these from
+    // its own io_context threads.
+    _metadataCallback ??=
+        NativeCallable<Void Function(Int32, Pointer<Char>)>.listener(_onNativeMetadata);
+    if (_session != nullptr) {
+      _bindings.aa_session_set_metadata_callback(
+        _session,
+        _metadataCallback!.nativeFunction,
+      );
+    }
+  }
+
+  void _onNativeMetadata(int kind, Pointer<Char> json) {
+    if (json == nullptr) {
+      return;
+    }
+    final text = json.cast<Utf8>().toDartString();
+    // Back to the core's heap before anything else can throw, which has to happen
+    // whatever the decode does with it.
+    _bindings.aa_string_free(json);
+    if (kind < 0 || kind >= AndroidAutoMetadata.values.length || text.isEmpty) {
+      return;
+    }
+    Object? decoded;
+    try {
+      decoded = jsonDecode(text);
+    } on FormatException {
+      // The core built this string, so a failure here is a bug rather than a phone
+      // saying something odd. Dropped rather than thrown: a malformed update must not
+      // take down the isolate that is drawing the projection.
+      return;
+    }
+    if (decoded is! Map<String, dynamic>) {
+      return;
+    }
+    switch (AndroidAutoMetadata.values[kind]) {
+      case AndroidAutoMetadata.navigation:
+        _lastNavigation = AndroidAutoNavigation.fromJson(decoded);
+        _add(_navigation, _lastNavigation!);
+      case AndroidAutoMetadata.media:
+        _lastMediaInfo = AndroidAutoMediaInfo.fromJson(decoded);
+        _add(_mediaPlayback, _lastMediaInfo!);
+      case AndroidAutoMetadata.phone:
+        _lastPhoneStatus = AndroidAutoPhoneStatus.fromJson(decoded);
+        _add(_phoneStatus, _lastPhoneStatus!);
+      case AndroidAutoMetadata.notification:
+        _add(_notifications, AndroidAutoNotification.fromJson(decoded));
+      case AndroidAutoMetadata.browse:
+        _add(_browseResults, AndroidAutoBrowseNode.fromJson(decoded));
+    }
+  }
+
+  static void _add<T>(StreamController<T> controller, T value) {
+    if (!controller.isClosed) {
+      controller.add(value);
+    }
+  }
 
   /// Remembers how to push one sensor, and pushes it now if there is a session.
   ///

@@ -27,8 +27,8 @@ implementation can be added later without touching the app-facing API.
 | M7 | Microphone input | **done** |
 | M7b | Phone calls over Bluetooth HFP | **done**, bar a two way call |
 | M8 | Sensors (night mode, GPS, driving status) | **done** |
-| M9 | Metadata channels for native Flutter UI | **next** |
-| M10 | Wireless Android Auto | not started |
+| M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
+| M10 | Wireless Android Auto | **next** |
 | M11 | Packaging, ARM64, CI, docs | not started |
 | M12 | Android implementation package | not started |
 
@@ -937,15 +937,143 @@ both directions. Check that before touching any code.
 ## M9. Metadata channels for native Flutter UI
 
 The point of this project: the host app should be able to render its own widgets from
-Android Auto state, not just mirror pixels.
+Android Auto state, not just mirror pixels. Everything before this gets the phone's
+screen onto a texture; this is what lets a head unit draw its own.
 
-- [ ] `NavigationStatusService`: turn by turn instructions, distance, maneuver icons
-- [ ] `MediaPlaybackStatusService`: track, artist, album, playback state, position
-- [ ] `PhoneStatusService`: call state, caller id
-- [ ] `MediaBrowserService`: browse and search the phone's media library
-- [ ] `GenericNotificationService`
-- [ ] Model all of these as Dart classes with streams in `android_auto_platform_interface`
-- [ ] Example app shows a native Flutter "now playing" bar fed by M9 data, over the projection
+- [x] `NavigationStatusService`: turn by turn instructions, distance, maneuver icons
+- [x] `MediaPlaybackStatusService`: track, artist, album, playback state, position
+- [ ] `PhoneStatusService`: call state, caller id. The channel opens, a message arrives
+      and decodes, but no call was placed during the test, so the call fields
+      themselves are unverified.
+- [ ] `MediaBrowserService`: browse and search the phone's media library. Implemented
+      both ways, never exercised: **this phone does not open the channel.** See below.
+- [ ] `GenericNotificationService`. Same, and the subscribe that would start it has
+      never been sent for real.
+- [x] Model all of these as Dart classes with streams in `android_auto_platform_interface`
+- [x] Example app shows a native Flutter "now playing" bar fed by M9 data, over the projection
+
+**Checkpoint met.** A Flutter now playing bar with the cover art, the title, the artist,
+the app and a running progress bar, drawn over the projection from the playback channel
+rather than read off the phone's pixels. Beside it a turn card with an arrow chosen from
+the maneuver, the distance to it, the road it leads onto, the arrival time and the
+destination address, which appears when guidance starts and vanishes when it ends.
+
+### Measured
+
+| | |
+|---|---|
+| Channels implemented | 5 |
+| Channels this Pixel opened, of the five advertised | **3**: navigation, playback, telephony |
+| Channels it never opened | generic notification, media browser |
+| Navigation messages in one short session | 66, all decoded |
+| Playback messages while a track played | about one a second |
+| Telephony messages | 1 per connection, with no call in progress |
+| Message ids that reached the "not decoded" log | **0** |
+| Failed sends, parse failures, channel errors of our own making | **0** |
+| Projection after adding five channels to service discovery | unchanged, 1280x720 VA-API |
+
+### aasdk names these channels but does not speak them
+
+Four of the five have a service class in aasdk and only two parse anything, and those
+two stop at the message ids openauto's phones were sending: the turn event and the
+distance event, **both marked deprecated in the schema**, and not the navigation state a
+current phone actually sends. `PhoneStatus`, `MediaBrowser` and `GenericNotification`
+parse nothing past the channel open and log an error for everything else.
+
+Extending the vendored submodule would have meant five more classes inside it and a much
+larger patch to carry for ever, for messages this plugin is the only consumer of.
+aasdk's `Channel` base is public and does the part that is actually hard, so instead
+there is one `MetadataChannel` here that answers the open request and hands every other
+message to a decoder, and one decoder per channel in `metadata_channels.cc`. The patch in
+`linux/patches/` did not grow by a line.
+
+### What this phone opens, and what it ignores
+
+Advertising all five and watching:
+
+```
+opened:      NAVIGATION_STATUS, MEDIA_PLAYBACK_STATUS, PHONE_STATUS
+not opened:  GENERIC_NOTIFICATION, MEDIA_BROWSER
+```
+
+The three it opens are the three it pushes without being asked. The two it ignores are
+the two where the head unit has to speak first: a notification needs a subscribe, and a
+browse needs a request. So the default advertised set is those three, and the other two
+are opt in through `AndroidAutoConfig.metadata`. The example advertises all five anyway,
+because a test bench that cannot exercise a channel cannot tell whether it works.
+
+Which leaves both of them **implemented and unverified**. The decoders are written
+against the schema and the send paths exist; nothing has ever answered them. Do not
+record them as working on the strength of the code compiling.
+
+### A channel that exists is not a channel that is open
+
+The first real bug this milestone produced, and the same one the input channel had.
+`Browse()` found the channel object, which exists from the moment the channel is
+advertised, and sent a request on it. The phone had never opened it, so the request went
+nowhere with nothing to say so: the media library simply stayed empty for ever.
+
+`GetOpen()` now refuses unless the phone has actually opened the channel, and the host
+app is told no. The example prints the refusal rather than showing an empty list, which
+is the difference between a bug report and a fact.
+
+### Android Auto splits one picture across several messages
+
+A head unit wants one object with the turn and the distance to it in. The protocol sends
+the shape of the turn on `INSTRUMENT_CLUSTER_NAVIGATION_STATE` and the distance on
+`INSTRUMENT_CLUSTER_NAVIGATION_CURRENT_POSITION`, and the track's title on
+`MEDIA_PLAYBACK_METADATA` and whether it is playing on `MEDIA_PLAYBACK_STATUS`. So
+`MetadataState` merges rather than replaces: each message writes its own fields and every
+update publishes the whole.
+
+Two exceptions, both deliberate. A `PhoneStatus` carries the entire call list every time,
+so that one **replaces**: a call that has ended is a call no longer in the list, and
+merging would leave it on screen for ever. And a navigation status of anything but active
+or rerouting **clears** the turn fields, because an instruction left on screen after
+guidance ends is the one mistake a head unit can make that actively misleads a driver.
+
+### Ask for ENUM, not IMAGE
+
+`NavigationStatusService` has to say which of two instrument cluster types it is. IMAGE
+asks the phone to render each turn arrow and send it as a picture sized to
+`image_options`, which is what a car with a fixed cluster display wants. This is a
+Flutter app: it would rather be told the turn is a normal left and draw that itself, at
+its own resolution in its own style.
+
+That choice is also what decides which messages arrive. Under ENUM the phone sends the
+navigation state and current position; the deprecated pair carries neither lanes nor a
+destination. Both are decoded, because a phone on an older build sends only the
+deprecated pair, but only one of them has ever been seen on this machine.
+
+The two message sets name the same turns differently, and that would have leaked into the
+API: `slightTurn` plus a separate side field from the old one, `turnSlightLeft` from the
+new. `ManeuverFromTurnEvent` folds the old vocabulary into the new one, so a host app
+learns one list of forty three names rather than two.
+
+### One JSON string per update, and why
+
+Everything else in the C ABI is a scalar or a NUL terminated string. None of this fits:
+a turn carries a lane diagram and a list of destinations, a call list has a photo per
+entry. So each update crosses as one UTF-8 JSON object, built by a seventy line writer
+in `metadata/json.cc`, with pictures base64 inline.
+
+That buys one owner, one `aa_string_free`, and a snapshot getter that returns everything
+rather than everything except the pictures. It costs a third on the images, which are
+encoded once where they arrive rather than on every update that carries them along, so a
+playback position ticking once a second does not re-encode fifty kilobytes of cover art.
+
+The absent-is-not-zero rule from M8 runs all the way through: a field the phone did not
+send is absent from the object, not present and zero, and comes out as `null` in Dart. A
+track with no album and a track on an album called "" are different questions.
+
+### What the phone is playing is not like what the car is doing
+
+`SensorState` is process lifetime because a parking brake does not come off when a cable
+is pulled out. `MetadataState` is the opposite and says so: the music stops. The object
+lives as long as the session so a host app can keep one listener across reconnects, but
+its contents are cleared when a connection ends, and the Dart side clears its snapshots
+on `stop()` for the same reason. Verified: pressing stop takes the now playing bar away
+rather than leaving a track that finished.
 
 ---
 

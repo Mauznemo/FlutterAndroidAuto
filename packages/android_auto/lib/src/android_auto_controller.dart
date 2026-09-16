@@ -12,6 +12,7 @@ class AndroidAutoController extends ChangeNotifier {
   final AndroidAutoConfig config;
 
   late final StreamSubscription<AndroidAutoEvent> _subscription;
+  final List<StreamSubscription<void>> _metadataSubscriptions = [];
   AndroidAutoConnectionState _state = AndroidAutoConnectionState.idle;
   String? _message;
   int? _textureId;
@@ -20,6 +21,15 @@ class AndroidAutoController extends ChangeNotifier {
   /// Creates a controller. Nothing happens until [start] is called.
   AndroidAutoController({this.config = const AndroidAutoConfig()}) {
     _subscription = _platform.events.listen(_onEvent);
+    // Subscribed here rather than left to the host app, so that a widget which only
+    // listens to this ChangeNotifier repaints when a track or a turn changes. The
+    // streams are broadcast, so an app that wants the values themselves still
+    // subscribes to them directly.
+    _metadataSubscriptions.addAll([
+      _platform.navigation.listen((_) => notifyListeners()),
+      _platform.mediaPlayback.listen((_) => notifyListeners()),
+      _platform.phoneStatus.listen((_) => notifyListeners()),
+    ]);
   }
 
   AndroidAutoPlatform get _platform => AndroidAutoPlatform.instance;
@@ -307,6 +317,69 @@ class AndroidAutoController extends ChangeNotifier {
   /// Sensor readings written to the phone since the session was created.
   int get sensorBatches => _platform.sensorBatches;
 
+  // === metadata ===
+  //
+  // What the phone is doing rather than what it looks like. These are what a host app
+  // draws its own turn card, now playing bar and call banner from.
+  //
+  // The three snapshots go null when a session ends, because a phone that has been
+  // unplugged is not playing anything, and every one of them notifies this controller
+  // so a widget that only listens here repaints without subscribing to a stream.
+
+  /// Turn by turn guidance, as it changes.
+  ///
+  /// Check [AndroidAutoNavigation.isGuiding] before drawing: an instruction left on
+  /// screen after guidance has ended is the one mistake a head unit can make that
+  /// actively misleads a driver.
+  Stream<AndroidAutoNavigation> get navigation => _platform.navigation;
+
+  /// The latest guidance, or null while the phone has said nothing.
+  AndroidAutoNavigation? get lastNavigation => _platform.lastNavigation;
+
+  /// The track playing and what is being done with it, as it changes.
+  Stream<AndroidAutoMediaInfo> get mediaPlayback => _platform.mediaPlayback;
+
+  /// The latest track, or null while the phone has said nothing.
+  AndroidAutoMediaInfo? get lastMediaInfo => _platform.lastMediaInfo;
+
+  /// Calls in progress, as they come and go.
+  ///
+  /// Read only: a call's audio goes over Bluetooth hands free and never touches the
+  /// projection link, so answering and hanging up belong there.
+  Stream<AndroidAutoPhoneStatus> get phoneStatus => _platform.phoneStatus;
+
+  /// The latest telephony state, or null while the phone has said nothing.
+  AndroidAutoPhoneStatus? get lastPhoneStatus => _platform.lastPhoneStatus;
+
+  /// Messages the phone asks the head unit to show. Needs
+  /// [AndroidAutoMetadata.notification] in [AndroidAutoConfig.metadata].
+  Stream<AndroidAutoNotification> get notifications => _platform.notifications;
+
+  /// Answers to [browse].
+  Stream<AndroidAutoBrowseNode> get browseResults => _platform.browseResults;
+
+  /// Asks the phone for one node of its media library.
+  ///
+  /// [path] is empty for the root and otherwise a path out of a previous answer. The
+  /// answer arrives on [browseResults] rather than being returned, because it is a
+  /// round trip over USB. Needs [AndroidAutoMetadata.browse] in
+  /// [AndroidAutoConfig.metadata].
+  bool browse({String path = '', int start = 0}) =>
+      _platform.browse(path: path, start: start);
+
+  /// Tells the phone the user picked [path] in the media library, which is what makes
+  /// it play.
+  bool browseSelect(String path) => _platform.browseSelect(path);
+
+  /// Which metadata channels the phone actually opened, empty when none is connected.
+  ///
+  /// Never the same as [AndroidAutoConfig.metadata]: a phone takes what it wants from
+  /// what was offered, and the gap is the first thing to check when nothing arrives.
+  Set<AndroidAutoMetadata> get metadataChannels => _platform.metadataChannels;
+
+  /// Updates received on one metadata channel since the session was created.
+  int metadataUpdates(AndroidAutoMetadata kind) => _platform.metadataUpdates(kind);
+
   /// Re-reads the texture id and the incoming video description from the platform.
   Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;
@@ -331,6 +404,10 @@ class AndroidAutoController extends ChangeNotifier {
   @override
   void dispose() {
     _subscription.cancel();
+    for (final subscription in _metadataSubscriptions) {
+      subscription.cancel();
+    }
+    _metadataSubscriptions.clear();
     _platform.dispose();
     super.dispose();
   }

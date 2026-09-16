@@ -41,6 +41,8 @@ class AudioChannels;
 class AudioInput;
 class AudioOutput;
 class InputChannel;
+class MetadataChannels;
+class MetadataState;
 class MicrophoneChannel;
 class ProtocolSession;
 class SensorChannel;
@@ -99,6 +101,10 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // thread. The owner is what the C ABI's send calls reach, and they arrive on
   // Flutter's platform thread, so it has to be told rather than allowed to reach in.
   using InputHandler = std::function<void(std::shared_ptr<InputChannel>)>;
+  // The same, for the metadata channels. Only the media browser is ever called from
+  // outside, and only from Flutter's platform thread, so it needs the same treatment
+  // the input channel does rather than being reached into.
+  using MetadataHandler = std::function<void(std::shared_ptr<MetadataChannels>)>;
 
   // `strand` must outlive every ProtocolSession built on it. aasdk's Channel base holds
   // it by reference and posts to it from promise handlers that can run after the
@@ -110,6 +116,11 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // opening VA-API or the audio server again, the volume and the chosen devices survive
   // the reconnect, and so does what the car is doing. A parking brake does not come off
   // because a cable was pulled out.
+  //
+  // `metadata` is the object that outlives the session but not its contents. What the
+  // phone is playing is only true while the phone is there, so the channels clear it on
+  // the way out; the object itself is kept so a host app can hold one listener across
+  // reconnects.
   static std::shared_ptr<ProtocolSession> Create(boost::asio::io_context& io_context,
                                                  aasdk::Strand& strand,
                                                  HeadUnitDescription description,
@@ -117,15 +128,18 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
                                                  std::shared_ptr<AudioOutput> audio,
                                                  std::shared_ptr<AudioInput> microphone,
                                                  std::shared_ptr<SensorState> sensors,
+                                                 std::shared_ptr<MetadataState> metadata,
                                                  StateHandler on_state,
-                                                 InputHandler on_input);
+                                                 InputHandler on_input,
+                                                 MetadataHandler on_metadata);
 
   ProtocolSession(boost::asio::io_context& io_context, aasdk::Strand& strand,
                   HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
                   std::shared_ptr<AudioOutput> audio,
                   std::shared_ptr<AudioInput> microphone,
-                  std::shared_ptr<SensorState> sensors, StateHandler on_state,
-                  InputHandler on_input);
+                  std::shared_ptr<SensorState> sensors,
+                  std::shared_ptr<MetadataState> metadata, StateHandler on_state,
+                  InputHandler on_input, MetadataHandler on_metadata);
   ~ProtocolSession();
 
   // Begins the handshake with a device that has already reached accessory mode.
@@ -203,6 +217,7 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   HeadUnitDescription description_;
   StateHandler on_state_;
   InputHandler on_input_;
+  MetadataHandler on_metadata_;
 
   aasdk::usb::IAOAPDevice::Pointer device_;
   aasdk::transport::ITransport::Pointer transport_;
@@ -217,11 +232,13 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   std::shared_ptr<AudioOutput> audio_;
   std::shared_ptr<AudioInput> microphone_;
   std::shared_ptr<SensorState> sensors_;
+  std::shared_ptr<MetadataState> metadata_;
   std::shared_ptr<VideoChannel> video_channel_;
   std::shared_ptr<InputChannel> input_channel_;
   std::shared_ptr<AudioChannels> audio_channels_;
   std::shared_ptr<MicrophoneChannel> microphone_channel_;
   std::shared_ptr<SensorChannel> sensor_channel_;
+  std::shared_ptr<MetadataChannels> metadata_channels_;
 
   // What the phone was last granted, as an AudioFocusStateType. Read from io threads
   // only, but atomic because it is also what a later milestone will let the host app

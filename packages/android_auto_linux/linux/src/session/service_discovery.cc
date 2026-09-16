@@ -12,6 +12,11 @@
 #include <aap_protobuf/service/media/sink/message/VideoConfiguration.pb.h>
 #include <aap_protobuf/service/media/sink/message/VideoFrameRateType.pb.h>
 #include <aap_protobuf/service/media/source/MediaSourceService.pb.h>
+#include <aap_protobuf/service/genericnotification/GenericNotificationService.pb.h>
+#include <aap_protobuf/service/mediabrowser/MediaBrowserService.pb.h>
+#include <aap_protobuf/service/mediaplayback/MediaPlaybackStatusService.pb.h>
+#include <aap_protobuf/service/navigationstatus/NavigationStatusService.pb.h>
+#include <aap_protobuf/service/phonestatus/PhoneStatusService.pb.h>
 #include <aap_protobuf/service/sensorsource/SensorSourceService.pb.h>
 #include <aap_protobuf/service/sensorsource/message/Sensor.pb.h>
 #include <aap_protobuf/service/control/message/DriverPosition.pb.h>
@@ -158,6 +163,63 @@ void AddSensorService(const HeadUnitDescription& description,
   }
 }
 
+// How often at most the phone should send a navigation update.
+//
+// A second is what the instrument cluster in a car is refreshed at and what the
+// distance to the next turn changes by in any meaningful way at road speed. Asking for
+// less makes a head unit redraw a number that has not changed; asking for more makes
+// the last hundred metres before a turn tick in jumps.
+constexpr int32_t kNavigationIntervalMs = 1000;
+
+void AddNavigationService(
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::NAVIGATION_STATUS));
+
+  auto* navigation = service->mutable_navigation_status_service();
+  navigation->set_minimum_interval_ms(kNavigationIntervalMs);
+  // ENUM, not IMAGE. IMAGE asks the phone to render each turn arrow and send it as a
+  // picture, sized to image_options, which is what a head unit with a fixed instrument
+  // cluster display wants. This one is a Flutter app: it would rather be told the turn
+  // is a normal left and draw that in its own style at its own resolution. It is also
+  // what makes the phone send the navigation state and current position messages rather
+  // than the pair of deprecated turn events; both are decoded, but only one of them
+  // carries lanes and a destination.
+  navigation->set_type(
+      pb::service::navigationstatus::NavigationStatusService::ENUM);
+}
+
+// The three that describe themselves with an empty message. Being present in the
+// response is the whole of what they say; everything about them is in the messages that
+// follow once the phone opens the channel.
+void AddMediaPlaybackService(
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::MEDIA_PLAYBACK_STATUS));
+  service->mutable_media_playback_service();
+}
+
+void AddPhoneStatusService(
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::PHONE_STATUS));
+  service->mutable_phone_status_service();
+}
+
+void AddNotificationService(
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::GENERIC_NOTIFICATION));
+  service->mutable_generic_notification_service();
+}
+
+void AddMediaBrowserService(
+    pb::service::control::message::ServiceDiscoveryResponse* response) {
+  auto* service = response->add_channels();
+  service->set_id(ChannelNumber(aasdk::messenger::ChannelId::MEDIA_BROWSER));
+  service->mutable_media_browser_service();
+}
+
 }  // namespace
 
 const std::vector<int32_t>& SupportedKeycodes() {
@@ -211,6 +273,21 @@ void BuildServiceDiscoveryResponse(
   }
   if (description.sensors != 0) {
     AddSensorService(description, response);
+  }
+  if ((description.metadata & MetadataBit(Metadata::kNavigation)) != 0) {
+    AddNavigationService(response);
+  }
+  if ((description.metadata & MetadataBit(Metadata::kMedia)) != 0) {
+    AddMediaPlaybackService(response);
+  }
+  if ((description.metadata & MetadataBit(Metadata::kPhone)) != 0) {
+    AddPhoneStatusService(response);
+  }
+  if ((description.metadata & MetadataBit(Metadata::kNotification)) != 0) {
+    AddNotificationService(response);
+  }
+  if ((description.metadata & MetadataBit(Metadata::kBrowse)) != 0) {
+    AddMediaBrowserService(response);
   }
 
   response->set_display_name(description.head_unit_name);

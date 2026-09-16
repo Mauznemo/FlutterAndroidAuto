@@ -18,6 +18,7 @@
 
 #include <aap_protobuf/service/control/message/ServiceDiscoveryResponse.pb.h>
 
+#include "../metadata/metadata_state.h"
 #include "../sensors/sensor_state.h"
 
 namespace aa {
@@ -53,6 +54,17 @@ struct HeadUnitDescription {
   // unit that advertises location and then has no fix has taken navigation away from a
   // phone that was managing perfectly well. Advertise what you can actually supply.
   SensorMask sensors = kRequiredSensors;
+
+  // Which metadata channels to advertise, one bit each. What the phone tells the head
+  // unit about itself, as opposed to the sensors, which are what the head unit tells
+  // the phone about the car.
+  //
+  // Unlike a sensor, advertising one of these promises nothing: the phone pushes what
+  // it has and a head unit that ignores it is merely a head unit that draws no turn
+  // card. The one thing that still holds is the older rule, that an advertised channel
+  // must be answered, which src/session/metadata_channels.cc does for every bit set
+  // here and for none that is not.
+  MetadataMask metadata = kDefaultMetadata;
 };
 
 // The hardware keys this head unit tells the phone it can produce.

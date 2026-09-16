@@ -17,6 +17,7 @@
 #include "../audio/audio_output.h"
 #include "audio_channels.h"
 #include "input_channel.h"
+#include "metadata_channels.h"
 #include "microphone_channel.h"
 #include "sensor_channel.h"
 #include "video_channel.h"
@@ -138,11 +139,12 @@ std::shared_ptr<ProtocolSession> ProtocolSession::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
     HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
     std::shared_ptr<AudioOutput> audio, std::shared_ptr<AudioInput> microphone,
-    std::shared_ptr<SensorState> sensors, StateHandler on_state, InputHandler on_input) {
+    std::shared_ptr<SensorState> sensors, std::shared_ptr<MetadataState> metadata,
+    StateHandler on_state, InputHandler on_input, MetadataHandler on_metadata) {
   return std::make_shared<ProtocolSession>(
       io_context, strand, std::move(description), std::move(decoder), std::move(audio),
-      std::move(microphone), std::move(sensors), std::move(on_state),
-      std::move(on_input));
+      std::move(microphone), std::move(sensors), std::move(metadata),
+      std::move(on_state), std::move(on_input), std::move(on_metadata));
 }
 
 ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
@@ -151,16 +153,20 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
                                  std::shared_ptr<AudioOutput> audio,
                                  std::shared_ptr<AudioInput> microphone,
                                  std::shared_ptr<SensorState> sensors,
-                                 StateHandler on_state, InputHandler on_input)
+                                 std::shared_ptr<MetadataState> metadata,
+                                 StateHandler on_state, InputHandler on_input,
+                                 MetadataHandler on_metadata)
     : io_context_(io_context),
       strand_(strand),
       description_(std::move(description)),
       on_state_(std::move(on_state)),
       on_input_(std::move(on_input)),
+      on_metadata_(std::move(on_metadata)),
       decoder_(std::move(decoder)),
       audio_(std::move(audio)),
       microphone_(std::move(microphone)),
       sensors_(std::move(sensors)),
+      metadata_(std::move(metadata)),
       fault_timer_(io_context) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
@@ -272,6 +278,23 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
           }
         });
     sensor_channel_->Start();
+  }
+
+  // The five metadata channels. Armed with the rest, and the only group here that is
+  // read rather than answered: four of them exist to be pushed to, and the fifth does
+  // nothing until the host app asks it for a node of the phone's media library.
+  if (description_.metadata != 0 && metadata_) {
+    metadata_channels_ = MetadataChannels::Create(
+        io_context_, strand_, messenger_, description_.metadata, metadata_,
+        [weak = weak_from_this()](const std::string& message) {
+          if (auto self = weak.lock()) {
+            self->ReportState(AA_STATE_CONNECTED, message);
+          }
+        });
+    metadata_channels_->Start();
+    if (on_metadata_) {
+      on_metadata_(metadata_channels_);
+    }
   }
 
   // A stop that landed while this was building has been waiting on the lock ever since,
@@ -432,6 +455,17 @@ void ProtocolSession::Stop() {
   if (sensor_channel_) {
     sensor_channel_->Stop();
     sensor_channel_.reset();
+  }
+  // The owner hears first, for the same reason it does about the input channel: a
+  // browse request arriving from Flutter's platform thread must not reach a channel
+  // that is losing its messenger. Stopping also clears what the phone had told this
+  // head unit, which is the point: the music stopped when the cable came out.
+  if (on_metadata_) {
+    on_metadata_(nullptr);
+  }
+  if (metadata_channels_) {
+    metadata_channels_->Stop();
+    metadata_channels_.reset();
   }
   // The decoder is not stopped here. It belongs to the head unit rather than to this
   // connection, and it is flushed rather than torn down so a reconnect does not pay for

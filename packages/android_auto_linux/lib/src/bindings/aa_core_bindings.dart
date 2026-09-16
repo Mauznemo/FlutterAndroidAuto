@@ -845,6 +845,147 @@ class AaCoreBindings {
   late final _aa_session_sensor_batches = _aa_session_sensor_batchesPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
+  /// Installs the metadata callback, or clears it with NULL. See AaMetadataCallback.
+  int aa_session_set_metadata_callback(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
+      >
+    >
+    on_metadata,
+  ) {
+    return _aa_session_set_metadata_callback(session, on_metadata);
+  }
+
+  late final _aa_session_set_metadata_callbackPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Pointer<
+              ffi.NativeFunction<
+                ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
+              >
+            >,
+          )
+        >
+      >('aa_session_set_metadata_callback');
+  late final _aa_session_set_metadata_callback =
+      _aa_session_set_metadata_callbackPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<AaSession>,
+              ffi.Pointer<
+                ffi.NativeFunction<
+                  ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
+                >
+              >,
+            )
+          >();
+
+  /// The latest of one kind, as the same JSON the callback delivers, or an empty string
+  /// when the phone has said nothing. For a host app that starts reading after the phone
+  /// has already spoken. Heap allocated, free with aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_metadata(
+    ffi.Pointer<AaSession> session,
+    int kind,
+  ) {
+    return _aa_session_metadata(session, kind);
+  }
+
+  late final _aa_session_metadataPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_metadata');
+  late final _aa_session_metadata = _aa_session_metadataPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>, int)
+      >();
+
+  /// Which metadata channels the phone actually opened, an OR of `1 << AaMetadata`, or 0
+  /// when no phone is connected. Never the same question as which were advertised, exactly
+  /// as with the sensor subscriptions: this is the first thing to look at when nothing is
+  /// arriving.
+  int aa_session_metadata_channels(ffi.Pointer<AaSession> session) {
+    return _aa_session_metadata_channels(session);
+  }
+
+  late final _aa_session_metadata_channelsPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_metadata_channels',
+      );
+  late final _aa_session_metadata_channels = _aa_session_metadata_channelsPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Updates received on one kind since the head unit started. The "is anything coming in"
+  /// number.
+  int aa_session_metadata_updates(ffi.Pointer<AaSession> session, int kind) {
+    return _aa_session_metadata_updates(session, kind);
+  }
+
+  late final _aa_session_metadata_updatesPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int64 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_metadata_updates');
+  late final _aa_session_metadata_updates = _aa_session_metadata_updatesPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// Asks the phone for one node of its media library. `path` is NULL or empty for the
+  /// root and otherwise a path out of a previous answer; `start` is the offset into a long
+  /// list. The answer arrives as an AA_METADATA_BROWSE update rather than as a return
+  /// value, because it is a round trip over USB.
+  ///
+  /// Returns 0 if the request was queued, -2 when the browser channel is not open, which
+  /// is the normal answer whenever no phone is connected or the host app did not advertise
+  /// the channel.
+  int aa_session_browse(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<ffi.Char> path,
+    int start,
+  ) {
+    return _aa_session_browse(session, path, start);
+  }
+
+  late final _aa_session_browsePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+          )
+        >
+      >('aa_session_browse');
+  late final _aa_session_browse = _aa_session_browsePtr
+      .asFunction<
+        int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>, int)
+      >();
+
+  /// Tells the phone the user picked `path` in the media browser, which is what makes it
+  /// play. Same return values as aa_session_browse.
+  int aa_session_browse_select(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<ffi.Char> path,
+  ) {
+    return _aa_session_browse_select(session, path);
+  }
+
+  late final _aa_session_browse_selectPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
+        >
+      >('aa_session_browse_select');
+  late final _aa_session_browse_select = _aa_session_browse_selectPtr
+      .asFunction<
+        int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
+      >();
+
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Started life as M2
   /// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
@@ -1010,6 +1151,13 @@ final class AaConfig extends ffi.Struct {
   /// that answers neither leaves the phone with most of its interface locked.
   @ffi.Int32()
   external int sensors;
+
+  /// Which metadata channels to advertise, an OR of `1 << AaMetadata`. Negative means
+  /// the host app did not ask, and is read as navigation, media and telephony: the three
+  /// the phone pushes without being asked, which cost the head unit nothing but a
+  /// channel. Zero is a host app that wants none of them, which is a real choice.
+  @ffi.Int32()
+  external int metadata;
 }
 
 /// Called when the session changes state or has something to report.

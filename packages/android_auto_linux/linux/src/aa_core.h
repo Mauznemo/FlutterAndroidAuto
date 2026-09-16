@@ -91,6 +91,22 @@ typedef enum {
   AA_SENSOR_TOLL_CARD = 1 << 11,
 } AaSensor;
 
+// What the phone tells the head unit about itself, one channel each. Mirrored by
+// Metadata in metadata/metadata_state.h and by AndroidAutoMetadata in Dart, both as an
+// index and as the bit `1 << index`, so the order is part of the ABI.
+//
+// The mirror image of AaSensor: those are what the head unit tells the phone about the
+// car, these are what the phone tells the head unit about itself. Advertising one
+// promises nothing, unlike a sensor. A phone pushes what it has and a head unit that
+// ignores it simply draws no turn card.
+typedef enum {
+  AA_METADATA_NAVIGATION = 0,
+  AA_METADATA_MEDIA = 1,
+  AA_METADATA_PHONE = 2,
+  AA_METADATA_NOTIFICATION = 3,
+  AA_METADATA_BROWSE = 4,
+} AaMetadata;
+
 // What the car forbids while it is moving, as the protocol's DrivingStatus bits. They
 // combine: a parked car sets none of them.
 typedef enum {
@@ -135,6 +151,11 @@ typedef struct {
   // are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit
   // that answers neither leaves the phone with most of its interface locked.
   int32_t sensors;
+  // Which metadata channels to advertise, an OR of `1 << AaMetadata`. Negative means
+  // the host app did not ask, and is read as navigation, media and telephony: the three
+  // the phone pushes without being asked, which cost the head unit nothing but a
+  // channel. Zero is a host app that wants none of them, which is a real choice.
+  int32_t metadata;
 } AaConfig;
 
 // Called when the session changes state or has something to report.
@@ -156,6 +177,22 @@ typedef void (*AaEventCallback)(int32_t state, char* message);
 // into Dart. `stream` is an AaAudioStream.
 typedef void (*AaAudioCallback)(int32_t stream, uint8_t* data, int32_t size,
                                 int32_t sample_rate, int32_t channels);
+
+// Called when the phone says something about itself: a turn coming up, a track
+// starting, a call arriving, a notification, or the answer to a browse request.
+//
+// `kind` is an AaMetadata. `json` is a UTF-8 JSON object, heap allocated by the core,
+// and ownership passes to the callee, which must hand it back to aa_string_free once it
+// has been copied into Dart. Invoked from an io_context thread, so the Dart side must
+// use a NativeCallable.listener.
+//
+// JSON rather than a struct per kind because the shapes are deep and they are the one
+// thing here the protocol is likely to add to: a turn carries a lane diagram and a list
+// of destinations, a call list has a call per entry with a photo in it. A field the
+// phone did not send is absent from the object rather than present and zero, for the
+// reason the sensors document at length. Pictures are base64 of whatever image format
+// the phone chose.
+typedef void (*AaMetadataCallback)(int32_t kind, char* json);
 
 // Frees a string handed out through AaEventCallback. Safe to call with NULL.
 AA_EXPORT void aa_string_free(char* message);
@@ -405,6 +442,50 @@ AA_EXPORT int32_t aa_session_sensor_subscriptions(AaSession* session);
 // Sensor batches written since the session was created. The "did anything actually go
 // out" number, which is otherwise only answerable by watching the phone's UI.
 AA_EXPORT int64_t aa_session_sensor_batches(AaSession* session);
+
+// === metadata ===
+//
+// What the phone is doing, as opposed to what it looks like. The point of the whole
+// plugin: a host app can draw its own turn card, its own now playing bar and its own
+// call banner from these rather than only mirroring pixels.
+//
+// Nothing here is remembered across connections, unlike the sensors and the audio
+// settings. What the phone is playing stops being true the moment it is unplugged, so
+// the snapshots go empty when a session ends rather than showing a track that finished
+// an hour ago.
+
+// Installs the metadata callback, or clears it with NULL. See AaMetadataCallback.
+AA_EXPORT int32_t aa_session_set_metadata_callback(AaSession* session,
+                                                   AaMetadataCallback on_metadata);
+
+// The latest of one kind, as the same JSON the callback delivers, or an empty string
+// when the phone has said nothing. For a host app that starts reading after the phone
+// has already spoken. Heap allocated, free with aa_string_free.
+AA_EXPORT char* aa_session_metadata(AaSession* session, int32_t kind);
+
+// Which metadata channels the phone actually opened, an OR of `1 << AaMetadata`, or 0
+// when no phone is connected. Never the same question as which were advertised, exactly
+// as with the sensor subscriptions: this is the first thing to look at when nothing is
+// arriving.
+AA_EXPORT int32_t aa_session_metadata_channels(AaSession* session);
+
+// Updates received on one kind since the head unit started. The "is anything coming in"
+// number.
+AA_EXPORT int64_t aa_session_metadata_updates(AaSession* session, int32_t kind);
+
+// Asks the phone for one node of its media library. `path` is NULL or empty for the
+// root and otherwise a path out of a previous answer; `start` is the offset into a long
+// list. The answer arrives as an AA_METADATA_BROWSE update rather than as a return
+// value, because it is a round trip over USB.
+//
+// Returns 0 if the request was queued, -2 when the browser channel is not open, which
+// is the normal answer whenever no phone is connected or the host app did not advertise
+// the channel.
+AA_EXPORT int32_t aa_session_browse(AaSession* session, const char* path, int32_t start);
+
+// Tells the phone the user picked `path` in the media browser, which is what makes it
+// play. Same return values as aa_session_browse.
+AA_EXPORT int32_t aa_session_browse_select(AaSession* session, const char* path);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Started life as M2

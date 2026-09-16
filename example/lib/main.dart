@@ -48,6 +48,16 @@ class _TestBenchPageState extends State<TestBenchPage> {
         AndroidAutoSensor.drivingStatus,
         AndroidAutoSensor.location,
       },
+      // All five, which is more than the default. A test bench that cannot exercise the
+      // media browser or the notifications cannot tell whether they work, and unlike a
+      // sensor none of these is a promise: the phone pushes what it has.
+      metadata: {
+        AndroidAutoMetadata.navigation,
+        AndroidAutoMetadata.media,
+        AndroidAutoMetadata.phone,
+        AndroidAutoMetadata.notification,
+        AndroidAutoMetadata.browse,
+      },
     ),
   );
 
@@ -61,6 +71,17 @@ class _TestBenchPageState extends State<TestBenchPage> {
   int _pcmBytes = 0;
   double _pcmPeak = 0;
   bool _sensorPanelOpen = false;
+  bool _metadataPanelOpen = false;
+  AndroidAutoNotification? _lastNotification;
+  AndroidAutoBrowseNode? _browseNode;
+  /// Set when a browse request was refused, which is what a phone that never opened the
+  /// browser channel looks like from here. Worth saying out loud: the alternative is a
+  /// list that stays empty with no reason given.
+  String? _browseRefusal;
+  /// Where the browser has been, so there is a way back out of a library. The protocol
+  /// has no parent pointer: a node knows its own path and nothing above it.
+  final List<String> _browseTrail = [];
+  final List<StreamSubscription<void>> _metadataSubscriptions = [];
   bool _feedGps = true;
   Timer? _gpsTimer;
   final TextEditingController _latitude = TextEditingController(text: '52.520008');
@@ -75,6 +96,17 @@ class _TestBenchPageState extends State<TestBenchPage> {
     // sessions: setting it before there is a phone is the case this exercises.
     _gpsTimer = Timer.periodic(const Duration(seconds: 1), (_) => _sendFix());
     _sendFix();
+    // The controller repaints this page for navigation, media and telephony already.
+    // These two are events rather than states, so nothing keeps them unless the app
+    // does.
+    _metadataSubscriptions.addAll([
+      _controller.notifications.listen(
+        (notification) => setState(() => _lastNotification = notification),
+      ),
+      _controller.browseResults.listen(
+        (node) => setState(() => _browseNode = node),
+      ),
+    ]);
   }
 
   void _onControllerChanged() => setState(() {});
@@ -85,6 +117,9 @@ class _TestBenchPageState extends State<TestBenchPage> {
     _latitude.dispose();
     _longitude.dispose();
     _pcmSubscription?.cancel();
+    for (final subscription in _metadataSubscriptions) {
+      subscription.cancel();
+    }
     _controller
       ..removeListener(_onControllerChanged)
       ..dispose();
@@ -181,6 +216,11 @@ class _TestBenchPageState extends State<TestBenchPage> {
             Positioned(top: 60, right: 20, width: 360, child: _audioPanel()),
           if (_sensorPanelOpen)
             Positioned(top: 60, left: 20, width: 380, child: _sensorPanel()),
+          if (_metadataPanelOpen)
+            Positioned(top: 60, left: 420, width: 440, child: _metadataPanel()),
+          // The point of M9, drawn as ordinary Flutter widgets over the projection
+          // rather than read off the phone's own pixels.
+          Positioned(left: 20, bottom: 160, width: 440, child: _metadataOverlay()),
           Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
         ],
       ),
@@ -521,6 +561,404 @@ class _TestBenchPageState extends State<TestBenchPage> {
     );
   }
 
+
+  /// The turn card, the call banner and the now playing bar, over the projection.
+  ///
+  /// This is what M9 is for: none of it is read off the phone's pixels, all of it is
+  /// ordinary Flutter drawn from the metadata channels. Each piece appears only when
+  /// there is something to say, so an idle head unit shows an empty corner rather than
+  /// three placeholders.
+  Widget _metadataOverlay() {
+    final navigation = _controller.lastNavigation;
+    final call = _controller.lastPhoneStatus?.activeCall;
+    final media = _controller.lastMediaInfo;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 10,
+      children: [
+        if (navigation != null && navigation.isGuiding) _turnCard(navigation),
+        if (call != null && call.state != AndroidAutoCallState.inactive)
+          _callBanner(call),
+        if (media != null && !media.isEmpty) _nowPlayingBar(media),
+      ],
+    );
+  }
+
+  Widget _overlayCard({required Widget child}) => Container(
+    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: child,
+  );
+
+  /// The next instruction, drawn from the maneuver rather than from an image.
+  ///
+  /// The head unit asks for the ENUM instrument cluster type, so the phone says "normal
+  /// left" and this picks the arrow. A phone old enough to send a rendered image
+  /// instead is honoured too, which is what [AndroidAutoNavigation.maneuverImage] is.
+  Widget _turnCard(AndroidAutoNavigation navigation) {
+    final destination = navigation.destination;
+    return _overlayCard(
+      child: Row(
+        spacing: 14,
+        children: [
+          if (navigation.maneuverImage != null)
+            Image.memory(navigation.maneuverImage!, width: 44, height: 44)
+          else
+            Icon(_maneuverIcon(navigation.maneuver), size: 44),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  navigation.stepDistance.isEmpty
+                      ? (navigation.maneuver?.name ?? 'Guiding')
+                      : navigation.stepDistance.display,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  navigation.road ?? navigation.cue.firstOrNull ?? '',
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (navigation.currentRoad != null)
+                  Text(
+                    'on ${navigation.currentRoad}',
+                    style: const TextStyle(fontSize: 11, color: Colors.white54),
+                  ),
+                if (destination != null)
+                  Text(
+                    [
+                      if (destination.etaText != null) destination.etaText,
+                      if (!destination.distance.isEmpty) destination.distance.display,
+                      if (destination.address != null) destination.address,
+                    ].join('  '),
+                    style: const TextStyle(fontSize: 11, color: Colors.white54),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          if (navigation.status == AndroidAutoNavigationStatus.rerouting)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _callBanner(AndroidAutoCall call) => _overlayCard(
+    child: Row(
+      spacing: 12,
+      children: [
+        if (call.thumbnail != null)
+          ClipOval(
+            child: Image.memory(call.thumbnail!, width: 36, height: 36),
+          )
+        else
+          const Icon(Icons.phone_in_talk, size: 28, color: Colors.greenAccent),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                call.displayName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                '${call.state.name}  ${_hms(call.duration)}',
+                style: const TextStyle(fontSize: 11, color: Colors.white54),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// The now playing bar. The deliverable M9 is measured by.
+  Widget _nowPlayingBar(AndroidAutoMediaInfo media) {
+    final duration = media.duration;
+    final position = media.position;
+    return _overlayCard(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            spacing: 12,
+            children: [
+              if (media.albumArt != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.memory(media.albumArt!, width: 52, height: 52),
+                )
+              else
+                const Icon(Icons.album, size: 40, color: Colors.white24),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      media.song ?? 'Unknown track',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      [
+                        if (media.artist != null) media.artist,
+                        if (media.album != null) media.album,
+                      ].join('  -  '),
+                      style: const TextStyle(color: Colors.white70),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (media.source != null)
+                      Text(
+                        media.source!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.white38,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Icon(
+                media.isPlaying ? Icons.play_arrow : Icons.pause,
+                color: media.isPlaying ? Colors.greenAccent : Colors.white54,
+              ),
+            ],
+          ),
+          if (duration != null && duration > Duration.zero) ...[
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: ((position ?? Duration.zero).inMilliseconds /
+                      duration.inMilliseconds)
+                  .clamp(0.0, 1.0),
+              minHeight: 4,
+              backgroundColor: Colors.white12,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_hms(position ?? Duration.zero)} / ${_hms(duration)}',
+              style: const TextStyle(fontSize: 11, color: Colors.white38),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// What arrived on each metadata channel, and the media browser.
+  ///
+  /// The counters at the top are the first thing to read when a card above is empty:
+  /// a channel the phone never opened and a channel that opened and said nothing are
+  /// different problems, and only these two lines tell them apart.
+  Widget _metadataPanel() {
+    final opened = _controller.metadataChannels;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Metadata', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          for (final kind in AndroidAutoMetadata.values)
+            Text(
+              '${kind.name}: ${opened.contains(kind) ? "open" : "not opened"}, '
+              '${_controller.metadataUpdates(kind)} updates',
+              style: TextStyle(
+                fontSize: 11,
+                color: opened.contains(kind) ? Colors.white70 : Colors.white38,
+              ),
+            ),
+          const Divider(height: 18),
+          Text(
+            'Notification: ${_lastNotification?.text ?? "none"}',
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Divider(height: 18),
+          Row(
+            children: [
+              const Text('Library', style: TextStyle(fontSize: 12)),
+              const Spacer(),
+              if (_browseTrail.isNotEmpty)
+                TextButton(
+                  onPressed: _browseBack,
+                  child: const Text('Back', style: TextStyle(fontSize: 12)),
+                ),
+              TextButton(
+                onPressed: () {
+                  _browseTrail.clear();
+                  _requestBrowse('');
+                },
+                child: const Text('Root', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          SizedBox(height: 180, child: _browseList()),
+        ],
+      ),
+    );
+  }
+
+  Widget _browseList() {
+    final refusal = _browseRefusal;
+    if (refusal != null) {
+      return Center(
+        child: Text(
+          refusal,
+          style: const TextStyle(fontSize: 11, color: Colors.orangeAccent),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    final node = _browseNode;
+    if (node == null) {
+      return const Center(
+        child: Text(
+          'Press Root to ask the phone for its media library',
+          style: TextStyle(fontSize: 11, color: Colors.white38),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    final entries = <_BrowseEntry>[
+      for (final source in node.sources)
+        _BrowseEntry(source.path, source.name ?? source.path, Icons.apps, true),
+      for (final list in node.lists)
+        _BrowseEntry(list.path, list.name ?? list.path, Icons.queue_music, true),
+      for (final song in node.songs)
+        _BrowseEntry(song.path, song.name, Icons.music_note, false),
+      if (node.song != null)
+        _BrowseEntry(node.song!.path, node.song!.name, Icons.music_note, false),
+    ];
+    if (entries.isEmpty) {
+      return Center(
+        child: Text(
+          'Nothing under ${node.path.isEmpty ? "the root" : node.path}',
+          style: const TextStyle(fontSize: 11, color: Colors.white38),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(entry.icon, size: 18),
+          title: Text(entry.name, style: const TextStyle(fontSize: 12)),
+          onTap: () {
+            if (entry.isContainer) {
+              _browseTrail.add(node.path);
+              _requestBrowse(entry.path);
+            } else {
+              // A song is played rather than opened. The protocol calls it a browser
+              // input, which is the head unit reporting that someone pressed enter on
+              // this path.
+              _controller.browseSelect(entry.path);
+            }
+          },
+        );
+      },
+    );
+  }
+
+  void _browseBack() {
+    if (_browseTrail.isEmpty) {
+      return;
+    }
+    _requestBrowse(_browseTrail.removeLast());
+  }
+
+  /// Asks for a node, and says so when the answer is no.
+  ///
+  /// A refusal means the phone never opened the browser channel, which is what this
+  /// Pixel does. Showing it beats an empty list that never fills in.
+  void _requestBrowse(String path) {
+    final sent = _controller.browse(path: path);
+    setState(() {
+      _browseRefusal = sent
+          ? null
+          : 'The phone has not opened the media browser channel, so there is nothing '
+                'to ask.';
+    });
+  }
+
+  void _toggleMetadataPanel() {
+    setState(() => _metadataPanelOpen = !_metadataPanelOpen);
+  }
+
+  static String _hms(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, "0")}';
+  }
+
+  /// One arrow per maneuver family. Material has nothing for a sharp left or a
+  /// roundabout exit, so the forty three values collapse onto the dozen icons that do
+  /// exist. A real head unit would ship its own artwork.
+  static IconData _maneuverIcon(AndroidAutoManeuver? maneuver) {
+    if (maneuver == null) {
+      return Icons.navigation;
+    }
+    if (maneuver.isDestination) {
+      return Icons.place;
+    }
+    if (maneuver.isRoundabout) {
+      return Icons.roundabout_left;
+    }
+    switch (maneuver) {
+      case AndroidAutoManeuver.straight:
+      case AndroidAutoManeuver.depart:
+      case AndroidAutoManeuver.nameChange:
+        return Icons.straight;
+      case AndroidAutoManeuver.uTurnLeft:
+      case AndroidAutoManeuver.uTurnRight:
+      case AndroidAutoManeuver.onRampUTurnLeft:
+      case AndroidAutoManeuver.onRampUTurnRight:
+        return Icons.u_turn_left;
+      case AndroidAutoManeuver.ferryBoat:
+        return Icons.directions_boat;
+      case AndroidAutoManeuver.ferryTrain:
+        return Icons.train;
+      default:
+        if (maneuver.turnsLeft) {
+          return Icons.turn_left;
+        }
+        if (maneuver.turnsRight) {
+          return Icons.turn_right;
+        }
+        return Icons.navigation;
+    }
+  }
+
   int get _totalUnderruns => AndroidAutoAudioStream.values
       .map(_controller.audioUnderruns)
       .fold(0, (a, b) => a + b);
@@ -602,6 +1040,11 @@ class _TestBenchPageState extends State<TestBenchPage> {
               icon: const Icon(Icons.sensors),
               label: const Text('Sensors'),
             ),
+            FilledButton.tonalIcon(
+              onPressed: _toggleMetadataPanel,
+              icon: const Icon(Icons.info_outline),
+              label: const Text('Metadata'),
+            ),
             OutlinedButton.icon(
               onPressed: () async {
                 await _controller.stop();
@@ -621,6 +1064,18 @@ class _TestBenchPageState extends State<TestBenchPage> {
       ],
     );
   }
+}
+
+/// One row of the media browser, flattened out of whichever collection the node had.
+class _BrowseEntry {
+  final String path;
+  final String name;
+  final IconData icon;
+
+  /// Whether tapping it opens something or plays something.
+  final bool isContainer;
+
+  const _BrowseEntry(this.path, this.name, this.icon, this.isContainer);
 }
 
 /// Says whether the car is listening, and how loudly.

@@ -9,6 +9,10 @@ import 'dart:typed_data';
 
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'src/metadata.dart';
+
+export 'src/metadata.dart';
+
 /// Where a head unit session is in its lifecycle.
 enum AndroidAutoConnectionState {
   /// Nothing is running.
@@ -71,6 +75,21 @@ class AndroidAutoConfig {
   /// the car claims to have one.
   final Set<AndroidAutoSensor> sensors;
 
+  /// Which metadata channels this head unit offers the phone.
+  ///
+  /// Read once, when the session starts, for the same reason the sensors are. Unlike a
+  /// sensor this is not a promise: the phone pushes what it has and a head unit that
+  /// never reads a channel it advertised simply draws no turn card. The cost of one is
+  /// a channel that is opened and answered, which is why the default is the three the
+  /// phone pushes on its own and not the two the head unit has to drive.
+  ///
+  /// [AndroidAutoMetadata.browse] is worth adding for an app that wants to show the
+  /// phone's media library, and [AndroidAutoMetadata.notification] for one that wants
+  /// to show its notifications. An empty set advertises no metadata channel at all,
+  /// which is a real choice and costs nothing else: unlike the sensors, there is no
+  /// metadata channel a phone insists on.
+  final Set<AndroidAutoMetadata> metadata;
+
   /// Creates a head unit description. The defaults are a safe 720p30 head unit
   /// that every phone accepts.
   const AndroidAutoConfig({
@@ -85,6 +104,11 @@ class AndroidAutoConfig {
     this.sensors = const {
       AndroidAutoSensor.nightMode,
       AndroidAutoSensor.drivingStatus,
+    },
+    this.metadata = const {
+      AndroidAutoMetadata.navigation,
+      AndroidAutoMetadata.media,
+      AndroidAutoMetadata.phone,
     },
   });
 }
@@ -802,6 +826,83 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// The "did anything actually go out" number, which is otherwise only answerable by
   /// watching the phone's own UI.
   int get sensorBatches => 0;
+
+  // === metadata ===
+  //
+  // What the phone is doing, as opposed to what it looks like. The point of the whole
+  // plugin: a host app draws its own turn card, now playing bar and call banner from
+  // these rather than only mirroring pixels.
+  //
+  // None of it survives a disconnection. What the phone is playing stops being true the
+  // moment it is unplugged, so the streams fall silent and the snapshots go empty
+  // rather than showing a track that finished an hour ago.
+
+  /// Turn by turn guidance, as it changes.
+  ///
+  /// A snapshot per update, with several protocol messages already merged into one
+  /// object: the phone sends the shape of the turn and the distance to it separately.
+  /// Check [AndroidAutoNavigation.isGuiding] before drawing anything.
+  Stream<AndroidAutoNavigation> get navigation =>
+      const Stream<AndroidAutoNavigation>.empty();
+
+  /// The last navigation update, or null if the phone has said nothing.
+  AndroidAutoNavigation? get lastNavigation => null;
+
+  /// The track playing and what is being done with it, as it changes.
+  Stream<AndroidAutoMediaInfo> get mediaPlayback =>
+      const Stream<AndroidAutoMediaInfo>.empty();
+
+  /// The last media update, or null if the phone has said nothing.
+  AndroidAutoMediaInfo? get lastMediaInfo => null;
+
+  /// Calls in progress, as they come and go.
+  ///
+  /// Read only. A call's audio never touches the projection link: it goes over
+  /// Bluetooth hands free, so answering and hanging up belong there.
+  Stream<AndroidAutoPhoneStatus> get phoneStatus =>
+      const Stream<AndroidAutoPhoneStatus>.empty();
+
+  /// The last telephony update, or null if the phone has said nothing.
+  AndroidAutoPhoneStatus? get lastPhoneStatus => null;
+
+  /// Messages the phone asks the head unit to show.
+  ///
+  /// Only delivered when [AndroidAutoMetadata.notification] is in
+  /// [AndroidAutoConfig.metadata]. Each one is acknowledged by the plugin as soon as it
+  /// is handed over, so a host app has nothing to do but show it.
+  Stream<AndroidAutoNotification> get notifications =>
+      const Stream<AndroidAutoNotification>.empty();
+
+  /// Answers to [browse].
+  Stream<AndroidAutoBrowseNode> get browseResults =>
+      const Stream<AndroidAutoBrowseNode>.empty();
+
+  /// Asks the phone for one node of its media library.
+  ///
+  /// [path] is empty for the root and otherwise a path out of a previous answer;
+  /// [start] is the offset into a long list. The answer arrives on [browseResults]
+  /// rather than being returned, because it is a round trip over USB.
+  ///
+  /// Returns false when the browser channel is not open, which is the normal answer
+  /// whenever no phone is connected or [AndroidAutoMetadata.browse] is not in
+  /// [AndroidAutoConfig.metadata].
+  bool browse({String path = '', int start = 0}) => false;
+
+  /// Tells the phone the user picked [path] in the media library, which is what makes
+  /// it play. Returns false on the same terms as [browse].
+  bool browseSelect(String path) => false;
+
+  /// Which metadata channels the phone actually opened, empty when none is connected.
+  ///
+  /// Never the same question as [AndroidAutoConfig.metadata]: a phone takes what it
+  /// wants from what was offered. The first thing to look at when nothing is arriving.
+  Set<AndroidAutoMetadata> get metadataChannels => const <AndroidAutoMetadata>{};
+
+  /// Updates received on one metadata channel since the session was created.
+  ///
+  /// The "is anything coming in at all" number, which separates a phone that is not
+  /// sending from a host app that is not listening.
+  int metadataUpdates(AndroidAutoMetadata kind) => 0;
 
   /// Releases everything the implementation holds.
   ///

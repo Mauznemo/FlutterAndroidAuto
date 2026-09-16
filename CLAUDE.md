@@ -80,7 +80,7 @@ Environment knobs, all off unless set:
 | Knob | What it does |
 |---|---|
 | `AA_LOG_LEVEL=DEBUG` | aasdk's own protocol log, the service discovery exchange in full, and libavcodec's diagnostics |
-| `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything |
+| `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything. The M9 channels are `navigation`, `media_status`, `phone_status`, `notification`, `browser` |
 | `AA_VIDEO_DECODER=software` | forces the software decoder, to tell a driver problem from a decoder problem |
 | `AA_FAULT_TRANSPORT_AFTER=20` | kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
 | `AA_FAULT_TRANSFER_AFTER=400` | turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
@@ -139,6 +139,10 @@ Do NOT git commit unless you are toled to do so!
 | `linux/src/session/microphone_channel.*` | the MEDIA_SOURCE_MICROPHONE channel |
 | `linux/src/sensors/sensor_state.*` | what the head unit believes about the car, **no protobuf**, process lifetime |
 | `linux/src/session/sensor_channel.*` | the SENSOR channel, the only thing that turns those into wire messages |
+| `linux/src/metadata/metadata_state.*` | what the phone has said about itself, **no protobuf**, cleared when the connection ends |
+| `linux/src/metadata/json.*` | the small JSON writer the metadata ABI carries its updates in |
+| `linux/src/session/metadata_channel.*` | a channel aasdk names but does not speak: open response plus a decoder hook |
+| `linux/src/session/metadata_channels.*` | the five M9 decoders, the only thing that turns wire messages into state |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 
 After changing `aa_core.h`, regenerate the Dart bindings:
@@ -466,9 +470,10 @@ waiting to be told about it. Right for both cases: if the cable really is out, t
 fails harmlessly on a device that has already gone, and re-arming discovery is what the
 replug needed anyway. Measured at 4.6 seconds from dead transport back to projecting.
 
-One dead transport is one event however many channels notice it. All seven do, within a
-millisecond, and they report their failures as messages on the **connected** state, which
-puts `reached_connected` back up in between. The recovery is debounced with a `recovering`
+One dead transport is one event however many channels notice it. Every channel with a
+receive outstanding can, within a millisecond of the others, and they report their
+failures as messages on the **connected** state, which puts `reached_connected` back up
+in between. The recovery is debounced with a `recovering`
 flag; do not remove it or one failure bounces the phone once per channel.
 
 ## aasdk object lifetimes, the thing that keeps biting
@@ -495,7 +500,8 @@ The rules that came out of it, do not undo them:
   thread, but `Stop()` is reached from Flutter's platform thread too, through
   `aa_session_stop`, so a frame can be halfway through being acknowledged while the
   channel is being dropped. `VideoChannel::Channel()`, `AudioChannels::Get()`,
-  `MicrophoneChannel::Channel()` and `SensorChannel::Channel()` copy the pointer out
+  `MicrophoneChannel::Channel()`, `SensorChannel::Channel()` and
+  `MetadataChannels::Get()` copy the pointer out
   under a mutex and the caller works from that copy, so a teardown mid handler drops the
   channel when the last reference
   goes rather than out from under whoever is using it. The flags beside them
@@ -503,6 +509,48 @@ The rules that came out of it, do not undo them:
 
 When something crashes in a destructor or inside libusb's event thread, it is almost
 always one of these rather than a new problem.
+
+## Metadata, the five channels the phone talks on
+
+The point of the project: a head unit that draws its own turn card and now playing bar
+rather than only mirroring pixels. `MetadataState` is the seam, `metadata_channels.cc` is
+the only file that turns wire messages into it, and `metadata/json.cc` is the only thing
+that turns it into something the C ABI can carry.
+
+- **aasdk names these channels but does not speak them.** Two of the five parse only the
+  message ids openauto's phones sent, both deprecated in the current schema; three parse
+  nothing past the channel open. So `MetadataChannel` here subclasses aasdk's public
+  `Channel` base, answers the open and hands everything else to a decoder. Extending the
+  submodule instead would have meant carrying five classes in the patch for messages
+  nothing else consumes.
+- **This Pixel opens three of the five.** Navigation, playback and telephony, which are
+  the three it pushes unprompted. It never opens the generic notification or the media
+  browser, the two where the head unit has to speak first, so both of those are
+  implemented and **unverified**. `AndroidAutoConfig.metadata` defaults to the three.
+- **A channel that exists is not a channel that is open.** It exists from the moment it
+  is advertised. Anything sending unprompted has to go through
+  `MetadataChannels::GetOpen()`, or the request vanishes exactly as an early input report
+  does. The same rule the input channel already had.
+- **Updates are merged, not replaced.** The protocol splits one picture across several
+  messages: the shape of a turn and the distance to it, a track's title and whether it is
+  playing. Two deliberate exceptions, both in `metadata_channels.cc`: a `PhoneStatus`
+  carries the whole call list every time so it replaces, and a navigation status that is
+  not active or rerouting clears the turn fields, because an instruction left on screen
+  after guidance ends misleads a driver.
+- **Service discovery asks for the ENUM instrument cluster type, not IMAGE.** IMAGE makes
+  the phone render each arrow and send a picture; ENUM makes it name the maneuver and
+  leave the drawing to Flutter. It also decides which messages arrive: ENUM brings the
+  navigation state and current position, and the deprecated turn and distance events
+  carry neither lanes nor a destination. Both are decoded and
+  `ManeuverFromTurnEvent` folds the older vocabulary into the newer one, so the API has
+  one list of maneuver names rather than two.
+- **One JSON object per update, pictures base64 inline.** Nothing else in the ABI has a
+  shape like a lane diagram or a call list. Images are encoded once where they arrive,
+  not on every update that carries them along, or a playback position ticking once a
+  second would re-encode the cover art each time.
+- **Unlike the sensors, none of this outlives the connection.** A parking brake does not
+  come off because a cable was pulled out; the music does stop. `MetadataChannels::Stop`
+  clears the state and `AndroidAutoLinux.stop` clears the Dart snapshots.
 
 ## Native notes that keep coming back
 

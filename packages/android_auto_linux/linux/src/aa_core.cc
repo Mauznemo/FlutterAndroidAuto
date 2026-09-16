@@ -23,9 +23,11 @@
 #include "audio/pcm_source.h"
 #include "event_bus.h"
 #include "frame_ring.h"
+#include "metadata/metadata_state.h"
 #include "present/gl_adapter.h"
 #include "sensors/sensor_state.h"
 #include "session/input_channel.h"
+#include "session/metadata_channels.h"
 #include "session/protocol_session.h"
 #include "session/service_discovery.h"
 #include "session/usb_connector.h"
@@ -51,6 +53,15 @@ bool ToAudioStream(int32_t value, aa::AudioStream* stream) {
   return true;
 }
 
+// The same, for an AaMetadata.
+bool ToMetadata(int32_t value, aa::Metadata* which) {
+  if (value < 0 || value >= aa::kMetadataCount) {
+    return false;
+  }
+  *which = static_cast<aa::Metadata>(value);
+  return true;
+}
+
 // Narrows or widens the advertised channel set, from AA_SERVICES in the environment.
 //
 // A phone that dislikes anything in the service discovery response rejects the whole
@@ -61,6 +72,10 @@ bool ToAudioStream(int32_t value, aa::AudioStream* stream) {
 //   AA_SERVICES=video                    just the projection
 //   AA_SERVICES=video,input,sensor       the default
 //   AA_SERVICES=all                      everything, including channels with no handler
+//
+// The five metadata channels are in here individually (navigation, media_status,
+// phone_status, notification, browser) because they are the newest and therefore the
+// first suspects when a phone that used to project stops.
 //
 // Unset leaves `description` as the code built it.
 void ApplyServiceOverride(aa::HeadUnitDescription* description) {
@@ -97,6 +112,24 @@ void ApplyServiceOverride(aa::HeadUnitDescription* description) {
   description->enable_system_audio = enabled("system_audio");
   description->enable_speech_audio = enabled("speech_audio");
   description->enable_microphone = enabled("microphone");
+
+  aa::MetadataMask metadata = 0;
+  if (enabled("navigation")) {
+    metadata |= aa::MetadataBit(aa::Metadata::kNavigation);
+  }
+  if (enabled("media_status")) {
+    metadata |= aa::MetadataBit(aa::Metadata::kMedia);
+  }
+  if (enabled("phone_status")) {
+    metadata |= aa::MetadataBit(aa::Metadata::kPhone);
+  }
+  if (enabled("notification")) {
+    metadata |= aa::MetadataBit(aa::Metadata::kNotification);
+  }
+  if (enabled("browser")) {
+    metadata |= aa::MetadataBit(aa::Metadata::kBrowse);
+  }
+  description->metadata = metadata;
 }
 
 // Turns aasdk's own logging up, from AA_LOG_LEVEL in the environment.
@@ -140,6 +173,7 @@ struct AaSession {
     std::string car_year;
     std::string certificate_path;
     aa::SensorMask sensors = aa::kRequiredSensors;
+    aa::MetadataMask metadata = aa::kDefaultMetadata;
   };
 
   explicit AaSession(AaEventCallback callback) : events(callback) {}
@@ -166,6 +200,7 @@ struct AaSession {
     description.enable_video = true;
     description.enable_input = true;
     description.sensors = config.sensors;
+    description.metadata = config.metadata;
     description.enable_media_audio = true;
     description.enable_system_audio = true;
     description.enable_speech_audio = true;
@@ -199,9 +234,15 @@ struct AaSession {
   // for a plainer reason than the others: a parking brake does not come off because a
   // cable was pulled out.
   std::shared_ptr<aa::SensorState> sensors;
+  // What the phone has said about itself. Created once so the host app can keep one
+  // listener across reconnects, but emptied whenever a connection ends: a track that was
+  // playing over a cable that has been pulled is not paused, it is gone.
+  std::shared_ptr<aa::MetadataState> metadata;
   // The Dart side's raw PCM tap, or null. Written from the platform thread and read
   // from the audio writer threads, hence atomic.
   std::atomic<AaAudioCallback> audio_callback{nullptr};
+  // The Dart side's metadata listener, on the same terms, read from io threads.
+  std::atomic<AaMetadataCallback> metadata_callback{nullptr};
 
   std::unique_ptr<aa::UsbConnector> usb;
   // The live connection, or nullptr between them.
@@ -218,6 +259,11 @@ struct AaSession {
   // io_context thread and read from Flutter's platform thread on every touch.
   std::mutex input_mutex;
   std::weak_ptr<aa::InputChannel> input;
+  // The metadata channels of whichever connection is live, on the same terms as the
+  // input channel and for the same reason: aa_session_browse arrives on Flutter's
+  // platform thread while the session is built and torn down on io threads.
+  std::mutex metadata_mutex;
+  std::weak_ptr<aa::MetadataChannels> metadata_channels;
 
   // Recovery from a phone left wedged by a previous run. Bounded, so a genuinely broken
   // phone reports an error instead of looping forever.
@@ -252,6 +298,16 @@ std::shared_ptr<aa::InputChannel> LockInput(AaSession* session) {
   }
   std::lock_guard<std::mutex> lock(session->input_mutex);
   return session->input.lock();
+}
+
+// The live metadata channels, or nullptr when no phone is connected. Called on
+// Flutter's platform thread.
+std::shared_ptr<aa::MetadataChannels> LockMetadata(AaSession* session) {
+  if (session == nullptr) {
+    return nullptr;
+  }
+  std::lock_guard<std::mutex> lock(session->metadata_mutex);
+  return session->metadata_channels.lock();
 }
 
 // Every sensor setter has the same guard in front of it.
@@ -314,6 +370,13 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
     session->config.sensors = config->sensors == 0
                                   ? aa::kRequiredSensors
                                   : static_cast<aa::SensorMask>(config->sensors);
+    // Negative is a host app that did not ask, so it gets the three the phone pushes on
+    // its own. Zero is a host app that wants none of them, which is a real choice and
+    // not the same thing: unlike the sensors, there is no metadata channel a phone
+    // insists on.
+    session->config.metadata = config->metadata < 0
+                                   ? aa::kDefaultMetadata
+                                   : static_cast<aa::MetadataMask>(config->metadata);
   }
 
   session->ring.Configure(session->config.width, session->config.height);
@@ -351,6 +414,7 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
         session->events.Emit(session->events.last_state(), message);
       });
   session->sensors = std::make_shared<aa::SensorState>();
+  session->metadata = std::make_shared<aa::MetadataState>();
   return session;
 }
 
@@ -377,6 +441,12 @@ void aa_session_destroy(AaSession* session) {
     session->microphone->Stop();
   }
   session->audio_callback = nullptr;
+  session->metadata_callback = nullptr;
+  if (session->metadata) {
+    // Same reasoning as closing the bus: an update in flight must not reach a
+    // NativeCallable the Dart side is about to tear down.
+    session->metadata->SetListener(nullptr);
+  }
   session->gl.reset();
   if (session->usb) {
     // The connector outlives this session, so cut its link back to it first.
@@ -465,6 +535,7 @@ int32_t aa_session_start(AaSession* session) {
         auto protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
             session->decoder, session->audio, session->microphone, session->sensors,
+            session->metadata,
             [session](int state, const std::string& message) {
               if (state == AA_STATE_CONNECTED) {
                 session->reached_connected = true;
@@ -533,6 +604,10 @@ int32_t aa_session_start(AaSession* session) {
             [session](std::shared_ptr<aa::InputChannel> input) {
               std::lock_guard<std::mutex> lock(session->input_mutex);
               session->input = input;
+            },
+            [session](std::shared_ptr<aa::MetadataChannels> metadata) {
+              std::lock_guard<std::mutex> lock(session->metadata_mutex);
+              session->metadata_channels = metadata;
             });
         {
           std::lock_guard<std::mutex> lock(session->protocol_mutex);
@@ -1021,6 +1096,72 @@ int32_t aa_session_sensor_subscriptions(AaSession* session) {
 int64_t aa_session_sensor_batches(AaSession* session) {
   auto* sensors = Sensors(session);
   return sensors == nullptr ? 0 : static_cast<int64_t>(sensors->batches_sent());
+}
+
+int32_t aa_session_set_metadata_callback(AaSession* session,
+                                         AaMetadataCallback on_metadata) {
+  if (session == nullptr || !session->metadata) {
+    return -1;
+  }
+  session->metadata_callback = on_metadata;
+  if (on_metadata == nullptr) {
+    session->metadata->SetListener(nullptr);
+    return 0;
+  }
+  session->metadata->SetListener(
+      [session](aa::Metadata which, const std::string& json) {
+        // Read once. The Dart side can clear the listener from the platform thread
+        // while this runs, and a second load could see the null.
+        AaMetadataCallback callback = session->metadata_callback.load();
+        if (callback == nullptr) {
+          return;
+        }
+        // strdup rather than passing c_str(): the callback is a
+        // NativeCallable.listener, so the call is delivered to the isolate after this
+        // returns and the string is long gone by then. Ownership passes to Dart, which
+        // hands it back to aa_string_free.
+        callback(static_cast<int32_t>(which), strdup(json.c_str()));
+      });
+  return 0;
+}
+
+char* aa_session_metadata(AaSession* session, int32_t kind) {
+  aa::Metadata which;
+  if (session == nullptr || !session->metadata || !ToMetadata(kind, &which)) {
+    return strdup("");
+  }
+  return strdup(session->metadata->Snapshot(which).c_str());
+}
+
+int32_t aa_session_metadata_channels(AaSession* session) {
+  if (session == nullptr || !session->metadata) {
+    return 0;
+  }
+  return static_cast<int32_t>(session->metadata->opened());
+}
+
+int64_t aa_session_metadata_updates(AaSession* session, int32_t kind) {
+  aa::Metadata which;
+  if (session == nullptr || !session->metadata || !ToMetadata(kind, &which)) {
+    return 0;
+  }
+  return session->metadata->updates(which);
+}
+
+int32_t aa_session_browse(AaSession* session, const char* path, int32_t start) {
+  auto metadata = LockMetadata(session);
+  if (!metadata) {
+    return -2;
+  }
+  return metadata->Browse(CopyOrEmpty(path), start) ? 0 : -2;
+}
+
+int32_t aa_session_browse_select(AaSession* session, const char* path) {
+  auto metadata = LockMetadata(session);
+  if (!metadata) {
+    return -2;
+  }
+  return metadata->BrowseSelect(CopyOrEmpty(path)) ? 0 : -2;
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {
