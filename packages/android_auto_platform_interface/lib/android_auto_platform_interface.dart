@@ -456,7 +456,9 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// The selected output's [AndroidAutoAudioDevice.name], or empty for the default.
   String get audioDevice => '';
 
-  /// Chooses the output to play through. Null or empty means the system default.
+  /// Chooses the output to play through. Null or empty means the head unit's own
+  /// speakers: the system default, except that a Bluetooth device is never picked for
+  /// it, because a phone paired for hands free calling moves that default.
   void setAudioDevice(String? name) {}
 
   /// Whether the plugin is playing the phone's audio itself.
@@ -524,7 +526,9 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// The selected input's [AndroidAutoAudioDevice.name], or empty for the default.
   String get microphoneDevice => '';
 
-  /// Chooses the input to capture from. Null or empty means the system default.
+  /// Chooses the input to capture from. Null or empty means the head unit's own
+  /// microphone: the system default, with Bluetooth devices ruled out for the reason
+  /// [setAudioDevice] gives.
   ///
   /// Takes effect the next time the phone asks for the microphone, because that is the
   /// only moment the plugin is allowed to open one.

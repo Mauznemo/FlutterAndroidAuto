@@ -90,8 +90,10 @@ class AudioOutput {
   double Volume(AudioStream stream) const;
   void SetMuted(AudioStream stream, bool muted);
   bool Muted(AudioStream stream) const;
-  // A PcmDevice::name, or empty for the audio server's default. Takes effect on each
-  // stream the next time it opens, which for a stream that is playing means at once.
+  // A PcmDevice::name, or empty for the head unit's own speakers, which is the audio
+  // server's default with Bluetooth devices ruled out. See DefaultHeadUnitDevice in
+  // pulse_sink.cc. Takes effect on each stream the next time it opens, which for a
+  // stream that is playing means at once.
   void SetDevice(const std::string& device);
   std::string device() const;
   // Turns the speakers off without touching the protocol. The phone keeps sending and

@@ -22,7 +22,10 @@
 
 #include <chrono>
 #include <cstring>
+#include <string>
 #include <thread>
+
+#include <aasdk/Common/Log.hpp>
 
 namespace aa {
 namespace {
@@ -39,6 +42,38 @@ constexpr int64_t kFragmentMicros = 32000;
 // The same application name the playback side uses, so a mixer groups the two together
 // rather than showing a head unit that plays and a separate one that listens.
 constexpr const char* kApplicationName = "Android Auto";
+
+// The capture side of the same rule pulse_sink.cc explains in full: a head unit's
+// microphone is car hardware, so an empty device name must not follow the audio
+// server's default onto a Bluetooth device. Without this, pairing a phone for hands
+// free calling would point the Assistant's microphone at the far end of a call instead
+// of at the person in the car.
+bool IsBluetoothDevice(const std::string& name) {
+  return name.rfind("bluez_", 0) == 0;
+}
+
+std::string DefaultHeadUnitDevice() {
+  std::string first_wired;
+  bool bluetooth_default = false;
+  for (const PcmDevice& device : ListPcmCaptureDevices()) {
+    if (IsBluetoothDevice(device.name)) {
+      bluetooth_default = bluetooth_default || device.is_default;
+      continue;
+    }
+    if (device.is_default) {
+      return device.name;
+    }
+    if (first_wired.empty()) {
+      first_wired = device.name;
+    }
+  }
+  if (bluetooth_default && !first_wired.empty()) {
+    AASDK_LOG(info) << "[Microphone] the audio server's default input is a Bluetooth "
+                       "device, capturing from "
+                    << first_wired << " instead";
+  }
+  return first_wired;
+}
 
 class PulseSource : public PcmSource {
  public:
@@ -71,9 +106,13 @@ class PulseSource : public PcmSource {
     attr.prebuf = static_cast<uint32_t>(-1);
     attr.minreq = static_cast<uint32_t>(-1);
 
+    // An empty name means the head unit's own microphone rather than whatever the
+    // server currently points at, so it is resolved to a concrete device here.
+    const std::string target = device.empty() ? DefaultHeadUnitDevice() : device;
+
     int code = 0;
     stream_ = pa_simple_new(nullptr, kApplicationName, PA_STREAM_RECORD,
-                            device.empty() ? nullptr : device.c_str(), label.c_str(),
+                            target.empty() ? nullptr : target.c_str(), label.c_str(),
                             &spec, nullptr, &attr, &code);
     if (stream_ == nullptr) {
       if (error != nullptr) {

@@ -203,8 +203,11 @@ AA_EXPORT int32_t aa_session_set_audio_muted(AaSession* session, int32_t stream,
 AA_EXPORT int32_t aa_session_audio_muted(AaSession* session, int32_t stream);
 
 // Which output to play through, as a name from aa_audio_devices. NULL or empty means
-// the audio server's default. Takes effect on the next buffer of each stream, which for
-// a stream that is playing is immediately.
+// the head unit's own speakers: the audio server's default, except that a Bluetooth
+// device is never chosen for it, because a phone paired for hands free calling moves
+// that default and the car's speakers are not the phone's to move. Naming a Bluetooth
+// device here still works. Takes effect on the next buffer of each stream, which for a
+// stream that is playing is immediately.
 AA_EXPORT int32_t aa_session_set_audio_device(AaSession* session, const char* device);
 // The device currently selected, or an empty string for the default. Heap allocated,
 // free with aa_string_free.
@@ -257,9 +260,11 @@ AA_EXPORT double aa_session_microphone_level(AaSession* session);
 // heard anything", which is the question a silent Assistant raises.
 AA_EXPORT int64_t aa_session_microphone_bytes(AaSession* session);
 
-// Which input to capture from, as a name from aa_microphone_devices. NULL or empty means
-// the audio server's default. Takes effect the next time the phone asks for the
-// microphone, because that is the only moment this is allowed to open anything.
+// Which input to capture from, as a name from aa_microphone_devices. NULL or empty
+// means the head unit's own microphone: the audio server's default, except that a
+// Bluetooth device is never chosen for it, for the reason aa_session_set_audio_device
+// gives. Takes effect the next time the phone asks for the microphone, because that is
+// the only moment this is allowed to open anything.
 AA_EXPORT int32_t aa_session_set_microphone_device(AaSession* session,
                                                    const char* device);
 // The input currently selected, or an empty string for the default. Heap allocated, free

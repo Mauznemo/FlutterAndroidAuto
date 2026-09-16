@@ -17,7 +17,10 @@
 
 #include <chrono>
 #include <cstring>
+#include <string>
 #include <thread>
+
+#include <aasdk/Common/Log.hpp>
 
 namespace aa {
 namespace {
@@ -34,6 +37,54 @@ constexpr int64_t kTargetLatencyUs = 150000;
 // Everything this process plays shows up under one name in a volume mixer, with the
 // individual streams named per track.
 constexpr const char* kApplicationName = "Android Auto";
+
+// Whether a device name belongs to a Bluetooth audio node. Both spellings are covered:
+// PipeWire calls them bluez_output.* and bluez_input.*, PulseAudio bluez_sink.* and
+// bluez_source.*.
+bool IsBluetoothDevice(const std::string& name) {
+  return name.rfind("bluez_", 0) == 0;
+}
+
+// What an empty device name resolves to.
+//
+// Not "whatever the audio server defaults to right now". A head unit's speakers are car
+// hardware, and the server moves its default onto a Bluetooth device the moment one
+// connects. Pairing a phone for hands free calling would otherwise drag the head unit's
+// media onto the phone's own uplink: the phone would hear the music as microphone
+// input. That sounds exactly like the audio path breaking and is nothing of the kind.
+//
+// Resolving to a concrete name rather than returning empty is what also stops an
+// already open stream being moved later. A stream that named its device is not one the
+// server re routes when the default changes; a stream that took the default is.
+//
+// Naming a Bluetooth device through aa_session_set_audio_device still works. An
+// explicit choice is a decision, and this is only a guess made on the head unit's
+// behalf.
+//
+// Empty is returned when no device can be found at all, which leaves the server to
+// choose as before and lets AudioOutput fall back the way it always has.
+std::string DefaultHeadUnitDevice() {
+  std::string first_wired;
+  bool bluetooth_default = false;
+  for (const PcmDevice& device : ListPcmDevices()) {
+    if (IsBluetoothDevice(device.name)) {
+      bluetooth_default = bluetooth_default || device.is_default;
+      continue;
+    }
+    if (device.is_default) {
+      return device.name;
+    }
+    if (first_wired.empty()) {
+      first_wired = device.name;
+    }
+  }
+  if (bluetooth_default && !first_wired.empty()) {
+    AASDK_LOG(info) << "[Audio] the audio server's default output is a Bluetooth "
+                       "device, playing through "
+                    << first_wired << " instead";
+  }
+  return first_wired;
+}
 
 class PulseSink : public PcmSink {
  public:
@@ -65,9 +116,13 @@ class PulseSink : public PcmSink {
     attr.minreq = static_cast<uint32_t>(-1);
     attr.fragsize = static_cast<uint32_t>(-1);
 
+    // An empty name means the head unit's own speakers rather than whatever the server
+    // currently points at, so it is resolved to a concrete device here.
+    const std::string target = device.empty() ? DefaultHeadUnitDevice() : device;
+
     int code = 0;
     stream_ = pa_simple_new(nullptr, kApplicationName, PA_STREAM_PLAYBACK,
-                            device.empty() ? nullptr : device.c_str(), label.c_str(),
+                            target.empty() ? nullptr : target.c_str(), label.c_str(),
                             &spec, nullptr, &attr, &code);
     if (stream_ == nullptr) {
       if (error != nullptr) {

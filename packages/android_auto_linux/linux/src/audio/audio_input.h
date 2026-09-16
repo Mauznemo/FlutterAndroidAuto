@@ -71,9 +71,10 @@ class AudioInput {
   // the question a silent Assistant raises.
   uint64_t bytes_captured() const { return bytes_captured_.load(); }
 
-  // A PcmDevice::name from ListPcmCaptureDevices, or empty for the server's default.
-  // Takes effect the next time the phone asks for the microphone, which is the only
-  // time this is allowed to open anything.
+  // A PcmDevice::name from ListPcmCaptureDevices, or empty for the head unit's own
+  // microphone, which is the server's default with Bluetooth devices ruled out. See
+  // DefaultHeadUnitDevice in pulse_sink.cc. Takes effect the next time the phone asks
+  // for the microphone, which is the only time this is allowed to open anything.
   void SetDevice(const std::string& device);
   std::string device() const;
 

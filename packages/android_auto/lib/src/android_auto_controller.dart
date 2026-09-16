@@ -123,7 +123,10 @@ class AndroidAutoController extends ChangeNotifier {
   /// The selected output's [AndroidAutoAudioDevice.name], or empty for the default.
   String get audioDevice => _platform.audioDevice;
 
-  /// Chooses the audio output. Null or empty means the system default.
+  /// Chooses the audio output. Null or empty means the head unit's own speakers: the
+  /// system default, except that a Bluetooth device is never picked for it. A phone
+  /// paired for hands free calling moves that default, and the car's speakers are not
+  /// the phone's to move. Naming a Bluetooth device explicitly still works.
   void setAudioDevice(String? name) {
     _platform.setAudioDevice(name);
     notifyListeners();
@@ -191,7 +194,9 @@ class AndroidAutoController extends ChangeNotifier {
   /// The selected input's [AndroidAutoAudioDevice.name], or empty for the default.
   String get microphoneDevice => _platform.microphoneDevice;
 
-  /// Chooses the input to capture from. Null or empty means the system default.
+  /// Chooses the input to capture from. Null or empty means the head unit's own
+  /// microphone: the system default, with Bluetooth devices ruled out for the reason
+  /// [setAudioDevice] gives.
   ///
   /// Takes effect the next time the phone asks for the microphone, which is the only
   /// moment the plugin opens one.
