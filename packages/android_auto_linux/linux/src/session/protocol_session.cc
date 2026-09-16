@@ -13,9 +13,11 @@
 #include <aasdk/Common/Log.hpp>
 
 #include "../aa_core.h"
+#include "../audio/audio_input.h"
 #include "../audio/audio_output.h"
 #include "audio_channels.h"
 #include "input_channel.h"
+#include "microphone_channel.h"
 #include "support_channels.h"
 #include "video_channel.h"
 
@@ -135,16 +137,18 @@ void ControlEventRelay::onChannelError(const aasdk::error::Error& error) {
 std::shared_ptr<ProtocolSession> ProtocolSession::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
     HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
-    std::shared_ptr<AudioOutput> audio, StateHandler on_state, InputHandler on_input) {
-  return std::make_shared<ProtocolSession>(io_context, strand, std::move(description),
-                                           std::move(decoder), std::move(audio),
-                                           std::move(on_state), std::move(on_input));
+    std::shared_ptr<AudioOutput> audio, std::shared_ptr<AudioInput> microphone,
+    StateHandler on_state, InputHandler on_input) {
+  return std::make_shared<ProtocolSession>(
+      io_context, strand, std::move(description), std::move(decoder), std::move(audio),
+      std::move(microphone), std::move(on_state), std::move(on_input));
 }
 
 ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
                                  aasdk::Strand& strand, HeadUnitDescription description,
                                  std::shared_ptr<VideoDecoder> decoder,
                                  std::shared_ptr<AudioOutput> audio,
+                                 std::shared_ptr<AudioInput> microphone,
                                  StateHandler on_state, InputHandler on_input)
     : io_context_(io_context),
       strand_(strand),
@@ -153,6 +157,7 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
       on_input_(std::move(on_input)),
       decoder_(std::move(decoder)),
       audio_(std::move(audio)),
+      microphone_(std::move(microphone)),
       fault_timer_(io_context) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
@@ -235,6 +240,20 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
           }
         });
     audio_channels_->Start();
+  }
+
+  // The microphone. Armed here with the rest, but unlike every other channel this one
+  // is armed without anything being opened: the capture device is only touched once the
+  // phone actually asks to record.
+  if (description_.enable_microphone && microphone_) {
+    microphone_channel_ = MicrophoneChannel::Create(
+        io_context_, strand_, messenger_, microphone_,
+        [weak = weak_from_this()](const std::string& message) {
+          if (auto self = weak.lock()) {
+            self->ReportState(AA_STATE_CONNECTED, message);
+          }
+        });
+    microphone_channel_->Start();
   }
 
   // Everything else the phone opens. It will not project at all unless these answer,
@@ -395,6 +414,13 @@ void ProtocolSession::Stop() {
   if (audio_channels_) {
     audio_channels_->Stop();
     audio_channels_.reset();
+  }
+  // Stops the capture as well as the channel, which is why it is not left to the
+  // destructor: the link is already gone, so nothing else is ever going to close the
+  // microphone.
+  if (microphone_channel_) {
+    microphone_channel_->Stop();
+    microphone_channel_.reset();
   }
   if (support_channels_) {
     support_channels_->Stop();

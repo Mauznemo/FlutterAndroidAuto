@@ -130,9 +130,12 @@ Do NOT git commit unless you are toled to do so!
 | `linux/src/event_bus.*` | native to Dart events |
 | `linux/src/video/video_decoder.*` | H.264 to frames on its own thread, VA-API or software |
 | `linux/src/session/video_channel.*` | the MEDIA_SINK_VIDEO channel |
-| `linux/src/audio/pcm_sink.*` | the API agnostic seam for audio, **the only place naming PulseAudio is pulse_sink.cc** |
+| `linux/src/audio/pcm_sink.*` | the API agnostic seam for playback, **PulseAudio is named only in pulse_sink.cc** |
+| `linux/src/audio/pcm_source.*` | the same seam for capture, **PulseAudio is named only in pulse_source.cc** |
 | `linux/src/audio/audio_output.*` | three streams, a writer thread each, volume, mute and ducking |
+| `linux/src/audio/audio_input.*` | the microphone, one capture thread, created on the phone's request and joined on its release |
 | `linux/src/session/audio_channels.*` | the three MEDIA_SINK audio channels |
+| `linux/src/session/microphone_channel.*` | the MEDIA_SOURCE_MICROPHONE channel |
 | `linux/src/session/support_channels.*` | the channels that must answer for video to flow at all |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 
@@ -167,9 +170,9 @@ service discovery response just stops talking and drops out of accessory mode.
 
 - **Advertise every channel, not only the implemented ones.** A head unit offering video,
   input and sensors is one Android Auto refuses to project to. The three audio sinks and
-  the microphone have to be there too. M6 made the audio sinks real;
-  `src/session/support_channels.cc` still answers the microphone and discards what it
-  carries until M7. The older rule holds on top of this: an advertised channel that is
+  the microphone have to be there too. M6 made the audio sinks real and M7 the
+  microphone; `src/session/support_channels.cc` still answers the sensors with a fixed
+  reading until M8. The older rule holds on top of this: an advertised channel that is
   never serviced gets the connection dropped.
 - **The sensor channel is load bearing.** The phone locks most of its interface until the
   head unit answers the driving status subscription.
@@ -261,6 +264,48 @@ parecord --device=@DEFAULT_MONITOR@ --format=s16le --rate=48000 --channels=2 \
 then a per-100 ms RMS over it. Comparisons have to be back to back on the same passage:
 two recordings a minute apart gave -2.2 dB for a -12 dB volume change, because the track
 had moved on.
+
+## The microphone, and the one rule it has to keep
+
+Android Auto asks for the head unit's microphone when the Assistant is invoked, gets
+16 kHz mono 16 bit PCM back, and closes it again. `MicrophoneChannel` answers the
+protocol and `AudioInput` owns the capture thread.
+
+- **Nothing captures unless the phone asks.** The device is opened on the microphone open
+  request and closed on the close, and there is no other path: no Dart call starts
+  recording, and the capture thread is created on `Start` and joined on `Stop`, so "is
+  this machine listening" and "does that thread exist" are the same question. Check it
+  from outside the app with `pactl list short source-outputs`: empty unless the Assistant
+  is listening, and empty again immediately after a stop even if the stop lands mid
+  sentence. Do not add a way to start it from the host app.
+- **The phone asks for a window of two unacked buffers and then never acknowledges one.**
+  Zero acks across five sessions and seven hundred buffers. A head unit that gated its
+  sends on acknowledgements would stall after two buffers, so the backpressure is counted
+  against the send instead, from posting to the messenger having written it. The phone's
+  number is honoured once it has acknowledged anything, see `MicrophoneChannel::Window`.
+- **Buffers are 32 ms, produced on the capture thread, posted onto the channel strand.**
+  The same shape as an input report, and for the same reason: everything that touches the
+  channel happens on one thread.
+- **Echo and noise cancellation are not implemented.** The phone asks for both in
+  `anc_enabled` and `ec_enabled`; they are hints about what the head unit's hardware has
+  already done, so nothing is owed, but in a car with music playing they are what makes
+  recognition work. Logged at debug.
+- **"Hey Google" is not on this channel.** The hotword works, but the phone listens for
+  it on its own microphone and only then asks the head unit for one, for the query that
+  follows. Nothing here can make the hotword more reliable. Synthetic speech does not
+  trigger it either, because Google's hotword stage does speaker verification.
+
+Testing it without a person in the room, through the laptop's own speakers and
+microphone, which is the acoustic path a car has:
+
+```bash
+spd-say -l de -r -20 -w "Navigiere nach Hamburg"
+```
+
+Do **not** reach for `pactl load-module module-null-sink media.class=Audio/Source` to
+fake a microphone. It broke recording machine wide on this PipeWire, and the symptom was
+`pa_simple_new` timing out after 30 seconds against a device that had worked a minute
+earlier, which looks exactly like a bug in the capture code.
 
 ## Stopping and resuming a session
 

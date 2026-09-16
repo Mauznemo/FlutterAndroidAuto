@@ -118,6 +118,12 @@ AA_EXPORT void aa_audio_buffer_free(uint8_t* data);
 // blocks for up to a second, so call it from Dart rather than from a hot path.
 AA_EXPORT char* aa_audio_devices(void);
 
+// The inputs the audio server is offering, in the same format as aa_audio_devices, for
+// aa_session_set_microphone_device. Monitors of outputs are left out: they would let a
+// head unit send the phone its own audio back, which is not what anyone means by a
+// microphone.
+AA_EXPORT char* aa_microphone_devices(void);
+
 // Creates a session. Does not touch any hardware and does not start any threads yet.
 // `on_event` may be NULL, though then nothing will ever be reported.
 AA_EXPORT AaSession* aa_session_create(const AaConfig* config,
@@ -226,6 +232,43 @@ AA_EXPORT int64_t aa_session_audio_underruns(AaSession* session, int32_t stream)
 AA_EXPORT int64_t aa_session_audio_dropped(AaSession* session, int32_t stream);
 // How far behind the head unit the speakers are, in microseconds.
 AA_EXPORT int64_t aa_session_audio_latency(AaSession* session, int32_t stream);
+
+// === microphone ===
+//
+// The head unit's microphone, which is what carries "Hey Google" and everything said
+// after the mic button. All of these are safe from the Dart main isolate and return
+// immediately.
+//
+// The capture device is opened when the phone asks for it and closed when the phone lets
+// it go, and at no other time. There is no call here that starts recording, deliberately:
+// a head unit that can be made to listen by its own host app is a different and much
+// worse thing than one that listens when the Assistant is invoked.
+
+// Whether the microphone is open right now, 1 or 0. This is what a "listening" indicator
+// shows. It reports the state of the device rather than of the channel, so a phone that
+// has opened the channel but not asked to record reads 0.
+AA_EXPORT int32_t aa_session_microphone_active(AaSession* session);
+
+// Peak level of the most recent captured buffer, 0.0 to 1.0, for a level meter. Zero
+// while the microphone is closed.
+AA_EXPORT double aa_session_microphone_level(AaSession* session);
+
+// Bytes captured since the session was created. Answers "has this machine ever actually
+// heard anything", which is the question a silent Assistant raises.
+AA_EXPORT int64_t aa_session_microphone_bytes(AaSession* session);
+
+// Which input to capture from, as a name from aa_microphone_devices. NULL or empty means
+// the audio server's default. Takes effect the next time the phone asks for the
+// microphone, because that is the only moment this is allowed to open anything.
+AA_EXPORT int32_t aa_session_set_microphone_device(AaSession* session,
+                                                   const char* device);
+// The input currently selected, or an empty string for the default. Heap allocated, free
+// with aa_string_free.
+AA_EXPORT char* aa_session_microphone_device(AaSession* session);
+
+// Which capture backend is running: "PulseAudio", or "none" before the first capture or
+// on a machine with no microphone. Heap allocated, free with aa_string_free.
+AA_EXPORT char* aa_session_microphone_backend(AaSession* session);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Started life as M2

@@ -71,6 +71,21 @@ class AaCoreBindings {
   late final _aa_audio_devices = _aa_audio_devicesPtr
       .asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  /// The inputs the audio server is offering, in the same format as aa_audio_devices, for
+  /// aa_session_set_microphone_device. Monitors of outputs are left out: they would let a
+  /// head unit send the phone its own audio back, which is not what anyone means by a
+  /// microphone.
+  ffi.Pointer<ffi.Char> aa_microphone_devices() {
+    return _aa_microphone_devices();
+  }
+
+  late final _aa_microphone_devicesPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'aa_microphone_devices',
+      );
+  late final _aa_microphone_devices = _aa_microphone_devicesPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
   /// Creates a session. Does not touch any hardware and does not start any threads yet.
   /// `on_event` may be NULL, though then nothing will ever be reported.
   ffi.Pointer<AaSession> aa_session_create(
@@ -487,6 +502,102 @@ class AaCoreBindings {
       >('aa_session_audio_latency');
   late final _aa_session_audio_latency = _aa_session_audio_latencyPtr
       .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// Whether the microphone is open right now, 1 or 0. This is what a "listening" indicator
+  /// shows. It reports the state of the device rather than of the channel, so a phone that
+  /// has opened the channel but not asked to record reads 0.
+  int aa_session_microphone_active(ffi.Pointer<AaSession> session) {
+    return _aa_session_microphone_active(session);
+  }
+
+  late final _aa_session_microphone_activePtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_microphone_active',
+      );
+  late final _aa_session_microphone_active = _aa_session_microphone_activePtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Peak level of the most recent captured buffer, 0.0 to 1.0, for a level meter. Zero
+  /// while the microphone is closed.
+  double aa_session_microphone_level(ffi.Pointer<AaSession> session) {
+    return _aa_session_microphone_level(session);
+  }
+
+  late final _aa_session_microphone_levelPtr =
+      _lookup<ffi.NativeFunction<ffi.Double Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_microphone_level',
+      );
+  late final _aa_session_microphone_level = _aa_session_microphone_levelPtr
+      .asFunction<double Function(ffi.Pointer<AaSession>)>();
+
+  /// Bytes captured since the session was created. Answers "has this machine ever actually
+  /// heard anything", which is the question a silent Assistant raises.
+  int aa_session_microphone_bytes(ffi.Pointer<AaSession> session) {
+    return _aa_session_microphone_bytes(session);
+  }
+
+  late final _aa_session_microphone_bytesPtr =
+      _lookup<ffi.NativeFunction<ffi.Int64 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_microphone_bytes',
+      );
+  late final _aa_session_microphone_bytes = _aa_session_microphone_bytesPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Which input to capture from, as a name from aa_microphone_devices. NULL or empty means
+  /// the audio server's default. Takes effect the next time the phone asks for the
+  /// microphone, because that is the only moment this is allowed to open anything.
+  int aa_session_set_microphone_device(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<ffi.Char> device,
+  ) {
+    return _aa_session_set_microphone_device(session, device);
+  }
+
+  late final _aa_session_set_microphone_devicePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
+        >
+      >('aa_session_set_microphone_device');
+  late final _aa_session_set_microphone_device =
+      _aa_session_set_microphone_devicePtr
+          .asFunction<
+            int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
+          >();
+
+  /// The input currently selected, or an empty string for the default. Heap allocated, free
+  /// with aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_microphone_device(
+    ffi.Pointer<AaSession> session,
+  ) {
+    return _aa_session_microphone_device(session);
+  }
+
+  late final _aa_session_microphone_devicePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)
+        >
+      >('aa_session_microphone_device');
+  late final _aa_session_microphone_device = _aa_session_microphone_devicePtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
+
+  /// Which capture backend is running: "PulseAudio", or "none" before the first capture or
+  /// on a machine with no microphone. Heap allocated, free with aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_microphone_backend(
+    ffi.Pointer<AaSession> session,
+  ) {
+    return _aa_session_microphone_backend(session);
+  }
+
+  late final _aa_session_microphone_backendPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)
+        >
+      >('aa_session_microphone_backend');
+  late final _aa_session_microphone_backend = _aa_session_microphone_backendPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
 
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Started life as M2

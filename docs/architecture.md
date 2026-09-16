@@ -110,6 +110,7 @@ day Linux flips to Vulkan.
 | `io_context` pool (2 threads) | aasdk transport, SSL, channel dispatch | touch GL or Dart |
 | Decoder thread | libavcodec, dmabuf export | touch Dart |
 | Audio writer threads (one per stream) | one `PcmSink` each, blocking writes | touch Dart, or run on the io_context |
+| Capture thread (only while the phone has the microphone open) | one `PcmSource`, blocking reads | touch Dart, or outlive the phone's request |
 
 Handoff rules:
 
@@ -126,6 +127,11 @@ Handoff rules:
   paces the head unit to real time; doing that on an io thread would stall the USB
   transport. `audio/pcm_sink.h` is the seam, the same idea as `frame_ring.h` is for
   video: nothing above it names PulseAudio.
+- Microphone PCM runs the same way in reverse, through `audio/pcm_source.h`: the capture
+  thread blocks on the read, which is what paces the stream to real time, and posts each
+  buffer onto the channel strand to be sent. The thread exists only while the phone has
+  the microphone open, which is what makes "is this machine listening" a question with an
+  observable answer rather than a promise.
 
 ## The C ABI
 

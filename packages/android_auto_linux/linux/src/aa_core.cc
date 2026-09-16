@@ -17,8 +17,10 @@
 #include <thread>
 #include <vector>
 
+#include "audio/audio_input.h"
 #include "audio/audio_output.h"
 #include "audio/pcm_sink.h"
+#include "audio/pcm_source.h"
 #include "event_bus.h"
 #include "frame_ring.h"
 #include "present/gl_adapter.h"
@@ -151,9 +153,9 @@ struct AaSession {
     // This is not a choice. A head unit that advertises only video, input and audio is
     // one Android Auto refuses to project to at all: it reads the response, says
     // nothing, and drops out of accessory mode a second later. Offering the microphone
-    // as well is what makes it open the channels and start encoding, so
-    // src/session/support_channels.cc answers it and captures nothing until M7 makes it
-    // real.
+    // and the sensors as well is what makes it open the channels and start encoding.
+    // src/session/support_channels.cc still answers the sensors with a fixed reading
+    // until M8 makes them real.
     description.enable_video = true;
     description.enable_input = true;
     description.enable_sensors = true;
@@ -182,6 +184,10 @@ struct AaSession {
   // The same reasoning, and one more: volume, mute and the chosen output describe the
   // head unit rather than the phone, so they have to survive a reconnect.
   std::shared_ptr<aa::AudioOutput> audio;
+  // The microphone, kept across connections for the same reason the output is: which
+  // input this head unit listens through is not the phone's business. It holds no device
+  // open until a phone asks for one.
+  std::shared_ptr<aa::AudioInput> microphone;
   // The Dart side's raw PCM tap, or null. Written from the platform thread and read
   // from the audio writer threads, hence atomic.
   std::atomic<AaAudioCallback> audio_callback{nullptr};
@@ -258,6 +264,19 @@ char* aa_audio_devices(void) {
   return strdup(listing.c_str());
 }
 
+char* aa_microphone_devices(void) {
+  std::string listing;
+  for (const aa::PcmDevice& device : aa::ListPcmCaptureDevices()) {
+    listing += device.name;
+    listing += '\t';
+    listing += device.description;
+    listing += '\t';
+    listing += device.is_default ? '1' : '0';
+    listing += '\n';
+  }
+  return strdup(listing.c_str());
+}
+
 AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
   ApplyAasdkLogLevel();
   auto* session = new AaSession(on_event);
@@ -302,6 +321,10 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
     // already in rather than inventing one, exactly as the decoder's does.
     session->events.Emit(session->events.last_state(), message);
   });
+  session->microphone =
+      std::make_shared<aa::AudioInput>([session](const std::string& message) {
+        session->events.Emit(session->events.last_state(), message);
+      });
   return session;
 }
 
@@ -321,6 +344,11 @@ void aa_session_destroy(AaSession* session) {
     // NativeCallable the Dart side is about to tear down.
     session->audio->SetTap(nullptr);
     session->audio->Stop();
+  }
+  if (session->microphone) {
+    // Nothing here reaches Dart, but a capture thread outliving the session would hold a
+    // handler pointing into a channel that is going away.
+    session->microphone->Stop();
   }
   session->audio_callback = nullptr;
   session->gl.reset();
@@ -410,7 +438,7 @@ int32_t aa_session_start(AaSession* session) {
         session->recovering = false;
         auto protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
-            session->decoder, session->audio,
+            session->decoder, session->audio, session->microphone,
             [session](int state, const std::string& message) {
               if (state == AA_STATE_CONNECTED) {
                 session->reached_connected = true;
@@ -515,6 +543,11 @@ int32_t aa_session_stop(AaSession* session) {
     // Before the protocol teardown, so the speakers go quiet when the user presses stop
     // rather than a buffer later.
     session->audio->Stop();
+  }
+  if (session->microphone) {
+    // Before the protocol teardown as well, and for a stronger reason than the speakers:
+    // stop means stop listening, now, not once the goodbye has been acknowledged.
+    session->microphone->Stop();
   }
   // Ask, but do not yet destroy. Both of these only queue cancellations onto the
   // io_context, and those queued handlers still need libusb and the USB device to be
@@ -792,6 +825,49 @@ int64_t aa_session_audio_latency(AaSession* session, int32_t stream) {
     return 0;
   }
   return session->audio->LatencyMicros(which);
+}
+
+int32_t aa_session_microphone_active(AaSession* session) {
+  if (session == nullptr || !session->microphone) {
+    return 0;
+  }
+  return session->microphone->active() ? 1 : 0;
+}
+
+double aa_session_microphone_level(AaSession* session) {
+  if (session == nullptr || !session->microphone) {
+    return 0.0;
+  }
+  return session->microphone->level();
+}
+
+int64_t aa_session_microphone_bytes(AaSession* session) {
+  if (session == nullptr || !session->microphone) {
+    return 0;
+  }
+  return static_cast<int64_t>(session->microphone->bytes_captured());
+}
+
+int32_t aa_session_set_microphone_device(AaSession* session, const char* device) {
+  if (session == nullptr || !session->microphone) {
+    return -1;
+  }
+  session->microphone->SetDevice(CopyOrEmpty(device));
+  return 0;
+}
+
+char* aa_session_microphone_device(AaSession* session) {
+  const std::string device = session == nullptr || !session->microphone
+                                 ? std::string()
+                                 : session->microphone->device();
+  return strdup(device.c_str());
+}
+
+char* aa_session_microphone_backend(AaSession* session) {
+  const std::string name = session == nullptr || !session->microphone
+                               ? std::string("none")
+                               : session->microphone->backend_name();
+  return strdup(name.c_str());
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

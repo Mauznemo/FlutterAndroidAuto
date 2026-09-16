@@ -163,6 +163,46 @@ class AndroidAutoController extends ChangeNotifier {
   /// listening.
   Stream<AndroidAutoAudioBuffer> get audioBuffers => _platform.audioBuffers;
 
+  /// Whether the phone has the head unit's microphone open right now.
+  ///
+  /// Goes true when the Assistant is invoked, by "Hey Google" or by
+  /// [AndroidAutoKey.microphone], and false when it has finished. Show it: this is the
+  /// only signal a person in the car has that the machine is listening.
+  ///
+  /// There is no call to turn it on. The microphone is opened when the phone asks and at
+  /// no other time.
+  bool get microphoneActive => _platform.microphoneActive;
+
+  /// Peak level of the most recently captured audio, 0.0 to 1.0, for a level meter.
+  /// Zero while [microphoneActive] is false.
+  ///
+  /// Read it on a timer rather than waiting to be notified: it changes with every 32 ms
+  /// buffer, which is far too often to rebuild a widget tree for.
+  double get microphoneLevel => _platform.microphoneLevel;
+
+  /// Bytes captured since the session started. Tells a microphone that is missing apart
+  /// from one whose audio is not reaching the phone.
+  int get microphoneBytes => _platform.microphoneBytes;
+
+  /// The inputs this machine offers, for presenting a picker.
+  Future<List<AndroidAutoAudioDevice>> microphoneDevices() =>
+      _platform.microphoneDevices();
+
+  /// The selected input's [AndroidAutoAudioDevice.name], or empty for the default.
+  String get microphoneDevice => _platform.microphoneDevice;
+
+  /// Chooses the input to capture from. Null or empty means the system default.
+  ///
+  /// Takes effect the next time the phone asks for the microphone, which is the only
+  /// moment the plugin opens one.
+  void setMicrophoneDevice(String? name) {
+    _platform.setMicrophoneDevice(name);
+    notifyListeners();
+  }
+
+  /// Which capture backend is running: `PulseAudio`, or `none` before the first capture.
+  String get microphoneBackend => _platform.microphoneBackend;
+
   /// Re-reads the texture id and the incoming video description from the platform.
   Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;

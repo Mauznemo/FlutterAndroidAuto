@@ -24,8 +24,8 @@ implementation can be added later without touching the app-facing API.
 | M4 | Video channel to Flutter texture | **done** |
 | M5 | Input channel (touch, keys, rotary) | **done** |
 | M6 | Audio output (media, system, speech) | **done** |
-| M7 | Microphone input | **next** |
-| M8 | Sensors (night mode, GPS, driving status) | not started |
+| M7 | Microphone input | **done** |
+| M8 | Sensors (night mode, GPS, driving status) | **next** |
 | M9 | Metadata channels for native Flutter UI | not started |
 | M10 | Wireless Android Auto | not started |
 | M11 | Packaging, ARM64, CI, docs | not started |
@@ -576,11 +576,109 @@ which is the thing that makes a phone drop the session.
 
 ## M7. Microphone input
 
-- [ ] `MediaSource` (microphone) channel, 16 kHz mono 16 bit
-- [ ] PipeWire capture source, selectable device
-- [ ] Start and stop on the phone's request only, never capture otherwise
-- [ ] Expose a "mic active" flag to Dart so the app can show an indicator
-- [ ] Verify "Hey Google" and the mic button both work
+Goal: the Assistant hears what is said in the car.
+
+- [x] `MediaSource` (microphone) channel, 16 kHz mono 16 bit
+- [x] PipeWire capture source, selectable device
+- [x] Start and stop on the phone's request only, never capture otherwise
+- [x] Expose a "mic active" flag to Dart so the app can show an indicator
+- [x] Verify "Hey Google" and the mic button both work. Both do, but only the mic button
+      goes through this code: see "Hey Google does not use the head unit's microphone".
+
+**Checkpoint met.** The mic button on the test bench's keypad opens the Assistant, a
+spoken sentence reaches it through the laptop's microphone, and it acts on it: "Navigiere
+nach Hamburg" put a route to Hamburg on the projection. Transcription came back with the
+question mark on "Wie ist das Wetter in Berlin?", which is the recogniser rather than a
+guess at what arrived.
+
+### Measured
+
+| | |
+|---|---|
+| Capture format | 16 kHz mono 16 bit, confirmed as the stream PipeWire opened |
+| Buffer | 1024 bytes, 32 ms, one USB write each |
+| Open to first buffer | 45 ms |
+| Buffers dropped, five Assistant sessions, ~740 buffers | **0** |
+| Buffers the phone acknowledged | **0**, see below |
+| Recording streams while the phone has not asked | **none**, checked with `pactl` |
+| Stop pressed mid capture | microphone closed 9 ms before the goodbye went out |
+| Chosen input across a reconnect | kept |
+
+### Nothing captures unless the phone asks
+
+The one rule this milestone is really about. The capture device is opened when the phone
+sends its microphone open request and closed when it sends the close, and there is no
+other path to it: no Dart call starts recording, and `AudioInput` creates the thread on
+Start and joins it on Stop, so "is this machine listening" has the same answer as "does
+that thread exist".
+
+It is checkable from outside the app, which is the point:
+
+```bash
+pactl list short source-outputs
+```
+
+Empty while idle. One `s16le 1ch 16000Hz` stream while the Assistant is listening. Empty
+again a moment later, and empty immediately after Stop even when Stop lands mid sentence.
+The desktop's own microphone indicator agrees, which is what a person in the car would
+actually be going on.
+
+### The phone asks for a window of two and then never acknowledges
+
+`MicrophoneRequest` carries `max_unacked`, and this Pixel sets it to 2 on every open. It
+then sends no `Ack` at all: zero across five sessions and roughly seven hundred buffers.
+
+So a head unit that gated its sends on acknowledgements would stall after two buffers and
+the Assistant would hear a 64 ms fragment of every sentence. The backpressure here is
+counted against the **send** instead, from the moment a buffer is posted to the moment
+the messenger has written it, which holds whether or not the phone ever answers. The
+phone's number is honoured once it has acknowledged anything, and ten buffers (320 ms of
+speech) until then; see `MicrophoneChannel::Window`.
+
+Nothing was dropped either way, because a USB write completes in about a millisecond and
+buffers arrive 32 ms apart. The bound is there for the marginal link of M5, not for this.
+
+### "Hey Google" does not use the head unit's microphone
+
+The hotword works, confirmed by a person saying it out loud, and it starts the Assistant
+on the projection exactly as the mic key does. It just never reaches this code: the phone
+listens for it on **its own** microphone, and only then asks the head unit for a
+microphone for the query that follows.
+
+Which means the one channel this milestone built is not on the hotword path at all, and
+nothing here can put it there. Worth knowing before chasing it: the phone opened the
+microphone channel at service discovery and then never asked to record until the hotword
+had already fired or the mic key was pressed, so a head unit in a noisy car cannot make
+"Hey Google" more reliable by improving its own capture.
+
+Also worth knowing for anyone testing this the way the rest of M7 was tested: the
+synthetic speech from `spd-say` does not trigger the hotword, because Google's hotword
+stage does speaker verification and a synthesised voice is meant to fail it. That is a
+property of the test method, not a finding about the head unit.
+
+### What is not implemented
+
+**Echo cancellation and noise suppression are not implemented.** The phone asks for both
+in the open request (`anc_enabled`, `ec_enabled`) and both arrive as 0 from this phone.
+They are hints about what the head unit's hardware has already done rather than a
+request, so nothing is owed, but in a real car with music playing they are the difference
+between a recogniser that works and one that does not. Logged at debug so a poor
+recognition rate has somewhere to start.
+
+### Testing this without a person in the room
+
+Speech through the speakers into the laptop's own microphone, which is the acoustic path
+a car has:
+
+```bash
+spd-say -l de -r -20 -w "Navigiere nach Hamburg"
+```
+
+One warning from doing it: a virtual capture device made with
+`pactl load-module module-null-sink media.class=Audio/Source` broke recording **machine
+wide** on this PipeWire, and the symptom was `pa_simple_new` timing out after 30 seconds
+against a device that had worked a minute earlier. That looked exactly like a bug in the
+capture code and was not one. Unload it before concluding anything.
 
 ---
 

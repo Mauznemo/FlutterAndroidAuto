@@ -241,13 +241,17 @@ enum AndroidAutoAudioStream {
   speech,
 }
 
-/// An audio output the machine can play through.
+/// An audio device the machine can play through or listen with.
 ///
 /// An infotainment system often routes audio itself, through an amplifier the head unit
-/// does not control, so picking the output is the host app's business rather than
-/// something this plugin should decide.
+/// does not control, and its microphone is rarely the one the operating system would
+/// pick by default, so choosing both is the host app's business rather than something
+/// this plugin should decide. The same class describes an output and an input; which one
+/// it is depends on whether it came from [AndroidAutoPlatform.audioDevices] or
+/// [AndroidAutoPlatform.microphoneDevices].
 class AndroidAutoAudioDevice {
-  /// What to hand to [AndroidAutoPlatform.setAudioDevice]. Stable, not human friendly.
+  /// What to hand to [AndroidAutoPlatform.setAudioDevice] or
+  /// [AndroidAutoPlatform.setMicrophoneDevice]. Stable, not human friendly.
   final String name;
 
   /// What to show a person, such as `Built-in Audio Analogue Stereo`.
@@ -256,7 +260,7 @@ class AndroidAutoAudioDevice {
   /// Whether the audio server would have picked this one anyway.
   final bool isDefault;
 
-  /// Creates a description of one output.
+  /// Creates a description of one device.
   const AndroidAutoAudioDevice({
     required this.name,
     required this.description,
@@ -485,6 +489,50 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// something is listening.
   Stream<AndroidAutoAudioBuffer> get audioBuffers =>
       const Stream<AndroidAutoAudioBuffer>.empty();
+
+  /// Whether the phone has the head unit's microphone open right now.
+  ///
+  /// This is what a "listening" indicator shows, and it is the state of the device
+  /// rather than of the channel: a phone that has opened the microphone channel but has
+  /// not asked to record reads false. It goes true when the Assistant is invoked, by
+  /// "Hey Google" or by [AndroidAutoKey.microphone], and false when it is finished.
+  ///
+  /// There is no call to turn it on. The phone asks, the head unit captures, and
+  /// nothing else opens the device: a head unit whose host app could start recording
+  /// would be a different and much worse thing than one that listens when asked.
+  bool get microphoneActive => false;
+
+  /// Peak level of the most recently captured buffer, 0.0 to 1.0, for a level meter.
+  /// Zero while [microphoneActive] is false.
+  double get microphoneLevel => 0.0;
+
+  /// Bytes captured since the session was created.
+  ///
+  /// Worth showing next to [microphoneActive] while a head unit is being brought up: an
+  /// Assistant that hears nothing looks the same whether the microphone is missing or
+  /// the audio is not arriving, and this tells the two apart.
+  int get microphoneBytes => 0;
+
+  /// The inputs this machine offers, for a host app that wants to present a picker.
+  ///
+  /// Blocks briefly in the native layer, so it is a future. Empty when no audio server
+  /// can be reached. Monitors of outputs are left out: they would let the head unit send
+  /// the phone its own audio back.
+  Future<List<AndroidAutoAudioDevice>> microphoneDevices() async =>
+      const <AndroidAutoAudioDevice>[];
+
+  /// The selected input's [AndroidAutoAudioDevice.name], or empty for the default.
+  String get microphoneDevice => '';
+
+  /// Chooses the input to capture from. Null or empty means the system default.
+  ///
+  /// Takes effect the next time the phone asks for the microphone, because that is the
+  /// only moment the plugin is allowed to open one.
+  void setMicrophoneDevice(String? name) {}
+
+  /// Which capture backend is running: `PulseAudio`, or `none` before the first capture
+  /// or on a machine with no microphone.
+  String get microphoneBackend => 'none';
 
   /// Releases everything the implementation holds.
   ///

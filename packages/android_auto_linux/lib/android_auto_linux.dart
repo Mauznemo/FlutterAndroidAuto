@@ -23,9 +23,9 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   final _events = StreamController<AndroidAutoEvent>.broadcast();
 
   /// Audio settings live here rather than only in the core, so that a host app can set
-  /// the volume before it has ever started a session and have it apply when one exists.
-  /// Everything in here is written through to the core whenever there is one, and
-  /// re-applied to each new one.
+  /// the volume or pick a microphone before it has ever started a session and have it
+  /// apply when one exists. Everything in here is written through to the core whenever
+  /// there is one, and re-applied to each new one.
   final Map<AndroidAutoAudioStream, double> _volumes = {
     for (final stream in AndroidAutoAudioStream.values) stream: 1.0,
   };
@@ -34,6 +34,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   };
   String _audioDevice = '';
   bool _audioOutputEnabled = true;
+  String _microphoneDevice = '';
 
   AaCoreBindings get _bindings => AaLibrary.instance.bindings;
 
@@ -262,8 +263,19 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
-  Future<List<AndroidAutoAudioDevice>> audioDevices() async {
-    final listing = _bindings.aa_audio_devices();
+  Future<List<AndroidAutoAudioDevice>> audioDevices() async =>
+      _parseDevices(_bindings.aa_audio_devices());
+
+  @override
+  Future<List<AndroidAutoAudioDevice>> microphoneDevices() async =>
+      _parseDevices(_bindings.aa_microphone_devices());
+
+  /// Turns one of the core's device listings into objects, and frees it.
+  ///
+  /// One device per line, three tab separated fields: the name to hand back, a
+  /// description for a person, and "1" for the one the server would pick. Both
+  /// directions use the format, so both use this.
+  List<AndroidAutoAudioDevice> _parseDevices(Pointer<Char> listing) {
     if (listing == nullptr) {
       return const <AndroidAutoAudioDevice>[];
     }
@@ -274,7 +286,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
       if (line.isEmpty) {
         continue;
       }
-      // name, description, "1" for the server's default. See aa_audio_devices.
       final fields = line.split('\t');
       if (fields.length < 3) {
         continue;
@@ -355,6 +366,51 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   );
 
   @override
+  bool get microphoneActive =>
+      _session != nullptr && _bindings.aa_session_microphone_active(_session) != 0;
+
+  @override
+  double get microphoneLevel =>
+      _session == nullptr ? 0.0 : _bindings.aa_session_microphone_level(_session);
+
+  @override
+  int get microphoneBytes =>
+      _session == nullptr ? 0 : _bindings.aa_session_microphone_bytes(_session);
+
+  @override
+  String get microphoneDevice => _microphoneDevice;
+
+  @override
+  void setMicrophoneDevice(String? name) {
+    _microphoneDevice = name ?? '';
+    if (_session == nullptr) {
+      return;
+    }
+    final native = _microphoneDevice.isEmpty ? null : _microphoneDevice.toNativeUtf8();
+    try {
+      _bindings.aa_session_set_microphone_device(_session, native?.cast() ?? nullptr);
+    } finally {
+      if (native != null) {
+        calloc.free(native);
+      }
+    }
+  }
+
+  @override
+  String get microphoneBackend {
+    if (_session == nullptr) {
+      return 'none';
+    }
+    final backend = _bindings.aa_session_microphone_backend(_session);
+    if (backend == nullptr) {
+      return 'none';
+    }
+    final name = backend.cast<Utf8>().toDartString();
+    _bindings.aa_string_free(backend);
+    return name;
+  }
+
+  @override
   Stream<AndroidAutoAudioBuffer> get audioBuffers {
     // Built on first use and never torn down while the plugin lives. Every buffer
     // delivered costs a copy in the core, so the tap is only installed once something
@@ -381,6 +437,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
       );
     }
     setAudioDevice(_audioDevice);
+    setMicrophoneDevice(_microphoneDevice);
     _bindings.aa_session_set_audio_output_enabled(
       _session,
       _audioOutputEnabled ? 1 : 0,

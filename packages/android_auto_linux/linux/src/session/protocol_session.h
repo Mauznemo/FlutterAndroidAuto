@@ -38,8 +38,10 @@
 namespace aa {
 
 class AudioChannels;
+class AudioInput;
 class AudioOutput;
 class InputChannel;
+class MicrophoneChannel;
 class ProtocolSession;
 class SupportChannels;
 class VideoChannel;
@@ -103,20 +105,23 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // session is gone, so a strand owned by the session is a use after free waiting to
   // happen. The owner keeps one for the life of the process.
   //
-  // `decoder` and `audio` outlive the session: they belong to the head unit, not to
-  // one connection, so a phone reconnecting does not pay for opening VA-API or the
-  // audio server again, and the volume the user set survives the reconnect.
+  // `decoder`, `audio` and `microphone` outlive the session: they belong to the head
+  // unit, not to one connection, so a phone reconnecting does not pay for opening VA-API
+  // or the audio server again, and the volume and the chosen devices survive the
+  // reconnect.
   static std::shared_ptr<ProtocolSession> Create(boost::asio::io_context& io_context,
                                                  aasdk::Strand& strand,
                                                  HeadUnitDescription description,
                                                  std::shared_ptr<VideoDecoder> decoder,
                                                  std::shared_ptr<AudioOutput> audio,
+                                                 std::shared_ptr<AudioInput> microphone,
                                                  StateHandler on_state,
                                                  InputHandler on_input);
 
   ProtocolSession(boost::asio::io_context& io_context, aasdk::Strand& strand,
                   HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
-                  std::shared_ptr<AudioOutput> audio, StateHandler on_state,
+                  std::shared_ptr<AudioOutput> audio,
+                  std::shared_ptr<AudioInput> microphone, StateHandler on_state,
                   InputHandler on_input);
   ~ProtocolSession();
 
@@ -207,9 +212,11 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   std::shared_ptr<ControlEventRelay> relay_;
   std::shared_ptr<VideoDecoder> decoder_;
   std::shared_ptr<AudioOutput> audio_;
+  std::shared_ptr<AudioInput> microphone_;
   std::shared_ptr<VideoChannel> video_channel_;
   std::shared_ptr<InputChannel> input_channel_;
   std::shared_ptr<AudioChannels> audio_channels_;
+  std::shared_ptr<MicrophoneChannel> microphone_channel_;
   std::shared_ptr<SupportChannels> support_channels_;
 
   // What the phone was last granted, as an AudioFocusStateType. Read from io threads

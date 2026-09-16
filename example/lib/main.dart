@@ -42,6 +42,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
   String _lastInput = 'none';
   bool _audioPanelOpen = false;
   List<AndroidAutoAudioDevice> _audioDevices = const [];
+  List<AndroidAutoAudioDevice> _microphoneDevices = const [];
   StreamSubscription<AndroidAutoAudioBuffer>? _pcmSubscription;
   int _pcmBytes = 0;
   double _pcmPeak = 0;
@@ -161,6 +162,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
           Text('Last input: $_lastInput'),
           const SizedBox(width: 24),
           Text('Audio: ${_controller.audioBackend}$_underrunSuffix'),
+          const SizedBox(width: 24),
+          _MicIndicator(controller: _controller),
           const Spacer(),
           Text('Overlay taps: $_tapCount'),
         ],
@@ -281,6 +284,32 @@ class _TestBenchPageState extends State<TestBenchPage> {
               ),
             ],
           ),
+          Row(
+            children: [
+              const Text('Mic', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: _controller.microphoneDevice,
+                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('System default')),
+                    for (final device in _microphoneDevices)
+                      DropdownMenuItem(
+                        value: device.name,
+                        child: Text(
+                          device.description,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _controller.setMicrophoneDevice(value)),
+                ),
+              ),
+            ],
+          ),
           SwitchListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
@@ -312,6 +341,11 @@ class _TestBenchPageState extends State<TestBenchPage> {
             'underruns $_totalUnderruns, dropped $_totalDropped',
             style: const TextStyle(fontSize: 11, color: Colors.white54),
           ),
+          Text(
+            'Mic ${_controller.microphoneBackend}, '
+            '${(_controller.microphoneBytes / 1024).round()} KB captured',
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+          ),
         ],
       ),
     );
@@ -329,12 +363,15 @@ class _TestBenchPageState extends State<TestBenchPage> {
       _totalUnderruns == 0 ? '' : ' ($_totalUnderruns underruns)';
 
   Future<void> _toggleAudioPanel() async {
-    final devices = _audioPanelOpen ? _audioDevices : await _controller.audioDevices();
+    final outputs = _audioPanelOpen ? _audioDevices : await _controller.audioDevices();
+    final inputs =
+        _audioPanelOpen ? _microphoneDevices : await _controller.microphoneDevices();
     if (!mounted) {
       return;
     }
     setState(() {
-      _audioDevices = devices;
+      _audioDevices = outputs;
+      _microphoneDevices = inputs;
       _audioPanelOpen = !_audioPanelOpen;
     });
   }
@@ -404,6 +441,79 @@ class _TestBenchPageState extends State<TestBenchPage> {
               child: const Text('Overlay hit test'),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Says whether the car is listening, and how loudly.
+///
+/// Its own widget with its own timer on purpose. The microphone flag only changes when
+/// the phone opens or closes it, but the level changes with every 32 ms buffer, and
+/// rebuilding the page around the projection at that rate to move a meter would be
+/// absurd. Polling is the right shape here: the native side keeps the value, this asks
+/// for it five times a second and repaints only when it has moved.
+class _MicIndicator extends StatefulWidget {
+  final AndroidAutoController controller;
+
+  const _MicIndicator({required this.controller});
+
+  @override
+  State<_MicIndicator> createState() => _MicIndicatorState();
+}
+
+class _MicIndicatorState extends State<_MicIndicator> {
+  Timer? _timer;
+  bool _active = false;
+  double _level = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 200), (_) => _poll());
+  }
+
+  void _poll() {
+    final active = widget.controller.microphoneActive;
+    final level = widget.controller.microphoneLevel;
+    // Only when something visible changed. The level is quantised so that room noise
+    // does not repaint this twice a second forever.
+    if (active != _active || (level * 20).round() != (_level * 20).round()) {
+      setState(() {
+        _active = active;
+        _level = level;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          _active ? Icons.mic : Icons.mic_off,
+          size: 18,
+          color: _active ? Colors.redAccent : Colors.white38,
+        ),
+        const SizedBox(width: 6),
+        // Sized whether or not it is active, so the status bar does not jump when the
+        // Assistant is invoked.
+        SizedBox(
+          width: 60,
+          child: LinearProgressIndicator(
+            value: _active ? _level.clamp(0.0, 1.0) : 0,
+            minHeight: 6,
+            backgroundColor: Colors.white12,
+            color: Colors.redAccent,
+          ),
         ),
       ],
     );

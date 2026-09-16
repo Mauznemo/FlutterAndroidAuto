@@ -40,9 +40,12 @@ struct PcmFormat {
   int32_t bytes_per_second() const { return sample_rate * channels * (bits / 8); }
 };
 
-// An output the host app can pick, as reported by the audio server.
+// A device the host app can pick, as reported by the audio server. Used for both
+// directions: pcm_source.h describes the microphone with the same shape, because a
+// device is a device whichever way the samples are going.
 struct PcmDevice {
-  // What to hand back to PcmSink::Open. Stable across reboots, not human friendly.
+  // What to hand back to PcmSink::Open or PcmSource::Open. Stable across reboots, not
+  // human friendly.
   std::string name;
   // What to show a person: "Built-in Audio Analogue Stereo".
   std::string description;

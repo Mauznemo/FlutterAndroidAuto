@@ -15,8 +15,10 @@ set(PLUGIN_NAME "android_auto_linux_plugin")
 list(APPEND PLUGIN_SOURCES
   "android_auto_linux_plugin.cc"
   "src/aa_core.cc"
+  "src/audio/audio_input.cc"
   "src/audio/audio_output.cc"
   "src/audio/pulse_sink.cc"
+  "src/audio/pulse_source.cc"
   "src/event_bus.cc"
   "src/frame_ring.cc"
   "src/test_pattern.cc"
@@ -27,6 +29,7 @@ list(APPEND PLUGIN_SOURCES
   "src/session/audio_channels.cc"
   "src/session/service_discovery.cc"
   "src/session/input_channel.cc"
+  "src/session/microphone_channel.cc"
   "src/session/protocol_session.cc"
   "src/session/support_channels.cc"
   "src/session/video_channel.cc"
@@ -88,12 +91,13 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBUSB)
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBAV)
 
-# === audio output ===
+# === audio in and out ===
 #
-# libpulse-simple plays the PCM and libpulse enumerates the outputs. On this machine
-# that is PipeWire answering to PulseAudio's API, which is the point: the same code runs
-# on a PipeWire desktop, a PulseAudio one, and the compatibility layer most infotainment
-# images ship. See src/audio/pcm_sink.h for where a second backend would go.
+# libpulse-simple plays the phone's PCM and reads the microphone, and libpulse enumerates
+# the outputs and the inputs. On this machine that is PipeWire answering to PulseAudio's
+# API, which is the point: the same code runs on a PipeWire desktop, a PulseAudio one,
+# and the compatibility layer most infotainment images ship. See src/audio/pcm_sink.h and
+# src/audio/pcm_source.h for where a second backend would go.
 pkg_check_modules(LIBPULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBPULSE)
 
