@@ -67,6 +67,59 @@ typedef enum {
   AA_AUDIO_STREAM_SPEECH = 2,
 } AaAudioStream;
 
+// Which sensors the head unit tells the phone it has, one bit each. Mirrored by Sensor
+// in sensors/sensor_state.h and by AndroidAutoSensor in Dart, so the order is part of
+// the ABI.
+//
+// Advertising one is a declaration that the car has it, not a feature switch. The phone
+// subscribes to what is offered and then waits, and for AA_SENSOR_LOCATION it stops
+// using its own position the moment it sees the entry, so a head unit that offers a
+// position it cannot supply has taken navigation away from a phone that was managing
+// without it. Offer what the host app can actually feed.
+typedef enum {
+  AA_SENSOR_NIGHT_MODE = 1 << 0,
+  AA_SENSOR_DRIVING_STATUS = 1 << 1,
+  AA_SENSOR_LOCATION = 1 << 2,
+  AA_SENSOR_SPEED = 1 << 3,
+  AA_SENSOR_RPM = 1 << 4,
+  AA_SENSOR_FUEL = 1 << 5,
+  AA_SENSOR_PARKING_BRAKE = 1 << 6,
+  AA_SENSOR_GEAR = 1 << 7,
+  AA_SENSOR_COMPASS = 1 << 8,
+  AA_SENSOR_ENVIRONMENT = 1 << 9,
+  AA_SENSOR_ODOMETER = 1 << 10,
+  AA_SENSOR_TOLL_CARD = 1 << 11,
+} AaSensor;
+
+// What the car forbids while it is moving, as the protocol's DrivingStatus bits. They
+// combine: a parked car sets none of them.
+typedef enum {
+  AA_DRIVING_UNRESTRICTED = 0,
+  AA_DRIVING_NO_VIDEO = 1,
+  AA_DRIVING_NO_KEYBOARD = 2,
+  AA_DRIVING_NO_VOICE = 4,
+  AA_DRIVING_NO_CONFIG = 8,
+  AA_DRIVING_LIMIT_MESSAGE_LENGTH = 16,
+} AaDrivingRestriction;
+
+// A position fix, for aa_session_set_location.
+//
+// Latitude and longitude are always read. The other four are skipped when they are NaN,
+// because every one of them has a meaningful zero: a bearing of zero is due north, an
+// altitude of zero is sea level and a speed of zero is standing still, so none of them
+// can double as "not known". A field left out is absent on the wire, which is not the
+// same as a field set to zero.
+typedef struct {
+  double latitude;
+  double longitude;
+  // Radius in metres of the circle the fix is somewhere in.
+  double accuracy_metres;
+  double altitude_metres;
+  double speed_mps;
+  // Direction of travel in degrees clockwise from north.
+  double bearing_degrees;
+} AaLocation;
+
 // How the head unit describes itself to the phone during service discovery.
 typedef struct {
   int32_t width;
@@ -78,6 +131,10 @@ typedef struct {
   const char* car_year;
   // Directory holding headunit.crt and headunit.key. NULL uses the bundled pair.
   const char* certificate_path;
+  // Which sensors to advertise, an OR of AaSensor bits. Zero is read as the two that
+  // are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit
+  // that answers neither leaves the phone with most of its interface locked.
+  int32_t sensors;
 } AaConfig;
 
 // Called when the session changes state or has something to report.
@@ -274,6 +331,80 @@ AA_EXPORT char* aa_session_microphone_device(AaSession* session);
 // Which capture backend is running: "PulseAudio", or "none" before the first capture or
 // on a machine with no microphone. Heap allocated, free with aa_string_free.
 AA_EXPORT char* aa_session_microphone_backend(AaSession* session);
+
+// === sensors ===
+//
+// What the head unit tells the phone about the car. All of these are safe from the Dart
+// main isolate and return immediately, and each returns 0 on success and -1 on a bad
+// argument.
+//
+// Nothing here reads any hardware. This plugin owns no GPS and no parking brake: the
+// host app is the thing running in the vehicle, so it is the thing that knows. A value
+// set here is remembered across reconnects, because a phone being unplugged does not
+// change what the car is doing, and it is sent to the phone when it changes, but only
+// for the sensors the phone actually subscribed to.
+//
+// A sensor that has never been set is not reported at all rather than reported as zero,
+// which is the difference between a car that has no fix yet and a car in the Atlantic.
+// Night mode and the driving status are the exceptions: they start at day and
+// unrestricted, because the phone needs an answer to those before it will finish
+// opening its interface.
+
+// False for day, true for night. Drives the phone's own light and dark theme.
+AA_EXPORT int32_t aa_session_set_night_mode(AaSession* session, int32_t night);
+
+// What the car forbids right now, an OR of AaDrivingRestriction bits.
+// AA_DRIVING_UNRESTRICTED is a parked car, and is what this head unit reports until the
+// host app says otherwise.
+AA_EXPORT int32_t aa_session_set_driving_status(AaSession* session,
+                                                int32_t restrictions);
+
+// The car's position. See AaLocation for which fields may be NaN.
+AA_EXPORT int32_t aa_session_set_location(AaSession* session, const AaLocation* location);
+
+// Road speed in metres per second.
+AA_EXPORT int32_t aa_session_set_speed(AaSession* session, double metres_per_second);
+
+// Engine speed in revolutions per minute.
+AA_EXPORT int32_t aa_session_set_rpm(AaSession* session, double rpm);
+
+// Tank level as a percentage, remaining range in metres, and whether the low fuel
+// warning is lit.
+AA_EXPORT int32_t aa_session_set_fuel(AaSession* session, double level_percent,
+                                      double range_metres, int32_t low);
+
+// Whether the parking brake is engaged.
+AA_EXPORT int32_t aa_session_set_parking_brake(AaSession* session, int32_t engaged);
+
+// The selected gear, as the protocol numbers them: 0 neutral, 1 to 10 the numbered
+// gears, 100 drive, 101 park, 102 reverse.
+AA_EXPORT int32_t aa_session_set_gear(AaSession* session, int32_t gear);
+
+// Heading in degrees clockwise from north. Distinct from the bearing inside a location
+// fix: this is the direction the car points, which is not the direction it is moving.
+AA_EXPORT int32_t aa_session_set_compass(AaSession* session, double bearing_degrees);
+
+// Outside temperature in degrees Celsius and barometric pressure in kilopascals. Either
+// may be NaN, which leaves that one out.
+AA_EXPORT int32_t aa_session_set_environment(AaSession* session,
+                                             double temperature_celsius,
+                                             double pressure_kpa);
+
+// Total distance travelled, in kilometres.
+AA_EXPORT int32_t aa_session_set_odometer(AaSession* session, double kilometres);
+
+// Whether a toll transponder is in the car.
+AA_EXPORT int32_t aa_session_set_toll_card(AaSession* session, int32_t present);
+
+// Which sensors the phone has subscribed to, an OR of AaSensor bits, or 0 when no phone
+// is connected. Never the same question as which ones were advertised: a phone takes
+// what it wants from the list, and this is the first thing to look at when a value is
+// being set and nothing on the phone's screen changes.
+AA_EXPORT int32_t aa_session_sensor_subscriptions(AaSession* session);
+
+// Sensor batches written since the session was created. The "did anything actually go
+// out" number, which is otherwise only answerable by watching the phone's UI.
+AA_EXPORT int64_t aa_session_sensor_batches(AaSession* session);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Started life as M2

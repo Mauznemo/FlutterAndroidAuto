@@ -57,6 +57,20 @@ class AndroidAutoConfig {
   /// holding `headunit.crt` and `headunit.key`.
   final String? certificatePath;
 
+  /// Which sensors this head unit tells the phone the car has.
+  ///
+  /// Read once, when the session starts, because service discovery happens once per
+  /// connection. The two defaults are the ones that are not optional: a head unit that
+  /// cannot answer the driving status subscription leaves the phone with most of its
+  /// interface locked.
+  ///
+  /// Add to it only for sensors the app will actually feed, through
+  /// [AndroidAutoPlatform.setLocation] and its neighbours. Offering one and then never
+  /// sending a reading is worse than not offering it, most of all for
+  /// [AndroidAutoSensor.location]: the phone stops using its own position as soon as
+  /// the car claims to have one.
+  final Set<AndroidAutoSensor> sensors;
+
   /// Creates a head unit description. The defaults are a safe 720p30 head unit
   /// that every phone accepts.
   const AndroidAutoConfig({
@@ -68,6 +82,10 @@ class AndroidAutoConfig {
     this.carModel = 'Universal',
     this.carYear = '2026',
     this.certificatePath,
+    this.sensors = const {
+      AndroidAutoSensor.nightMode,
+      AndroidAutoSensor.drivingStatus,
+    },
   });
 }
 
@@ -322,6 +340,147 @@ class AndroidAutoAudioBuffer {
       'AndroidAutoAudioBuffer(${stream.name}, ${samples.lengthInBytes} bytes)';
 }
 
+/// A sensor a head unit can report to the phone.
+///
+/// Declaring one in [AndroidAutoConfig.sensors] is a statement that the car has it, not
+/// a feature switch. The phone subscribes to everything that is offered and then waits
+/// for readings, and for [location] it stops using its own position the moment it sees
+/// the entry, so a head unit that offers a fix it cannot supply has taken navigation
+/// away from a phone that was managing without it. Offer what the app can feed.
+///
+/// The order is part of the FFI boundary: each entry is one bit, in this order, in
+/// `AaSensor` in `linux/src/aa_core.h`.
+enum AndroidAutoSensor {
+  /// Whether it is dark outside, which drives the phone's own light and dark theme.
+  nightMode,
+
+  /// What the car forbids while it is moving. See [AndroidAutoDrivingRestriction].
+  drivingStatus,
+
+  /// The car's position, from the car's own receiver rather than the phone's.
+  location,
+
+  /// Road speed.
+  speed,
+
+  /// Engine speed.
+  rpm,
+
+  /// Tank level, remaining range and the low fuel warning.
+  fuel,
+
+  /// Whether the parking brake is engaged.
+  parkingBrake,
+
+  /// The selected gear.
+  gear,
+
+  /// Which way the car is pointing, which is not which way it is moving.
+  compass,
+
+  /// Outside temperature and barometric pressure.
+  environment,
+
+  /// Total distance travelled.
+  odometer,
+
+  /// Whether a toll transponder is in the car.
+  tollCard;
+
+  /// The bit this sensor occupies in the mask the native layer takes.
+  int get bit => 1 << index;
+}
+
+/// What a moving car forbids the phone to do.
+///
+/// These combine, and a parked car sets none of them: an empty set is what Android Auto
+/// calls unrestricted, and it is what this plugin reports until the host app says
+/// otherwise. This is the single most consequential thing a head unit tells the phone
+/// about itself, because the phone locks the matching parts of its interface and the
+/// person in the car has no way to override it.
+enum AndroidAutoDrivingRestriction {
+  /// No moving pictures. The projection keeps working; video content inside it stops.
+  video(1),
+
+  /// No on screen keyboard.
+  keyboard(2),
+
+  /// No voice input.
+  voice(4),
+
+  /// No settings screens.
+  configuration(8),
+
+  /// Long messages are truncated rather than shown in full.
+  messageLength(16);
+
+  /// The protocol's DrivingStatus bit.
+  final int code;
+
+  const AndroidAutoDrivingRestriction(this.code);
+}
+
+/// Where the car is.
+///
+/// Only [latitude] and [longitude] are required. The other four are null when the host
+/// app does not know them, and a null is left off the wire entirely rather than sent as
+/// zero, because every one of them has a meaningful zero: a bearing of zero is due
+/// north, an altitude of zero is sea level, and a speed of zero is standing still.
+class AndroidAutoLocation {
+  /// Degrees north, negative for south.
+  final double latitude;
+
+  /// Degrees east, negative for west.
+  final double longitude;
+
+  /// Radius in metres of the circle the fix is somewhere in.
+  final double? accuracyMetres;
+
+  /// Height above sea level in metres.
+  final double? altitudeMetres;
+
+  /// Ground speed in metres per second.
+  final double? speedMps;
+
+  /// Direction of travel in degrees clockwise from north.
+  final double? bearingDegrees;
+
+  /// Creates a position fix.
+  const AndroidAutoLocation({
+    required this.latitude,
+    required this.longitude,
+    this.accuracyMetres,
+    this.altitudeMetres,
+    this.speedMps,
+    this.bearingDegrees,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is AndroidAutoLocation &&
+      other.latitude == latitude &&
+      other.longitude == longitude &&
+      other.accuracyMetres == accuracyMetres &&
+      other.altitudeMetres == altitudeMetres &&
+      other.speedMps == speedMps &&
+      other.bearingDegrees == bearingDegrees;
+
+  @override
+  int get hashCode => Object.hash(
+    latitude,
+    longitude,
+    accuracyMetres,
+    altitudeMetres,
+    speedMps,
+    bearingDegrees,
+  );
+
+  @override
+  String toString() =>
+      'AndroidAutoLocation($latitude, $longitude'
+      '${accuracyMetres == null ? "" : ", +/-${accuracyMetres}m"})';
+}
+
 /// Something the native session wants the Dart side to know about.
 class AndroidAutoEvent {
   /// The lifecycle state the session moved into.
@@ -537,6 +696,112 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// Which capture backend is running: `PulseAudio`, or `none` before the first capture
   /// or on a machine with no microphone.
   String get microphoneBackend => 'none';
+
+  /// Whether the head unit is telling the phone it is dark outside.
+  ///
+  /// Drives the phone's own light and dark theme, so it is what makes the projection
+  /// match a dashboard that dims at dusk. False, meaning day, until the app says
+  /// otherwise.
+  bool get nightMode => false;
+
+  /// Says whether it is dark outside.
+  ///
+  /// Nothing here reads a light sensor: this plugin owns no hardware, and the app is
+  /// the thing running in the vehicle. A sunset table, a photodiode or the car's own
+  /// headlight switch are all reasonable sources, and all of them are the app's to
+  /// choose.
+  void setNightMode(bool night) {}
+
+  /// What the car currently forbids the phone to do. Empty means parked.
+  Set<AndroidAutoDrivingRestriction> get drivingRestrictions =>
+      const <AndroidAutoDrivingRestriction>{};
+
+  /// Says what the car forbids right now.
+  ///
+  /// The phone locks the matching parts of its interface at once and the person in the
+  /// car cannot override it, so this is a safety decision rather than a preference.
+  /// Empty is a parked car, which is what a head unit reports until told otherwise.
+  /// [setParked] covers the usual two cases.
+  void setDrivingRestrictions(Set<AndroidAutoDrivingRestriction> restrictions) {}
+
+  /// The usual two cases: parked lifts every restriction, moving applies the set
+  /// Android Auto's own guidelines describe.
+  ///
+  /// Moving is video, keyboard and configuration: no moving pictures, no on screen
+  /// keyboard and no settings screens. Voice input and message length are deliberately
+  /// left alone, because voice is the one interaction that is safe while driving and
+  /// truncating messages is a choice about content rather than about safety. An app
+  /// that wants a different combination sets it with [setDrivingRestrictions].
+  void setParked(bool parked) => setDrivingRestrictions(
+    parked
+        ? const <AndroidAutoDrivingRestriction>{}
+        : const {
+          AndroidAutoDrivingRestriction.video,
+          AndroidAutoDrivingRestriction.keyboard,
+          AndroidAutoDrivingRestriction.configuration,
+        },
+  );
+
+  /// The last position given to [setLocation], or null if there has never been one.
+  AndroidAutoLocation? get location => null;
+
+  /// Reports where the car is.
+  ///
+  /// Only meaningful when [AndroidAutoSensor.location] is in
+  /// [AndroidAutoConfig.sensors], and then it matters a great deal: the phone will have
+  /// stopped using its own receiver and will be navigating from these. Send a fix
+  /// whenever one arrives, typically once a second.
+  void setLocation(AndroidAutoLocation location) {}
+
+  /// Road speed in metres per second.
+  void setSpeed(double metresPerSecond) {}
+
+  /// Engine speed in revolutions per minute.
+  void setRpm(double rpm) {}
+
+  /// Tank level as a percentage of full, remaining range in metres, and whether the low
+  /// fuel warning is lit.
+  void setFuel({
+    required double levelPercent,
+    required double rangeMetres,
+    bool low = false,
+  }) {}
+
+  /// Whether the parking brake is engaged.
+  void setParkingBrake(bool engaged) {}
+
+  /// The selected gear, as the protocol numbers them: 0 neutral, 1 to 10 the numbered
+  /// gears, 100 drive, 101 park, 102 reverse.
+  void setGear(int gear) {}
+
+  /// Which way the car is pointing, in degrees clockwise from north.
+  ///
+  /// Not the same as [AndroidAutoLocation.bearingDegrees], which is the direction it is
+  /// moving. A car reversing points one way and travels the other.
+  void setCompass(double bearingDegrees) {}
+
+  /// Outside temperature in degrees Celsius and barometric pressure in kilopascals.
+  /// Either may be null, which leaves that one out of the reading.
+  void setEnvironment({double? temperatureCelsius, double? pressureKpa}) {}
+
+  /// Total distance travelled, in kilometres.
+  void setOdometer(double kilometres) {}
+
+  /// Whether a toll transponder is in the car.
+  void setTollCard(bool present) {}
+
+  /// Which sensors the phone has subscribed to, empty when none is connected.
+  ///
+  /// Never the same question as [AndroidAutoConfig.sensors]: a phone takes what it
+  /// wants from what was offered. This is the first thing to look at when a value is
+  /// being set and nothing on the phone's screen changes.
+  Set<AndroidAutoSensor> get sensorSubscriptions => const <AndroidAutoSensor>{};
+
+  /// Sensor readings written to the phone since the session was created.
+  ///
+  /// The "did anything actually go out" number, which is otherwise only answerable by
+  /// watching the phone's own UI.
+  int get sensorBatches => 0;
 
   /// Releases everything the implementation holds.
   ///

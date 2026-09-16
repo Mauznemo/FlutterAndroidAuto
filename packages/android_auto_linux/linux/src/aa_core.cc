@@ -24,6 +24,7 @@
 #include "event_bus.h"
 #include "frame_ring.h"
 #include "present/gl_adapter.h"
+#include "sensors/sensor_state.h"
 #include "session/input_channel.h"
 #include "session/protocol_session.h"
 #include "session/service_discovery.h"
@@ -87,7 +88,11 @@ void ApplyServiceOverride(aa::HeadUnitDescription* description) {
 
   description->enable_video = enabled("video");
   description->enable_input = enabled("input");
-  description->enable_sensors = enabled("sensor");
+  // Whether the channel is there at all, not which sensors are on it. Which sensors the
+  // car has is the host app's declaration and no business of an environment variable.
+  if (!enabled("sensor")) {
+    description->sensors = 0;
+  }
   description->enable_media_audio = enabled("media_audio");
   description->enable_system_audio = enabled("system_audio");
   description->enable_speech_audio = enabled("speech_audio");
@@ -134,6 +139,7 @@ struct AaSession {
     std::string car_model;
     std::string car_year;
     std::string certificate_path;
+    aa::SensorMask sensors = aa::kRequiredSensors;
   };
 
   explicit AaSession(AaEventCallback callback) : events(callback) {}
@@ -154,11 +160,12 @@ struct AaSession {
     // one Android Auto refuses to project to at all: it reads the response, says
     // nothing, and drops out of accessory mode a second later. Offering the microphone
     // and the sensors as well is what makes it open the channels and start encoding.
-    // src/session/support_channels.cc still answers the sensors with a fixed reading
-    // until M8 makes them real.
+    //
+    // Which sensors are on that channel is the one part of this the host app chooses,
+    // because it is the only thing that knows what the car has. See AaConfig::sensors.
     description.enable_video = true;
     description.enable_input = true;
-    description.enable_sensors = true;
+    description.sensors = config.sensors;
     description.enable_media_audio = true;
     description.enable_system_audio = true;
     description.enable_speech_audio = true;
@@ -188,6 +195,10 @@ struct AaSession {
   // input this head unit listens through is not the phone's business. It holds no device
   // open until a phone asks for one.
   std::shared_ptr<aa::AudioInput> microphone;
+  // What the car is doing, which is the host app's to say and outlives every connection
+  // for a plainer reason than the others: a parking brake does not come off because a
+  // cable was pulled out.
+  std::shared_ptr<aa::SensorState> sensors;
   // The Dart side's raw PCM tap, or null. Written from the platform thread and read
   // from the audio writer threads, hence atomic.
   std::atomic<AaAudioCallback> audio_callback{nullptr};
@@ -243,6 +254,14 @@ std::shared_ptr<aa::InputChannel> LockInput(AaSession* session) {
   return session->input.lock();
 }
 
+// Every sensor setter has the same guard in front of it.
+aa::SensorState* Sensors(AaSession* session) {
+  if (session == nullptr || !session->sensors) {
+    return nullptr;
+  }
+  return session->sensors.get();
+}
+
 }  // namespace
 
 extern "C" {
@@ -289,6 +308,12 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
     session->config.car_model = CopyOrEmpty(config->car_model);
     session->config.car_year = CopyOrEmpty(config->car_year);
     session->config.certificate_path = CopyOrEmpty(config->certificate_path);
+    // Zero is a host app that did not ask, not one that wants no sensors at all. A head
+    // unit with no sensor channel is one Android Auto will not finish opening its
+    // interface for, so the two that are not optional are the floor.
+    session->config.sensors = config->sensors == 0
+                                  ? aa::kRequiredSensors
+                                  : static_cast<aa::SensorMask>(config->sensors);
   }
 
   session->ring.Configure(session->config.width, session->config.height);
@@ -325,6 +350,7 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
       std::make_shared<aa::AudioInput>([session](const std::string& message) {
         session->events.Emit(session->events.last_state(), message);
       });
+  session->sensors = std::make_shared<aa::SensorState>();
   return session;
 }
 
@@ -438,7 +464,7 @@ int32_t aa_session_start(AaSession* session) {
         session->recovering = false;
         auto protocol = aa::ProtocolSession::Create(
             session->io_context, *session->channel_strand, session->Describe(),
-            session->decoder, session->audio, session->microphone,
+            session->decoder, session->audio, session->microphone, session->sensors,
             [session](int state, const std::string& message) {
               if (state == AA_STATE_CONNECTED) {
                 session->reached_connected = true;
@@ -868,6 +894,133 @@ char* aa_session_microphone_backend(AaSession* session) {
                                ? std::string("none")
                                : session->microphone->backend_name();
   return strdup(name.c_str());
+}
+
+int32_t aa_session_set_night_mode(AaSession* session, int32_t night) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetNightMode(night != 0);
+  return 0;
+}
+
+int32_t aa_session_set_driving_status(AaSession* session, int32_t restrictions) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetDrivingRestrictions(restrictions);
+  return 0;
+}
+
+int32_t aa_session_set_location(AaSession* session, const AaLocation* location) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr || location == nullptr) {
+    return -1;
+  }
+  aa::Location fix;
+  fix.latitude = location->latitude;
+  fix.longitude = location->longitude;
+  fix.accuracy_metres = location->accuracy_metres;
+  fix.altitude_metres = location->altitude_metres;
+  fix.speed_mps = location->speed_mps;
+  fix.bearing_degrees = location->bearing_degrees;
+  sensors->SetLocation(fix);
+  return 0;
+}
+
+int32_t aa_session_set_speed(AaSession* session, double metres_per_second) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetSpeed(metres_per_second);
+  return 0;
+}
+
+int32_t aa_session_set_rpm(AaSession* session, double rpm) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetRpm(rpm);
+  return 0;
+}
+
+int32_t aa_session_set_fuel(AaSession* session, double level_percent,
+                            double range_metres, int32_t low) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetFuel(level_percent, range_metres, low != 0);
+  return 0;
+}
+
+int32_t aa_session_set_parking_brake(AaSession* session, int32_t engaged) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetParkingBrake(engaged != 0);
+  return 0;
+}
+
+int32_t aa_session_set_gear(AaSession* session, int32_t gear) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetGear(gear);
+  return 0;
+}
+
+int32_t aa_session_set_compass(AaSession* session, double bearing_degrees) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetCompass(bearing_degrees);
+  return 0;
+}
+
+int32_t aa_session_set_environment(AaSession* session, double temperature_celsius,
+                                   double pressure_kpa) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetEnvironment(temperature_celsius, pressure_kpa);
+  return 0;
+}
+
+int32_t aa_session_set_odometer(AaSession* session, double kilometres) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetOdometer(kilometres);
+  return 0;
+}
+
+int32_t aa_session_set_toll_card(AaSession* session, int32_t present) {
+  auto* sensors = Sensors(session);
+  if (sensors == nullptr) {
+    return -1;
+  }
+  sensors->SetTollCard(present != 0);
+  return 0;
+}
+
+int32_t aa_session_sensor_subscriptions(AaSession* session) {
+  auto* sensors = Sensors(session);
+  return sensors == nullptr ? 0 : static_cast<int32_t>(sensors->subscriptions());
+}
+
+int64_t aa_session_sensor_batches(AaSession* session) {
+  auto* sensors = Sensors(session);
+  return sensors == nullptr ? 0 : static_cast<int64_t>(sensors->batches_sent());
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

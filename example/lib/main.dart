@@ -34,7 +34,21 @@ class TestBenchPage extends StatefulWidget {
 
 class _TestBenchPageState extends State<TestBenchPage> {
   final AndroidAutoController _controller = AndroidAutoController(
-    config: const AndroidAutoConfig(width: 1280, height: 720, fps: 30),
+    config: const AndroidAutoConfig(
+      width: 1280,
+      height: 720,
+      fps: 30,
+      // Location is in here as well as the two defaults, because a test bench that
+      // cannot exercise the GPS sensor cannot tell whether it works. It comes with the
+      // obligation attached: the phone stops using its own receiver the moment it sees
+      // this, so _gpsTimer below feeds a fix every second from the moment the session
+      // starts. Take location out of this set in a real head unit that has no receiver.
+      sensors: {
+        AndroidAutoSensor.nightMode,
+        AndroidAutoSensor.drivingStatus,
+        AndroidAutoSensor.location,
+      },
+    ),
   );
 
   int _tapCount = 0;
@@ -46,22 +60,59 @@ class _TestBenchPageState extends State<TestBenchPage> {
   StreamSubscription<AndroidAutoAudioBuffer>? _pcmSubscription;
   int _pcmBytes = 0;
   double _pcmPeak = 0;
+  bool _sensorPanelOpen = false;
+  bool _feedGps = true;
+  Timer? _gpsTimer;
+  final TextEditingController _latitude = TextEditingController(text: '52.520008');
+  final TextEditingController _longitude = TextEditingController(text: '13.404954');
 
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onControllerChanged);
+    // Once a second, which is what a GPS receiver produces and what the phone expects.
+    // Started here rather than on connect because the value is remembered across
+    // sessions: setting it before there is a phone is the case this exercises.
+    _gpsTimer = Timer.periodic(const Duration(seconds: 1), (_) => _sendFix());
+    _sendFix();
   }
 
   void _onControllerChanged() => setState(() {});
 
   @override
   void dispose() {
+    _gpsTimer?.cancel();
+    _latitude.dispose();
+    _longitude.dispose();
     _pcmSubscription?.cancel();
     _controller
       ..removeListener(_onControllerChanged)
       ..dispose();
     super.dispose();
+  }
+
+  /// Pushes the position in the two fields, if the switch is on and they parse.
+  ///
+  /// A fixed point rather than a simulated drive. Feeding a phone a route it is not on
+  /// makes Maps recalculate all the way through a test, which is noise rather than
+  /// evidence: what M8 has to show is that a fix reaches the phone at all.
+  void _sendFix() {
+    if (!_feedGps) {
+      return;
+    }
+    final latitude = double.tryParse(_latitude.text);
+    final longitude = double.tryParse(_longitude.text);
+    if (latitude == null || longitude == null) {
+      return;
+    }
+    _controller.setLocation(
+      AndroidAutoLocation(
+        latitude: latitude,
+        longitude: longitude,
+        accuracyMetres: 5,
+        speedMps: 0,
+      ),
+    );
   }
 
   /// Subscribes to the raw PCM the phone is sending, for apps that mix it themselves.
@@ -128,6 +179,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
           Positioned(top: 0, left: 0, right: 0, child: _statusBar()),
           if (_audioPanelOpen)
             Positioned(top: 60, right: 20, width: 360, child: _audioPanel()),
+          if (_sensorPanelOpen)
+            Positioned(top: 60, left: 20, width: 380, child: _sensorPanel()),
           Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
         ],
       ),
@@ -162,6 +215,21 @@ class _TestBenchPageState extends State<TestBenchPage> {
           Text('Last input: $_lastInput'),
           const SizedBox(width: 24),
           Text('Audio: ${_controller.audioBackend}$_underrunSuffix'),
+          const SizedBox(width: 24),
+          Icon(
+            _controller.nightMode ? Icons.dark_mode : Icons.light_mode,
+            size: 18,
+            color: Colors.white54,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            _controller.drivingRestrictions.isEmpty ? 'Parked' : 'Moving',
+            style: TextStyle(
+              color: _controller.drivingRestrictions.isEmpty
+                  ? Colors.white
+                  : Colors.orangeAccent,
+            ),
+          ),
           const SizedBox(width: 24),
           _MicIndicator(controller: _controller),
           const Spacer(),
@@ -351,6 +419,108 @@ class _TestBenchPageState extends State<TestBenchPage> {
     );
   }
 
+  /// What the head unit is telling the phone about the car.
+  ///
+  /// The two switches at the top are the ones with a visible effect: night mode flips
+  /// the phone's own theme within a second, and moving locks parts of its interface.
+  /// Watch the subscription line at the bottom before concluding anything, because a
+  /// value set for a sensor the phone did not subscribe to goes nowhere by design.
+  Widget _sensorPanel() {
+    final subscribed = _controller.sensorSubscriptions;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Sensors', style: TextStyle(fontWeight: FontWeight.bold)),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Night mode', style: TextStyle(fontSize: 12)),
+            subtitle: const Text(
+              "Flips the phone's own light and dark theme",
+              style: TextStyle(fontSize: 11),
+            ),
+            value: _controller.nightMode,
+            onChanged: (value) => setState(() => _controller.setNightMode(value)),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Moving', style: TextStyle(fontSize: 12)),
+            subtitle: const Text(
+              'Locks the keyboard, settings and video on the phone',
+              style: TextStyle(fontSize: 11),
+            ),
+            value: _controller.drivingRestrictions.isNotEmpty,
+            onChanged: (value) => setState(() => _controller.setParked(!value)),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Feed GPS', style: TextStyle(fontSize: 12)),
+            subtitle: const Text(
+              'A fix a second. The phone stops using its own receiver',
+              style: TextStyle(fontSize: 11),
+            ),
+            value: _feedGps,
+            onChanged: (value) {
+              setState(() => _feedGps = value);
+              _sendFix();
+            },
+          ),
+          Row(
+            spacing: 10,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _latitude,
+                  style: const TextStyle(fontSize: 12),
+                  decoration: const InputDecoration(
+                    labelText: 'Latitude',
+                    isDense: true,
+                  ),
+                  onSubmitted: (_) => _sendFix(),
+                ),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _longitude,
+                  style: const TextStyle(fontSize: 12),
+                  decoration: const InputDecoration(
+                    labelText: 'Longitude',
+                    isDense: true,
+                  ),
+                  onSubmitted: (_) => _sendFix(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Advertised: '
+            '${_controller.config.sensors.map((s) => s.name).join(", ")}',
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+          ),
+          Text(
+            'Subscribed: '
+            '${subscribed.isEmpty ? "none" : subscribed.map((s) => s.name).join(", ")}',
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+          ),
+          Text(
+            '${_controller.sensorBatches} readings sent',
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+          ),
+        ],
+      ),
+    );
+  }
+
   int get _totalUnderruns => AndroidAutoAudioStream.values
       .map(_controller.audioUnderruns)
       .fold(0, (a, b) => a + b);
@@ -425,6 +595,12 @@ class _TestBenchPageState extends State<TestBenchPage> {
               onPressed: _toggleAudioPanel,
               icon: const Icon(Icons.tune),
               label: const Text('Audio'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () =>
+                  setState(() => _sensorPanelOpen = !_sensorPanelOpen),
+              icon: const Icon(Icons.sensors),
+              label: const Text('Sensors'),
             ),
             OutlinedButton.icon(
               onPressed: () async {

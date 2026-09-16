@@ -18,7 +18,7 @@
 #include "audio_channels.h"
 #include "input_channel.h"
 #include "microphone_channel.h"
-#include "support_channels.h"
+#include "sensor_channel.h"
 #include "video_channel.h"
 
 namespace aa {
@@ -138,10 +138,11 @@ std::shared_ptr<ProtocolSession> ProtocolSession::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
     HeadUnitDescription description, std::shared_ptr<VideoDecoder> decoder,
     std::shared_ptr<AudioOutput> audio, std::shared_ptr<AudioInput> microphone,
-    StateHandler on_state, InputHandler on_input) {
+    std::shared_ptr<SensorState> sensors, StateHandler on_state, InputHandler on_input) {
   return std::make_shared<ProtocolSession>(
       io_context, strand, std::move(description), std::move(decoder), std::move(audio),
-      std::move(microphone), std::move(on_state), std::move(on_input));
+      std::move(microphone), std::move(sensors), std::move(on_state),
+      std::move(on_input));
 }
 
 ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
@@ -149,6 +150,7 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
                                  std::shared_ptr<VideoDecoder> decoder,
                                  std::shared_ptr<AudioOutput> audio,
                                  std::shared_ptr<AudioInput> microphone,
+                                 std::shared_ptr<SensorState> sensors,
                                  StateHandler on_state, InputHandler on_input)
     : io_context_(io_context),
       strand_(strand),
@@ -158,6 +160,7 @@ ProtocolSession::ProtocolSession(boost::asio::io_context& io_context,
       decoder_(std::move(decoder)),
       audio_(std::move(audio)),
       microphone_(std::move(microphone)),
+      sensors_(std::move(sensors)),
       fault_timer_(io_context) {}
 
 ProtocolSession::~ProtocolSession() { Stop(); }
@@ -256,16 +259,20 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
     microphone_channel_->Start();
   }
 
-  // Everything else the phone opens. It will not project at all unless these answer,
-  // see the header of support_channels.h.
-  support_channels_ = SupportChannels::Create(
-      io_context_, strand_, messenger_, description_,
-      [weak = weak_from_this()](const std::string& message) {
-        if (auto self = weak.lock()) {
-          self->ReportState(AA_STATE_CONNECTED, message);
-        }
-      });
-  support_channels_->Start();
+  // The sensors. Last of the channels and the one the phone waits on hardest: it locks
+  // most of its interface until the driving status subscription has been answered, so a
+  // session that gets everything else right and this wrong looks like a phone that has
+  // decided the car is not ready. See sensor_channel.h.
+  if (description_.sensors != 0 && sensors_) {
+    sensor_channel_ = SensorChannel::Create(
+        io_context_, strand_, messenger_, sensors_, description_.sensors,
+        [weak = weak_from_this()](const std::string& message) {
+          if (auto self = weak.lock()) {
+            self->ReportState(AA_STATE_CONNECTED, message);
+          }
+        });
+    sensor_channel_->Start();
+  }
 
   // A stop that landed while this was building has been waiting on the lock ever since,
   // so do not open a conversation with a phone that is about to be said goodbye to.
@@ -422,9 +429,9 @@ void ProtocolSession::Stop() {
     microphone_channel_->Stop();
     microphone_channel_.reset();
   }
-  if (support_channels_) {
-    support_channels_->Stop();
-    support_channels_.reset();
+  if (sensor_channel_) {
+    sensor_channel_->Stop();
+    sensor_channel_.reset();
   }
   // The decoder is not stopped here. It belongs to the head unit rather than to this
   // connection, and it is flushed rather than torn down so a reconnect does not pay for

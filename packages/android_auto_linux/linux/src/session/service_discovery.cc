@@ -21,6 +21,8 @@
 #include <aasdk/Common/Log.hpp>
 #include <aasdk/Messenger/ChannelId.hpp>
 
+#include "sensor_channel.h"
+
 namespace aa {
 namespace {
 
@@ -123,18 +125,37 @@ void AddMicrophoneService(
   audio->set_number_of_channels(1);
 }
 
-void AddSensorService(pb::service::control::message::ServiceDiscoveryResponse* response) {
+// How the head unit's position was arrived at, as the LocationCharacterization bits
+// Android's car framework defines. RAW_GNSS_ONLY says the fix comes straight from a
+// satellite receiver with no dead reckoning or sensor fusion behind it, which is the
+// honest answer for a head unit relaying a position the host app handed it. The phone
+// uses this to decide how much to trust the fix between updates.
+constexpr uint32_t kLocationRawGnssOnly = 0x100;
+
+void AddSensorService(const HeadUnitDescription& description,
+                      pb::service::control::message::ServiceDiscoveryResponse* response) {
   auto* service = response->add_channels();
   service->set_id(ChannelNumber(aasdk::messenger::ChannelId::SENSOR));
 
   auto* sensors = service->mutable_sensor_source_service();
-  // Only the two the host app can actually answer today. Driving status in particular
-  // is not optional: without it the phone assumes it cannot verify the car is parked
-  // and locks parts of the UI out.
-  sensors->add_sensors()->set_sensor_type(
-      pb::service::sensorsource::message::SENSOR_DRIVING_STATUS_DATA);
-  sensors->add_sensors()->set_sensor_type(
-      pb::service::sensorsource::message::SENSOR_NIGHT_MODE);
+  // Exactly what the host app said the car has, no more. Every one of these is a
+  // promise the phone acts on: it subscribes to what is listed here and waits for the
+  // readings, and for location it stops using its own the moment it sees the entry.
+  // src/session/sensor_channel.cc refuses a subscription to anything not on this list
+  // rather than accepting it and then sending nothing.
+  //
+  // Driving status in particular is not optional: without it the phone assumes it
+  // cannot verify the car is parked and locks parts of the UI out.
+  for (int index = 0; index < kSensorCount; ++index) {
+    const auto sensor = static_cast<Sensor>(index);
+    if ((description.sensors & SensorBit(sensor)) == 0) {
+      continue;
+    }
+    sensors->add_sensors()->set_sensor_type(SensorTypeOf(sensor));
+  }
+  if ((description.sensors & SensorBit(Sensor::kLocation)) != 0) {
+    sensors->set_location_characterization(kLocationRawGnssOnly);
+  }
 }
 
 }  // namespace
@@ -188,8 +209,8 @@ void BuildServiceDiscoveryResponse(
   if (description.enable_microphone) {
     AddMicrophoneService(response);
   }
-  if (description.enable_sensors) {
-    AddSensorService(response);
+  if (description.sensors != 0) {
+    AddSensorService(description, response);
   }
 
   response->set_display_name(description.head_unit_name);

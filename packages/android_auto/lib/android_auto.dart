@@ -11,8 +11,11 @@ export 'package:android_auto_platform_interface/android_auto_platform_interface.
         AndroidAutoAudioStream,
         AndroidAutoConfig,
         AndroidAutoConnectionState,
+        AndroidAutoDrivingRestriction,
         AndroidAutoEvent,
         AndroidAutoKey,
+        AndroidAutoLocation,
+        AndroidAutoSensor,
         AndroidAutoTouchAction,
         AndroidAutoTouchPoint,
         AndroidAutoVideoInfo;

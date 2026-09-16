@@ -24,6 +24,7 @@ list(APPEND PLUGIN_SOURCES
   "src/test_pattern.cc"
   "src/present/gl_adapter.cc"
   "src/present/texture_registry.cc"
+  "src/sensors/sensor_state.cc"
   "src/session/usb_context.cc"
   "src/session/usb_connector.cc"
   "src/session/audio_channels.cc"
@@ -31,7 +32,7 @@ list(APPEND PLUGIN_SOURCES
   "src/session/input_channel.cc"
   "src/session/microphone_channel.cc"
   "src/session/protocol_session.cc"
-  "src/session/support_channels.cc"
+  "src/session/sensor_channel.cc"
   "src/session/video_channel.cc"
   "src/video/video_decoder.cc"
 )

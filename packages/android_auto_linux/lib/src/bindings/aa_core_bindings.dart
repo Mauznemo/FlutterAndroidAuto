@@ -357,8 +357,11 @@ class AaCoreBindings {
       .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
 
   /// Which output to play through, as a name from aa_audio_devices. NULL or empty means
-  /// the audio server's default. Takes effect on the next buffer of each stream, which for
-  /// a stream that is playing is immediately.
+  /// the head unit's own speakers: the audio server's default, except that a Bluetooth
+  /// device is never chosen for it, because a phone paired for hands free calling moves
+  /// that default and the car's speakers are not the phone's to move. Naming a Bluetooth
+  /// device here still works. Takes effect on the next buffer of each stream, which for a
+  /// stream that is playing is immediately.
   int aa_session_set_audio_device(
     ffi.Pointer<AaSession> session,
     ffi.Pointer<ffi.Char> device,
@@ -543,9 +546,11 @@ class AaCoreBindings {
   late final _aa_session_microphone_bytes = _aa_session_microphone_bytesPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
-  /// Which input to capture from, as a name from aa_microphone_devices. NULL or empty means
-  /// the audio server's default. Takes effect the next time the phone asks for the
-  /// microphone, because that is the only moment this is allowed to open anything.
+  /// Which input to capture from, as a name from aa_microphone_devices. NULL or empty
+  /// means the head unit's own microphone: the audio server's default, except that a
+  /// Bluetooth device is never chosen for it, for the reason aa_session_set_audio_device
+  /// gives. Takes effect the next time the phone asks for the microphone, because that is
+  /// the only moment this is allowed to open anything.
   int aa_session_set_microphone_device(
     ffi.Pointer<AaSession> session,
     ffi.Pointer<ffi.Char> device,
@@ -598,6 +603,247 @@ class AaCoreBindings {
       >('aa_session_microphone_backend');
   late final _aa_session_microphone_backend = _aa_session_microphone_backendPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
+
+  /// False for day, true for night. Drives the phone's own light and dark theme.
+  int aa_session_set_night_mode(ffi.Pointer<AaSession> session, int night) {
+    return _aa_session_set_night_mode(session, night);
+  }
+
+  late final _aa_session_set_night_modePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_set_night_mode');
+  late final _aa_session_set_night_mode = _aa_session_set_night_modePtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// What the car forbids right now, an OR of AaDrivingRestriction bits.
+  /// AA_DRIVING_UNRESTRICTED is a parked car, and is what this head unit reports until the
+  /// host app says otherwise.
+  int aa_session_set_driving_status(
+    ffi.Pointer<AaSession> session,
+    int restrictions,
+  ) {
+    return _aa_session_set_driving_status(session, restrictions);
+  }
+
+  late final _aa_session_set_driving_statusPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_set_driving_status');
+  late final _aa_session_set_driving_status = _aa_session_set_driving_statusPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// The car's position. See AaLocation for which fields may be NaN.
+  int aa_session_set_location(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<AaLocation> location,
+  ) {
+    return _aa_session_set_location(session, location);
+  }
+
+  late final _aa_session_set_locationPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Pointer<AaLocation>)
+        >
+      >('aa_session_set_location');
+  late final _aa_session_set_location = _aa_session_set_locationPtr
+      .asFunction<
+        int Function(ffi.Pointer<AaSession>, ffi.Pointer<AaLocation>)
+      >();
+
+  /// Road speed in metres per second.
+  int aa_session_set_speed(
+    ffi.Pointer<AaSession> session,
+    double metres_per_second,
+  ) {
+    return _aa_session_set_speed(session, metres_per_second);
+  }
+
+  late final _aa_session_set_speedPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Double)
+        >
+      >('aa_session_set_speed');
+  late final _aa_session_set_speed = _aa_session_set_speedPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, double)>();
+
+  /// Engine speed in revolutions per minute.
+  int aa_session_set_rpm(ffi.Pointer<AaSession> session, double rpm) {
+    return _aa_session_set_rpm(session, rpm);
+  }
+
+  late final _aa_session_set_rpmPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Double)
+        >
+      >('aa_session_set_rpm');
+  late final _aa_session_set_rpm = _aa_session_set_rpmPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, double)>();
+
+  /// Tank level as a percentage, remaining range in metres, and whether the low fuel
+  /// warning is lit.
+  int aa_session_set_fuel(
+    ffi.Pointer<AaSession> session,
+    double level_percent,
+    double range_metres,
+    int low,
+  ) {
+    return _aa_session_set_fuel(session, level_percent, range_metres, low);
+  }
+
+  late final _aa_session_set_fuelPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Double,
+            ffi.Double,
+            ffi.Int32,
+          )
+        >
+      >('aa_session_set_fuel');
+  late final _aa_session_set_fuel = _aa_session_set_fuelPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, double, double, int)>();
+
+  /// Whether the parking brake is engaged.
+  int aa_session_set_parking_brake(
+    ffi.Pointer<AaSession> session,
+    int engaged,
+  ) {
+    return _aa_session_set_parking_brake(session, engaged);
+  }
+
+  late final _aa_session_set_parking_brakePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_set_parking_brake');
+  late final _aa_session_set_parking_brake = _aa_session_set_parking_brakePtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// The selected gear, as the protocol numbers them: 0 neutral, 1 to 10 the numbered
+  /// gears, 100 drive, 101 park, 102 reverse.
+  int aa_session_set_gear(ffi.Pointer<AaSession> session, int gear) {
+    return _aa_session_set_gear(session, gear);
+  }
+
+  late final _aa_session_set_gearPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_set_gear');
+  late final _aa_session_set_gear = _aa_session_set_gearPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// Heading in degrees clockwise from north. Distinct from the bearing inside a location
+  /// fix: this is the direction the car points, which is not the direction it is moving.
+  int aa_session_set_compass(
+    ffi.Pointer<AaSession> session,
+    double bearing_degrees,
+  ) {
+    return _aa_session_set_compass(session, bearing_degrees);
+  }
+
+  late final _aa_session_set_compassPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Double)
+        >
+      >('aa_session_set_compass');
+  late final _aa_session_set_compass = _aa_session_set_compassPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, double)>();
+
+  /// Outside temperature in degrees Celsius and barometric pressure in kilopascals. Either
+  /// may be NaN, which leaves that one out.
+  int aa_session_set_environment(
+    ffi.Pointer<AaSession> session,
+    double temperature_celsius,
+    double pressure_kpa,
+  ) {
+    return _aa_session_set_environment(
+      session,
+      temperature_celsius,
+      pressure_kpa,
+    );
+  }
+
+  late final _aa_session_set_environmentPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Double, ffi.Double)
+        >
+      >('aa_session_set_environment');
+  late final _aa_session_set_environment = _aa_session_set_environmentPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, double, double)>();
+
+  /// Total distance travelled, in kilometres.
+  int aa_session_set_odometer(
+    ffi.Pointer<AaSession> session,
+    double kilometres,
+  ) {
+    return _aa_session_set_odometer(session, kilometres);
+  }
+
+  late final _aa_session_set_odometerPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Double)
+        >
+      >('aa_session_set_odometer');
+  late final _aa_session_set_odometer = _aa_session_set_odometerPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, double)>();
+
+  /// Whether a toll transponder is in the car.
+  int aa_session_set_toll_card(ffi.Pointer<AaSession> session, int present) {
+    return _aa_session_set_toll_card(session, present);
+  }
+
+  late final _aa_session_set_toll_cardPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_set_toll_card');
+  late final _aa_session_set_toll_card = _aa_session_set_toll_cardPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
+  /// Which sensors the phone has subscribed to, an OR of AaSensor bits, or 0 when no phone
+  /// is connected. Never the same question as which ones were advertised: a phone takes
+  /// what it wants from the list, and this is the first thing to look at when a value is
+  /// being set and nothing on the phone's screen changes.
+  int aa_session_sensor_subscriptions(ffi.Pointer<AaSession> session) {
+    return _aa_session_sensor_subscriptions(session);
+  }
+
+  late final _aa_session_sensor_subscriptionsPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_sensor_subscriptions',
+      );
+  late final _aa_session_sensor_subscriptions =
+      _aa_session_sensor_subscriptionsPtr
+          .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Sensor batches written since the session was created. The "did anything actually go
+  /// out" number, which is otherwise only answerable by watching the phone's UI.
+  int aa_session_sensor_batches(ffi.Pointer<AaSession> session) {
+    return _aa_session_sensor_batches(session);
+  }
+
+  late final _aa_session_sensor_batchesPtr =
+      _lookup<ffi.NativeFunction<ffi.Int64 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_sensor_batches',
+      );
+  late final _aa_session_sensor_batches = _aa_session_sensor_batchesPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Started life as M2
@@ -707,6 +953,35 @@ enum AaAudioStream {
   };
 }
 
+/// A position fix, for aa_session_set_location.
+///
+/// Latitude and longitude are always read. The other four are skipped when they are NaN,
+/// because every one of them has a meaningful zero: a bearing of zero is due north, an
+/// altitude of zero is sea level and a speed of zero is standing still, so none of them
+/// can double as "not known". A field left out is absent on the wire, which is not the
+/// same as a field set to zero.
+final class AaLocation extends ffi.Struct {
+  @ffi.Double()
+  external double latitude;
+
+  @ffi.Double()
+  external double longitude;
+
+  /// Radius in metres of the circle the fix is somewhere in.
+  @ffi.Double()
+  external double accuracy_metres;
+
+  @ffi.Double()
+  external double altitude_metres;
+
+  @ffi.Double()
+  external double speed_mps;
+
+  /// Direction of travel in degrees clockwise from north.
+  @ffi.Double()
+  external double bearing_degrees;
+}
+
 /// How the head unit describes itself to the phone during service discovery.
 final class AaConfig extends ffi.Struct {
   @ffi.Int32()
@@ -729,6 +1004,12 @@ final class AaConfig extends ffi.Struct {
 
   /// Directory holding headunit.crt and headunit.key. NULL uses the bundled pair.
   external ffi.Pointer<ffi.Char> certificate_path;
+
+  /// Which sensors to advertise, an OR of AaSensor bits. Zero is read as the two that
+  /// are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit
+  /// that answers neither leaves the phone with most of its interface locked.
+  @ffi.Int32()
+  external int sensors;
 }
 
 /// Called when the session changes state or has something to report.

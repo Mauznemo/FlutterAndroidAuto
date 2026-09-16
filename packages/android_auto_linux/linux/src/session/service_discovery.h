@@ -18,6 +18,8 @@
 
 #include <aap_protobuf/service/control/message/ServiceDiscoveryResponse.pb.h>
 
+#include "../sensors/sensor_state.h"
+
 namespace aa {
 
 // What the head unit claims to be. Mirrors AaConfig, decoupled so this file does not
@@ -41,7 +43,16 @@ struct HeadUnitDescription {
   bool enable_system_audio = false;
   bool enable_speech_audio = false;
   bool enable_microphone = false;
-  bool enable_sensors = true;
+
+  // Which sensors to advertise, one bit each. Empty means no sensor channel at all,
+  // which is not a configuration any phone accepts: the driving status subscription is
+  // what unlocks most of Android Auto's interface.
+  //
+  // This is the host app declaring what the car has, not a list of features to turn on.
+  // A phone that is told the head unit has a position stops using its own, so a head
+  // unit that advertises location and then has no fix has taken navigation away from a
+  // phone that was managing perfectly well. Advertise what you can actually supply.
+  SensorMask sensors = kRequiredSensors;
 };
 
 // The hardware keys this head unit tells the phone it can produce.

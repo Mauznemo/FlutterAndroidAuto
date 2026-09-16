@@ -36,6 +36,20 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   bool _audioOutputEnabled = true;
   String _microphoneDevice = '';
 
+  /// What the car is doing, held here for the same reason the audio settings are: a
+  /// host app that sets the parking brake before it ever starts a session should not
+  /// lose it, and the core only exists from [start] onwards. Replayed into each new
+  /// session by [_applySensorSettings].
+  ///
+  /// Only the sensors the app has actually set are in here. A sensor with no entry is
+  /// never pushed, so the core keeps its own distinction between a car that has no fix
+  /// yet and a car at latitude zero.
+  final Map<AndroidAutoSensor, void Function()> _sensorWrites = {};
+  bool _nightMode = false;
+  Set<AndroidAutoDrivingRestriction> _drivingRestrictions =
+      const <AndroidAutoDrivingRestriction>{};
+  AndroidAutoLocation? _location;
+
   AaCoreBindings get _bindings => AaLibrary.instance.bindings;
 
   Pointer<AaSession> _session = nullptr;
@@ -118,7 +132,8 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..head_unit_name = headUnitName.cast()
         ..car_model = carModel.cast()
         ..car_year = carYear.cast()
-        ..certificate_path = certificatePath?.cast() ?? nullptr;
+        ..certificate_path = certificatePath?.cast() ?? nullptr
+        ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit);
 
       _session = _bindings.aa_session_create(native, _callback!.nativeFunction);
       if (_session == nullptr) {
@@ -126,6 +141,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         return;
       }
       _applyAudioSettings();
+      _applySensorSettings();
       final result = _bindings.aa_session_start(_session);
       if (result != 0) {
         _emit(
@@ -447,6 +463,160 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         _session,
         _audioCallback!.nativeFunction,
       );
+    }
+  }
+
+  @override
+  bool get nightMode => _nightMode;
+
+  @override
+  void setNightMode(bool night) {
+    _nightMode = night;
+    _writeSensor(AndroidAutoSensor.nightMode, () {
+      _bindings.aa_session_set_night_mode(_session, night ? 1 : 0);
+    });
+  }
+
+  @override
+  Set<AndroidAutoDrivingRestriction> get drivingRestrictions => _drivingRestrictions;
+
+  @override
+  void setDrivingRestrictions(Set<AndroidAutoDrivingRestriction> restrictions) {
+    _drivingRestrictions = Set.unmodifiable(restrictions);
+    final mask = restrictions.fold(0, (value, one) => value | one.code);
+    _writeSensor(AndroidAutoSensor.drivingStatus, () {
+      _bindings.aa_session_set_driving_status(_session, mask);
+    });
+  }
+
+  @override
+  AndroidAutoLocation? get location => _location;
+
+  @override
+  void setLocation(AndroidAutoLocation location) {
+    _location = location;
+    _writeSensor(AndroidAutoSensor.location, () {
+      final native = calloc<AaLocation>();
+      try {
+        native.ref
+          ..latitude = location.latitude
+          ..longitude = location.longitude
+          // The core skips a NaN rather than sending a zero, which is the whole point
+          // of these four being nullable: a bearing of zero is due north.
+          ..accuracy_metres = location.accuracyMetres ?? double.nan
+          ..altitude_metres = location.altitudeMetres ?? double.nan
+          ..speed_mps = location.speedMps ?? double.nan
+          ..bearing_degrees = location.bearingDegrees ?? double.nan;
+        _bindings.aa_session_set_location(_session, native);
+      } finally {
+        calloc.free(native);
+      }
+    });
+  }
+
+  @override
+  void setSpeed(double metresPerSecond) {
+    _writeSensor(AndroidAutoSensor.speed, () {
+      _bindings.aa_session_set_speed(_session, metresPerSecond);
+    });
+  }
+
+  @override
+  void setRpm(double rpm) {
+    _writeSensor(AndroidAutoSensor.rpm, () {
+      _bindings.aa_session_set_rpm(_session, rpm);
+    });
+  }
+
+  @override
+  void setFuel({
+    required double levelPercent,
+    required double rangeMetres,
+    bool low = false,
+  }) {
+    _writeSensor(AndroidAutoSensor.fuel, () {
+      _bindings.aa_session_set_fuel(_session, levelPercent, rangeMetres, low ? 1 : 0);
+    });
+  }
+
+  @override
+  void setParkingBrake(bool engaged) {
+    _writeSensor(AndroidAutoSensor.parkingBrake, () {
+      _bindings.aa_session_set_parking_brake(_session, engaged ? 1 : 0);
+    });
+  }
+
+  @override
+  void setGear(int gear) {
+    _writeSensor(AndroidAutoSensor.gear, () {
+      _bindings.aa_session_set_gear(_session, gear);
+    });
+  }
+
+  @override
+  void setCompass(double bearingDegrees) {
+    _writeSensor(AndroidAutoSensor.compass, () {
+      _bindings.aa_session_set_compass(_session, bearingDegrees);
+    });
+  }
+
+  @override
+  void setEnvironment({double? temperatureCelsius, double? pressureKpa}) {
+    _writeSensor(AndroidAutoSensor.environment, () {
+      _bindings.aa_session_set_environment(
+        _session,
+        temperatureCelsius ?? double.nan,
+        pressureKpa ?? double.nan,
+      );
+    });
+  }
+
+  @override
+  void setOdometer(double kilometres) {
+    _writeSensor(AndroidAutoSensor.odometer, () {
+      _bindings.aa_session_set_odometer(_session, kilometres);
+    });
+  }
+
+  @override
+  void setTollCard(bool present) {
+    _writeSensor(AndroidAutoSensor.tollCard, () {
+      _bindings.aa_session_set_toll_card(_session, present ? 1 : 0);
+    });
+  }
+
+  @override
+  Set<AndroidAutoSensor> get sensorSubscriptions {
+    if (_session == nullptr) {
+      return const <AndroidAutoSensor>{};
+    }
+    final mask = _bindings.aa_session_sensor_subscriptions(_session);
+    return {
+      for (final sensor in AndroidAutoSensor.values)
+        if (mask & sensor.bit != 0) sensor,
+    };
+  }
+
+  @override
+  int get sensorBatches =>
+      _session == nullptr ? 0 : _bindings.aa_session_sensor_batches(_session);
+
+  /// Remembers how to push one sensor, and pushes it now if there is a session.
+  ///
+  /// The closure rather than the value, so replaying into a new session is the same
+  /// code path as setting it in the first place and the two cannot drift.
+  void _writeSensor(AndroidAutoSensor sensor, void Function() write) {
+    _sensorWrites[sensor] = write;
+    if (_session != nullptr) {
+      write();
+    }
+  }
+
+  void _applySensorSettings() {
+    // In the order the app set them, which for the two that combine into one reading is
+    // the order that leaves the newest value in place.
+    for (final write in _sensorWrites.values) {
+      write();
     }
   }
 

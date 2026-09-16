@@ -208,6 +208,105 @@ class AndroidAutoController extends ChangeNotifier {
   /// Which capture backend is running: `PulseAudio`, or `none` before the first capture.
   String get microphoneBackend => _platform.microphoneBackend;
 
+  /// Whether the head unit is telling the phone it is dark outside.
+  bool get nightMode => _platform.nightMode;
+
+  /// Says whether it is dark outside, which drives the phone's own light and dark
+  /// theme.
+  ///
+  /// Nothing in this plugin reads a light sensor. The app is the thing running in the
+  /// vehicle, so where this comes from, a sunset table, a photodiode or the headlight
+  /// switch, is the app's choice.
+  void setNightMode(bool night) {
+    _platform.setNightMode(night);
+    notifyListeners();
+  }
+
+  /// What the car currently forbids the phone to do. Empty means parked.
+  Set<AndroidAutoDrivingRestriction> get drivingRestrictions =>
+      _platform.drivingRestrictions;
+
+  /// Says what the car forbids right now.
+  ///
+  /// The phone locks the matching parts of its interface at once and nobody in the car
+  /// can override it, so this is a safety decision rather than a preference. Use
+  /// [setParked] for the usual two cases.
+  void setDrivingRestrictions(Set<AndroidAutoDrivingRestriction> restrictions) {
+    _platform.setDrivingRestrictions(restrictions);
+    notifyListeners();
+  }
+
+  /// Parked lifts every restriction; moving applies video, keyboard and configuration.
+  void setParked(bool parked) {
+    _platform.setParked(parked);
+    notifyListeners();
+  }
+
+  /// The last position reported with [setLocation], or null if there has been none.
+  AndroidAutoLocation? get location => _platform.location;
+
+  /// Reports where the car is.
+  ///
+  /// Only meaningful when [AndroidAutoSensor.location] is in
+  /// [AndroidAutoConfig.sensors], and then it matters: the phone has stopped using its
+  /// own receiver and is navigating from these.
+  void setLocation(AndroidAutoLocation location) {
+    _platform.setLocation(location);
+    notifyListeners();
+  }
+
+  /// Road speed in metres per second.
+  void setSpeed(double metresPerSecond) => _platform.setSpeed(metresPerSecond);
+
+  /// Engine speed in revolutions per minute.
+  void setRpm(double rpm) => _platform.setRpm(rpm);
+
+  /// Tank level as a percentage of full, remaining range in metres, and whether the low
+  /// fuel warning is lit.
+  void setFuel({
+    required double levelPercent,
+    required double rangeMetres,
+    bool low = false,
+  }) => _platform.setFuel(
+    levelPercent: levelPercent,
+    rangeMetres: rangeMetres,
+    low: low,
+  );
+
+  /// Whether the parking brake is engaged.
+  void setParkingBrake(bool engaged) => _platform.setParkingBrake(engaged);
+
+  /// The selected gear: 0 neutral, 1 to 10 the numbered gears, 100 drive, 101 park,
+  /// 102 reverse.
+  void setGear(int gear) => _platform.setGear(gear);
+
+  /// Which way the car points, in degrees clockwise from north. Not the direction it is
+  /// moving, which is [AndroidAutoLocation.bearingDegrees].
+  void setCompass(double bearingDegrees) => _platform.setCompass(bearingDegrees);
+
+  /// Outside temperature in degrees Celsius and barometric pressure in kilopascals.
+  void setEnvironment({double? temperatureCelsius, double? pressureKpa}) =>
+      _platform.setEnvironment(
+        temperatureCelsius: temperatureCelsius,
+        pressureKpa: pressureKpa,
+      );
+
+  /// Total distance travelled, in kilometres.
+  void setOdometer(double kilometres) => _platform.setOdometer(kilometres);
+
+  /// Whether a toll transponder is in the car.
+  void setTollCard(bool present) => _platform.setTollCard(present);
+
+  /// Which sensors the phone has subscribed to, empty when none is connected.
+  ///
+  /// Never the same as [AndroidAutoConfig.sensors]: a phone takes what it wants from
+  /// what was offered, and the gap between the two is the first thing to check when a
+  /// value is being set and nothing on the phone changes.
+  Set<AndroidAutoSensor> get sensorSubscriptions => _platform.sensorSubscriptions;
+
+  /// Sensor readings written to the phone since the session was created.
+  int get sensorBatches => _platform.sensorBatches;
+
   /// Re-reads the texture id and the incoming video description from the platform.
   Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;

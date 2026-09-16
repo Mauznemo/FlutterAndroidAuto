@@ -137,7 +137,8 @@ Do NOT git commit unless you are toled to do so!
 | `linux/src/audio/audio_input.*` | the microphone, one capture thread, created on the phone's request and joined on its release |
 | `linux/src/session/audio_channels.*` | the three MEDIA_SINK audio channels |
 | `linux/src/session/microphone_channel.*` | the MEDIA_SOURCE_MICROPHONE channel |
-| `linux/src/session/support_channels.*` | the channels that must answer for video to flow at all |
+| `linux/src/sensors/sensor_state.*` | what the head unit believes about the car, **no protobuf**, process lifetime |
+| `linux/src/session/sensor_channel.*` | the SENSOR channel, the only thing that turns those into wire messages |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 
 After changing `aa_core.h`, regenerate the Dart bindings:
@@ -171,10 +172,8 @@ service discovery response just stops talking and drops out of accessory mode.
 
 - **Advertise every channel, not only the implemented ones.** A head unit offering video,
   input and sensors is one Android Auto refuses to project to. The three audio sinks and
-  the microphone have to be there too. M6 made the audio sinks real and M7 the
-  microphone; `src/session/support_channels.cc` still answers the sensors with a fixed
-  reading until M8. The older rule holds on top of this: an advertised channel that is
-  never serviced gets the connection dropped.
+  the microphone have to be there too. The older rule holds on top of this: an advertised
+  channel that is never serviced gets the connection dropped.
 - **The sensor channel is load bearing.** The phone locks most of its interface until the
   head unit answers the driving status subscription.
 - **Fill in the fields the schema calls optional.** `vehicle_id` and `driver_position`
@@ -210,7 +209,7 @@ talking unprompted, and that makes three things different.
 `InputChannel` is also the only channel called from Flutter's platform thread while an io
 thread can be tearing it down. Hence `std::atomic` flags, a mutex around `channel_`, and
 a `Channel()` helper that hands every caller its own reference. `VideoChannel` and
-`SupportChannels` had the same shape of race, for a different pair of threads, and now
+`SensorChannel` had the same shape of race, for a different pair of threads, and now
 have the same treatment; see the lifetime rules below.
 
 **Movement is rate limited to one report per 16 ms.** Without it the head unit emits one
@@ -311,6 +310,43 @@ Do **not** reach for `pactl load-module module-null-sink media.class=Audio/Sourc
 fake a microphone. It broke recording machine wide on this PipeWire, and the symptom was
 `pa_simple_new` timing out after 30 seconds against a device that had worked a minute
 earlier, which looks exactly like a bug in the capture code.
+
+## Sensors, and why advertising one is a promise
+
+The head unit tells the phone what the car is doing. Nothing here reads any hardware:
+this plugin owns no GPS and no parking brake, the host app is the thing running in the
+vehicle, and `SensorState` is where it says so. `SensorChannel` is the only file that
+turns those values into protobuf.
+
+- **Advertising a sensor is a declaration that the car has it, not a feature switch.**
+  The phone subscribes to what is offered and then waits. For location it is worse than
+  waiting: it **stops using its own receiver** the moment the head unit claims a
+  position, so advertising it without feeding it takes navigation away from a phone that
+  was managing perfectly well. The advertised set is `AndroidAutoConfig.sensors`, read
+  once at service discovery, defaulting to night mode and driving status. A subscription
+  to anything outside it is answered `STATUS_INVALID_SENSOR` rather than accepted.
+- **A sensor the host app has never set is not sent at all.** Not sent as zero: the
+  difference between a car with no fix yet and a car in the Atlantic. Same inside a
+  reading, where an unknown altitude is an absent field rather than sea level. Dart
+  spells it `null`, the C ABI `NaN`.
+- **Night mode and driving status are the two with defaults**, day and unrestricted,
+  because the phone will not finish opening its interface without an answer to them.
+- **`SensorState` is process lifetime**, like the decoder and the audio output, for a
+  plainer reason: a parking brake does not come off because a cable was pulled out. The
+  Dart side keeps write closures rather than values, so replaying into a new core is the
+  same code path as the original set.
+- **`min_update_period` is a number nothing here can read.** This phone sends 0 for most
+  sensors and 3 for speed and compass, of an unstated unit. The code reads it as
+  microseconds, which is the choice under which the limiter never fires wrongly, and the
+  rate limiter in `SensorChannel::Offer` has never fired against a real phone. It holds
+  the newest value rather than dropping it and caps any hold back at five seconds.
+- **The phone can be pinned to night**, in Einstellungen, Display, Tag-/Nachtmodus für
+  Karten. Only *Automatisch* reads the head unit's sensor. A phone on *Nacht* makes a
+  working night mode sensor look like a no-op in both directions, so check that before
+  touching code.
+- This Pixel subscribes to eight of the twelve when all are advertised: driving status,
+  night mode, speed, gear, parking brake, location, toll card, compass. Not rpm, fuel,
+  environment or odometer.
 
 ## Phone calls, which are not in this code at all
 
@@ -458,9 +494,10 @@ The rules that came out of it, do not undo them:
 - **No channel class uses its channel member in place.** Every handler runs on an io
   thread, but `Stop()` is reached from Flutter's platform thread too, through
   `aa_session_stop`, so a frame can be halfway through being acknowledged while the
-  channel is being dropped. `VideoChannel::Channel()`, `SupportChannels::Audio()`,
-  `Microphone()` and `Sensor()` copy the pointer out under a mutex and the caller works
-  from that copy, so a teardown mid handler drops the channel when the last reference
+  channel is being dropped. `VideoChannel::Channel()`, `AudioChannels::Get()`,
+  `MicrophoneChannel::Channel()` and `SensorChannel::Channel()` copy the pointer out
+  under a mutex and the caller works from that copy, so a teardown mid handler drops the
+  channel when the last reference
   goes rather than out from under whoever is using it. The flags beside them
   (`stopped_`, `streaming_`, `session_id_`) are `std::atomic` for the same reason.
 

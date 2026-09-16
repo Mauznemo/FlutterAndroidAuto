@@ -26,8 +26,8 @@ implementation can be added later without touching the app-facing API.
 | M6 | Audio output (media, system, speech) | **done** |
 | M7 | Microphone input | **done** |
 | M7b | Phone calls over Bluetooth HFP | **done**, bar a two way call |
-| M8 | Sensors (night mode, GPS, driving status) | **next** |
-| M9 | Metadata channels for native Flutter UI | not started |
+| M8 | Sensors (night mode, GPS, driving status) | **done** |
+| M9 | Metadata channels for native Flutter UI | **next** |
 | M10 | Wireless Android Auto | not started |
 | M11 | Packaging, ARM64, CI, docs | not started |
 | M12 | Android implementation package | not started |
@@ -794,12 +794,143 @@ not once across a whole call, so it is a rule with no observed fault behind it.
 
 ## M8. Sensors
 
-- [ ] `SensorService` channel with the sensor list we advertise
-- [ ] Night mode sensor, driven by the host app (Dart sets day/night)
-- [ ] Driving status sensor (parked/moving), driven by the host app
-- [ ] GPS location sensor, fed from Dart so the host app owns the GPS hardware
-- [ ] Optional: speed, RPM, fuel, gear, compass, environment
-- [ ] Dart API to push sensor values, with sensible defaults if the app pushes nothing
+Goal: the head unit stops pretending. Until now the sensor channel answered every
+subscription with a fixed "parked" and "day" so the phone would project at all; now the
+host app says what the car is doing and the phone acts on it.
+
+- [x] `SensorService` channel with the sensor list we advertise
+- [x] Night mode sensor, driven by the host app (Dart sets day/night)
+- [x] Driving status sensor (parked/moving), driven by the host app
+- [x] GPS location sensor, fed from Dart so the host app owns the GPS hardware
+- [x] Optional: speed, RPM, fuel, gear, compass, environment, and five more
+- [x] Dart API to push sensor values, with sensible defaults if the app pushes nothing
+- [ ] Confirm what a phone does when an advertised sensor is never fed. Reasoned about
+      at length and designed against, never actually measured.
+
+**Checkpoint met.** Night mode flips the phone's map between its light and dark themes.
+Moving puts "Während der Fahrt nur Spracheingabe" in the Maps search bar and takes the
+keyboard away; parked gives it back. A position pushed from Dart moves the phone's map
+to it, which is the whole of the GPS sensor working: the phone had stopped using its own
+receiver and was drawing the fix this machine handed it.
+
+### Measured
+
+| | |
+|---|---|
+| Sensors implemented | 12 |
+| Sensors the example advertises | night mode, driving status, location |
+| Subscriptions the phone raised, of those three | **3** |
+| Subscriptions the phone raised when all 12 were advertised | **8**, see below |
+| `min_update_period` the phone asked for | 0, except speed and compass at 3 |
+| Readings sent in a seven minute session | 88, all of them the 1 Hz position feed |
+| Sensor channel errors, failed sends, dropped connections | **0** |
+| Night mode to the phone's map changing | under a second |
+| Values surviving a stop and a start | night mode and the position, both |
+
+### The phone subscribes to eight of the twelve, and not the four you would guess
+
+Advertising every sensor once, to find out what this Pixel actually wants:
+
+```
+driving status, night mode, speed, gear, parking brake, location, toll card, compass
+```
+
+Not subscribed: **rpm, fuel, environment, odometer**. Which is a reasonable division:
+the eight are things Android Auto can do something with (restrict the interface, draw a
+map, decide the car is reversing), and the four are dashboard readings it has no use
+for. They are implemented anyway, because a head unit is not the thing that gets to
+decide what a future Android Auto finds interesting, and because the phone asking is
+not the only reason to have them: M9 wants the same values for the app's own widgets.
+
+### `min_update_period` is a number nothing here can read
+
+Every subscription carries one, as an `int64`, and the schema does not say what of.
+This phone sends **0** for six of the eight and **3** for speed and compass.
+
+Three of nothing useful. Microseconds would be 333 kHz, milliseconds 333 Hz, seconds
+would hold speed back to once every three seconds and be actively wrong. So the unit is
+not determinable from one phone sending one number, and the code reads it as
+microseconds, which is the conservative choice: under that reading the limiter never
+fires, and the two readings that would be wrong are the slow ones.
+
+The rate limiter exists anyway, in `SensorChannel::Offer` and `Flush`. It holds the
+newest value rather than dropping it, coalesces everything that comes due into one
+batch, and caps any hold back at five seconds whatever the phone asked for, because a
+driving status stuck in the past is exactly what locks a user out of the interface. It
+has never fired against a real phone. Do not delete it on that basis; do not trust it on
+that basis either.
+
+### Advertising a sensor is a promise, and location is the one that bites
+
+The phone stops using its own receiver the moment the head unit says it has a position.
+Not "prefers": stops. So a head unit that advertises `SENSOR_LOCATION` and then never
+sends a fix has taken navigation away from a phone that was managing perfectly well, and
+it has done it silently.
+
+Which is why the advertised set is `AndroidAutoConfig.sensors`, read once at service
+discovery, and why it defaults to the two that are not optional rather than to
+everything. It is the host app declaring what the car has. A subscription to anything
+outside that set is answered with `STATUS_INVALID_SENSOR` rather than accepted, because
+a phone told no falls back to what it can do itself and a phone told yes waits.
+
+The example advertises location, and therefore feeds a fix every second from the moment
+it starts. That is the obligation, honoured. A head unit with no receiver takes location
+out of the set.
+
+### A sensor with no value is not a sensor reading zero
+
+The difference between a car that has not got a fix yet and a car in the Atlantic. A
+sensor the host app has never set is not put in a batch at all, and `SensorState`
+tracks that per sensor rather than inferring it from the value.
+
+Night mode and driving status are the two exceptions, and they start at day and
+unrestricted rather than at nothing, because the phone waits for an answer to those
+before it finishes opening its interface. That is not a default in the sense of a
+preference, it is the only pair of answers that leaves a person sitting in a parked car
+able to use the screen in front of them.
+
+The same reasoning runs through the optional fields inside a reading. A `LocationData`
+with no altitude leaves the field absent rather than setting it to zero, because sea
+level is a real altitude, zero bearing is due north and zero speed is standing still.
+Dart spells that `null`, the C ABI spells it `NaN`, and `SensorChannel::Send` is where
+the two meet.
+
+### What the car is doing outlives the connection
+
+`SensorState` is process lifetime, beside the video decoder, the audio output and the
+microphone, for a plainer reason than any of them: a parking brake does not come off
+because a cable was pulled out. Verified by turning night mode on, stopping, starting,
+and watching the phone come back with a dark map.
+
+It also means a host app can set values before it has ever started a session. The Dart
+side keeps the write closures rather than the values, so replaying them into a new core
+is the same code path as setting them in the first place; see `_writeSensor` and
+`_applySensorSettings` in `android_auto_linux.dart`.
+
+### The driving restrictions are a set, not a switch
+
+`DrivingStatus` is a bitmask: no video, no keyboard, no voice, no configuration, limit
+message length. Parked is none of them. "Moving" is not defined by the protocol at all,
+so `setParked(false)` picks video, keyboard and configuration and says so, leaving voice
+alone because voice is the one interaction that is safe at speed, and leaving message
+length alone because truncating messages is a choice about content rather than about
+safety. An app that disagrees calls `setDrivingRestrictions` with its own set.
+
+Worth being deliberate about: the phone locks the matching parts of its interface
+immediately and nobody in the car can override it.
+
+### Testing this without a car
+
+The example's sensor panel drives all three of the first class sensors and shows what
+the phone actually subscribed to, which is the first thing to look at when a value is
+being set and nothing changes on the screen. The subscription list and the reading count
+come from the core, not from what Dart believes it sent.
+
+One trap, and it cost a quarter of an hour: **the phone can be pinned to night**.
+Android Auto has its own setting, Einstellungen, Display, Tag-/Nachtmodus für Karten,
+with Tag, Nacht and Automatisch. Only Automatisch reads the head unit's sensor, and a
+phone sitting on Nacht makes a perfectly working night mode sensor look like a no-op in
+both directions. Check that before touching any code.
 
 ---
 
