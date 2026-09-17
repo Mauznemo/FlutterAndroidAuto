@@ -41,7 +41,10 @@ set -uo pipefail
 
 ACTION="${1:-status}"
 SSID="${2:-HeadUnit}"
-PASSPHRASE="${3:-headunit1234}"
+# A test bench default so `up` works with no arguments. It is printed back as such
+# rather than as something to copy into a head unit.
+DEFAULT_PASSPHRASE=headunit1234
+PASSPHRASE="${3:-$DEFAULT_PASSPHRASE}"
 CONNECTION="android-auto-ap"
 
 command -v nmcli >/dev/null || {
@@ -55,6 +58,28 @@ device() {
   nmcli -t -f DEVICE,TYPE device | awk -F: '$2=="wifi" {print $1; exit}'
 }
 
+# Every nmcli here runs under sudo, and each one would prompt separately. That matters
+# more than usual: `up` deletes the old profile before adding the new one, so somebody
+# who cancels at the second prompt is left with neither, on a machine whose only link
+# may be the Wi-Fi that just went away. Find out once, before anything is touched.
+require_sudo() {
+  local why="$1"
+  if ! command -v sudo >/dev/null; then
+    echo "sudo is not installed, and root is needed to $why." >&2
+    exit 1
+  fi
+  sudo -n true 2>/dev/null && return 0
+  if [ -t 0 ]; then
+    echo "Root is needed to $why."
+    sudo -v && return 0
+    echo "Could not get root. Nothing has been changed." >&2
+    exit 1
+  fi
+  echo "Root is needed to $why, and there is no terminal to ask for a password on." >&2
+  echo "  Run 'sudo -v' first, then this again. Nothing has been changed." >&2
+  exit 1
+}
+
 case "$ACTION" in
   up)
     DEV="$(device || true)"
@@ -63,6 +88,7 @@ case "$ACTION" in
       echo "WPA2 needs a passphrase of at least eight characters." >&2
       exit 1
     fi
+    require_sudo "reconfigure this machine's wireless interface through NetworkManager"
 
     # Built as an explicit profile rather than with `nmcli device wifi hotspot`.
     #
@@ -112,19 +138,19 @@ case "$ACTION" in
       echo
       echo "Projection will work and the video will be worse than it has to be, because"
       echo "2.4 GHz has neither the bandwidth nor the quiet for a 720p stream. The way"
-      echo "to a good picture is then the other arrangement: wire this machine to the"
-      echo "network, leave the phone on the house Wi-Fi, and use"
-      echo "  tools/wireless-test.sh join <passphrase> [ssid]"
+      echo "to a good picture is then the other arrangement: do not host at all. Put"
+      echo "this machine on the network over Ethernet, leave the phone on the same"
+      echo "Wi-Fi, and give the plugin that passphrase."
       echo
     fi
 
     echo "Bringing up '$SSID' on $DEV, band $BAND channel $CHANNEL."
     echo "Anything this machine is connected to over Wi-Fi, its internet included, is"
     echo "about to go away."
-    # `|| true` is load bearing. This script runs under `set -e`, and deleting a
-    # profile that is not there exits non-zero, so without it the whole thing stops
-    # dead at this line having printed everything above and nothing after. It looks
-    # exactly like the script doing nothing at all.
+    # `|| true` is load bearing. Deleting a profile that is not there exits non-zero,
+    # and this line is what made the script run under `set -u -o pipefail` and not
+    # `set -e`: with `-e` the whole thing stopped dead here, having printed everything
+    # above and nothing after, which looks exactly like doing nothing at all.
     sudo nmcli connection delete "$CONNECTION" >/dev/null 2>&1 || true
     sudo nmcli connection add type wifi ifname "$DEV" con-name "$CONNECTION" \
       autoconnect no ssid "$SSID" \
@@ -168,8 +194,14 @@ case "$ACTION" in
 802-11-wireless-security.pmf connection show "$CONNECTION" 2>/dev/null \
       | sed 's/^/  /' || true
     echo
-    echo "Give the plugin this passphrase and nothing else:"
-    echo "  AndroidAutoWirelessConfig(passphrase: '$PASSPHRASE')"
+    echo "The plugin needs this network's passphrase and nothing else. Pass it to"
+    echo "AndroidAutoWirelessConfig from wherever your head unit keeps its"
+    echo "configuration, rather than writing it into the source."
+    if [ "$PASSPHRASE" = "$DEFAULT_PASSPHRASE" ]; then
+      echo
+      echo "This access point is using the built in test bench passphrase. Give 'up' a"
+      echo "third argument to set your own."
+    fi
     ;;
 
   check)
@@ -179,6 +211,7 @@ case "$ACTION" in
     DEV="$(device || true)"
     [ -n "$DEV" ] || { echo "No wireless interface." >&2; exit 1; }
     CHECK="${CONNECTION}-check"
+    require_sudo "build a throwaway NetworkManager profile"
     sudo nmcli connection delete "$CHECK" >/dev/null 2>&1 || true
     sudo nmcli connection add type wifi ifname "$DEV" con-name "$CHECK" \
       autoconnect no ssid "$SSID" \
@@ -208,6 +241,7 @@ case "$ACTION" in
     ;;
 
   down)
+    require_sudo "take the access point down again"
     sudo nmcli connection down "$CONNECTION" 2>/dev/null || true
     sudo nmcli connection delete "$CONNECTION" 2>/dev/null || true
     echo "Down. Reconnect to a network the usual way."

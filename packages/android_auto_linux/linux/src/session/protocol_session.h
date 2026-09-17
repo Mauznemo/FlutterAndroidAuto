@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Drives one connection, from an accessory mode USB device to a projecting phone.
 //
 // The sequence is fixed and every step gates the next:
@@ -251,8 +252,8 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   std::shared_ptr<MetadataChannels> metadata_channels_;
 
   // What the phone was last granted, as an AudioFocusStateType. Read from io threads
-  // only, but atomic because it is also what a later milestone will let the host app
-  // read while a session is running.
+  // only, but atomic so that exposing it to the host app while a session is running
+  // stays a matter of adding a getter.
   std::atomic<int32_t> audio_focus_{0};
 
   std::vector<std::string> opened_channels_;

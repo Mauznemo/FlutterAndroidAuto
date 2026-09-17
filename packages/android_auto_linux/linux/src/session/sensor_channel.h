@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The SENSOR channel: what the head unit tells the phone about the car.
 //
 // The exchange is short and the phone drives all of it:
@@ -24,8 +25,6 @@
 // offers it and then never sends a fix has taken navigation away from a phone that was
 // doing it perfectly well. Which sensors are advertised is the host app's declaration
 // of what the car actually has, see HeadUnitDescription::sensors.
-//
-// This lived in support_channels.cc until M8, answering the phone with a fixed reading.
 
 #ifndef ANDROID_AUTO_LINUX_SESSION_SENSOR_CHANNEL_H_
 #define ANDROID_AUTO_LINUX_SESSION_SENSOR_CHANNEL_H_

@@ -15,10 +15,12 @@ the source of truth for what is done and what is next. Tick a box only when the 
 verified on this machine, not when it merely compiles. Also update the status table at
 the top of `PLAN.md` when a milestone changes state.
 
-Background reading, only when relevant: `docs/research.md` (protocol and library
-evaluation), `docs/architecture.md` (how the pieces fit), `docs/dev-environment.md`
-(machine specifics), `docs/echo-cancellation.md` (phone calls, which are not in this
-code), `docs/wireless.md` (Android Auto without a cable).
+Background reading, only when relevant: `docs/architecture.md` (how the pieces fit),
+`docs/echo-cancellation.md` (phone calls, which are not in this code), `docs/wireless.md`
+(Android Auto without a cable), `docs/aasdk-port-notes.md` (what the vendored aasdk
+needed), `dev/dev-environment.md` (this machine). `docs/research.md` is a dated record of
+what was known before the work started, not current guidance; read it for why a decision
+was taken, never for what the code does now.
 
 ## Layout
 
@@ -28,30 +30,42 @@ code), `docs/wireless.md` (Android Auto without a cable).
 | `packages/android_auto_platform_interface` | the contract, pure Dart, no GPL code |
 | `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
 | `example/` | test bench app, run this to verify anything visually |
-| `tools/` | `ui.sh`, `run-example.sh`, `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `audio-graph.sh`, `wireless-ap.sh`, `wireless-test.sh`, `fake-wireless-phone.py`, and `config/` for the PipeWire drop-in the first of those installs |
+| `tools/` | what a stranger needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `wireless-ap.sh`, and `config/` for the PipeWire drop-in the fourth of those installs |
+| `dev/` | this machine's own tooling, not part of the plugin: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`, `fake-wireless-phone.py`, `audio-graph.sh`, and `dev-environment.md` |
+| `pubspec.yaml` | the workspace root, not a package. Its only content is the member list |
 
 Keep aasdk code out of the two pure Dart packages. That split is what keeps a future
 permissive implementation possible.
 
-## You can drive this machine yourself
+The `tools/` and `dev/` split is the same kind of line. `tools/` is for anyone who clones
+this: provisioning, the aasdk build, the echo canceller, the access point. `dev/` is for
+driving this particular machine, and assumes KDE on Wayland, a German keyboard and a
+paired Pixel. Nothing in `tools/` may call into `dev/`.
 
-KDE Plasma on **Wayland**, 1920x1080 at scale 1, so screenshot pixels equal screen
-coordinates. X11 tools (xdotool, scrot, wmctrl) do not work. sudo is passwordless.
+## Driving the author's machine, which is not every machine
+
+**Everything in this section is one laptop.** It is here because the agent needs it to
+look at what it built, not because the project requires any of it. The machine is
+described in full in `dev/dev-environment.md`; the short version is KDE Plasma on
+Wayland, one 1920x1080 output at scale 1 so screenshot pixels equal screen coordinates,
+a German keyboard, and passwordless sudo. X11 tools (xdotool, scrot, wmctrl) do not work
+here. On any other machine, expect none of it to apply and do not teach the plugin about
+it.
 
 ```bash
-tools/ui.sh setup              # once per boot: starts ydotoold, flattens pointer accel
-tools/ui.sh shot               # full screen png, prints the path, then Read it
-tools/ui.sh crop <f> <x> <y> <w> <h>
-tools/ui.sh click <x> <y>      # also: move, rclick, drag, scroll
-tools/ui.sh key ctrl+s         # also: esc, enter, tab, f1..f12
-tools/ui.sh paste "text"       # use this, not `type`, see below
-tools/run-example.sh --bg      # build and launch the test bench detached
-tools/run-example.sh --bundle  # run the built binary directly, line buffered logs
+dev/ui.sh setup              # once per boot: starts ydotoold, flattens pointer accel
+dev/ui.sh shot               # full screen png, prints the path, then Read it
+dev/ui.sh crop <f> <x> <y> <w> <h>
+dev/ui.sh click <x> <y>      # also: move, rclick, drag, scroll
+dev/ui.sh key ctrl+s         # also: esc, enter, tab, f1..f12
+dev/ui.sh paste "text"       # use this, not `type`, see below
+dev/run-example.sh --bg      # build and launch the test bench detached
+dev/run-example.sh --bundle  # run the built binary directly, line buffered logs
 ```
 
-Three things that will bite otherwise:
+Four things that will bite otherwise, and these are rules rather than description:
 
-- **`tools/ui.sh setup` is required after every reboot.** Without the flat pointer
+- **`dev/ui.sh setup` is required after every reboot.** Without the flat pointer
   acceleration it sets on the ydotool virtual device, clicks land in the wrong place.
 - **The keyboard layout is German (QWERTZ)** and ydotool sends raw keycodes, so
   `ui.sh type` mangles y/z and symbols. Use `ui.sh paste` for exact text.
@@ -61,36 +75,48 @@ Three things that will bite otherwise:
   the name is over 15 characters. Match on `bundle/android_auto_ex""ample` instead.
 - **Never leave two copies of the example app running.** They fight over the phone and
   the result looks exactly like a protocol bug: handshakes that half complete, reads that
-  time out, a phone that goes silent. `tools/run-example.sh` kills the old one first, so
+  time out, a phone that goes silent. `dev/run-example.sh` kills the old one first, so
   use it rather than launching the bundle by hand.
 
 ## Build and run
 
+The three packages and the example are one Dart workspace, so `flutter pub get`,
+`flutter analyze` and `flutter test` are run from the repository root and there is one
+`pubspec.lock`, at the root, which is committed.
+
 ```bash
-cd example && flutter pub get && flutter build linux --debug
-tools/run-example.sh --bg
+flutter pub get && cd example && flutter build linux --debug
+dev/run-example.sh --bg
 ```
+
+**Wipe a build with `flutter clean`, never `rm -rf example/build`.** The second leaves
+`build/native_assets/linux` missing and the next build dies at the install step with
+"file INSTALL cannot find", which looks like a project fault and is not.
 
 `--bg` runs through `flutter run`, which block buffers the app's stdout: native logging
 arrives in 8 KB lumps, minutes late, which is useless for watching a protocol exchange.
 Use `--bundle` for that, which runs the built binary directly and line buffers.
 
-Environment knobs, all off unless set:
+Environment knobs, all off unless set. The five marked **debug only** are compiled out
+unless `AA_ENABLE_FAULT_INJECTION` is on, which a Debug build does by default and a
+Release build does not, so they will silently do nothing in a release build:
 
 | Knob | What it does |
 |---|---|
 | `AA_LOG_LEVEL=DEBUG` | aasdk's own protocol log, the service discovery exchange in full, and libavcodec's diagnostics |
-| `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything. The M9 channels are `navigation`, `media_status`, `phone_status`, `notification`, `browser` |
+| `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild. `all` for everything. The metadata channels are `navigation`, `media_status`, `phone_status`, `notification`, `browser` |
 | `AA_VIDEO_DECODER=software` | forces the software decoder, to tell a driver problem from a decoder problem |
-| `AA_FAULT_TRANSPORT_AFTER=20` | kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
-| `AA_FAULT_TRANSFER_AFTER=400` | turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
-| `AA_FAULT_SLOW_START=3000` | stalls N ms inside `ProtocolSession::Start`, between the messenger existing and the channels being handed it, so a stop pressed during it lands in the window that used to crash |
+| `AA_FAULT_TRANSPORT_AFTER=20` | **debug only.** Kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
+| `AA_FAULT_TRANSFER_AFTER=400` | **debug only.** Turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
+| `AA_FAULT_SLOW_START=3000` | **debug only.** Stalls N ms inside `ProtocolSession::Start`, between the messenger existing and the channels being handed it, so a stop pressed during it lands in the window that used to crash |
 | `AA_TRANSPORTS=wireless` | narrows or widens the transports without a rebuild, `usb`, `wireless` or both. Wireless cannot be tested while the cable is in, because a wireless connection is never allowed to displace a connected session |
-| `AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock` | listens on a Unix socket and treats a connection to it as the RFCOMM socket BlueZ would have handed over, so the whole wireless path can run with no phone. Drive it with `tools/fake-wireless-phone.py` |
-| `AA_WIRELESS_SSID`, `AA_WIRELESS_PASSPHRASE` | what to tell the phone to join, for a test that cannot stop to type into a text field. A real head unit gets these from its host app |
+| `AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock` | **debug only.** Listens on a Unix socket and treats a connection to it as the RFCOMM socket BlueZ would have handed over, so the whole wireless path can run with no phone. Drive it with `dev/fake-wireless-phone.py` |
+| `AA_WIRELESS_SSID`, `AA_WIRELESS_PASSPHRASE` | **debug only.** What to tell the phone to join, for a test that cannot stop to type into a text field. A real head unit gets these from its host app |
 | `AA_AUTOSTART=1` | the example app presses its own Start button. Example app only, not the plugin |
 
-Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
+Built against Flutter 3.47.4 stable, which on this machine is the snap at
+`~/snap/flutter/common/flutter`. Nothing requires the snap; that is just where it is
+here.
 
 **Impeller is the only renderer on Linux now** and it runs its **OpenGLES** backend
 (`Using the Impeller rendering backend (OpenGLESSDF)`). `--no-enable-impeller` is a
@@ -102,7 +128,7 @@ video pipeline hands Flutter a **dmabuf**, never a raw GL texture. See
 ## Native build
 
 ```bash
-tools/build-aasdk.sh           # submodule, patch, build, smoke test. Must print OK.
+tools/build-aasdk.sh           # build aasdk alone and smoke test it. Must print OK.
 tools/port-aasdk.sh reset      # throw away local aasdk edits
 tools/port-aasdk.sh apply      # redo the port in the working tree
 tools/port-aasdk.sh patch      # regenerate linux/patches/ from the working tree
@@ -110,10 +136,16 @@ tools/port-aasdk.sh patch      # regenerate linux/patches/ from the working tree
 
 aasdk is vendored as a submodule at
 `packages/android_auto_linux/linux/third_party/aasdk`, pinned to `9bf6adf`. **It does not
-build unpatched**: Boost 1.90 removed `io_service`, and there are four other breakages.
-The port is a single patch in `linux/patches/`, generated by `tools/port-aasdk.sh`, and
-the submodule is never committed dirty. If you change the port, regenerate the patch and
-re-run `tools/build-aasdk.sh`. Full write up in `docs/aasdk-port-notes.md`.
+build unpatched**: Boost removed `io_service` in 1.87, and there are four other
+breakages. The port is a single patch in `linux/patches/`, generated by
+`tools/port-aasdk.sh`, and the submodule is never committed dirty.
+
+**The plugin's CMake applies that patch itself**, at configure time, keyed on whether
+`include/aasdk/Common/Strand.hpp` exists. So a clean clone builds with no manual step,
+and `tools/build-aasdk.sh` is for proving the port on its own rather than for making the
+build work. If you change the port, regenerate the patch, then `tools/port-aasdk.sh
+reset` and rebuild to check CMake still applies it cleanly. Full write up in
+`docs/aasdk-port-notes.md`.
 
 The key piece: `aasdk::Strand` subclasses `boost::asio::strand<io_context::executor_type>`
 to restore the old one argument `dispatch`/`post`, `get_io_service()` and an
@@ -121,9 +153,9 @@ to restore the old one argument `dispatch`/`post`, `get_io_service()` and an
 instead of a rewrite, so prefer extending it over touching call sites.
 
 ## Committing
-Do NOT git commit unless you are toled to do so!
+Do NOT git commit unless you are told to do so!
 
-## Native layout (M2 onward)
+## Native layout
 
 | File | What |
 |---|---|
@@ -146,7 +178,7 @@ Do NOT git commit unless you are toled to do so!
 | `linux/src/metadata/metadata_state.*` | what the phone has said about itself, **no protobuf**, cleared when the connection ends |
 | `linux/src/metadata/json.*` | the small JSON writer the metadata ABI carries its updates in |
 | `linux/src/session/metadata_channel.*` | a channel aasdk names but does not speak: open response plus a decoder hook |
-| `linux/src/session/metadata_channels.*` | the five M9 decoders, the only thing that turns wire messages into state |
+| `linux/src/session/metadata_channels.*` | the five metadata decoders, the only thing that turns wire messages into state |
 | `linux/src/bluetooth/bluez_client.*` | **the only file that names a D-Bus type**, the RFCOMM service and the paired device list |
 | `linux/src/wireless/wifi_network.*` | which SSID, BSSID and address to tell the phone, read off the interface |
 | `linux/src/wireless/aaw_handshake.*` | the Bluetooth conversation that precedes wireless projection, **the only file that names the `aaw` protobufs** |
@@ -163,11 +195,11 @@ cd packages/android_auto_linux && dart run ffigen --config ffigen.yaml
 FFI as plain integers, so their orders must stay in step.
 
 Only the raster thread touches GL, inside `populate()`, where Flutter's context is
-already current. That stayed true through M4: the dmabuf is imported as an `EGLImage` and
-converted to RGBA by a shader inside `populate()`, so there is still no second GL context
-and no cross-context fence to get right.
+already current. That stayed true once video landed: the dmabuf is imported as an
+`EGLImage` and converted to RGBA by a shader inside `populate()`, so there is still no
+second GL context and no cross-context fence to get right.
 
-Two rules that cost real time in M4:
+Two rules that cost real time in the video work:
 
 - **Every `glBindTexture` lands on whichever texture unit is active.** The NV12 converter
   binds luma on unit 0, chroma on unit 1 and the output texture on unit 2, in that order.
@@ -179,7 +211,7 @@ Two rules that cost real time in M4:
 
 ## What Android Auto demands before it will project
 
-Learned the hard way in M4, and none of it reports an error. A phone that dislikes the
+Learned the hard way, and none of it reports an error. A phone that dislikes the
 service discovery response just stops talking and drops out of accessory mode.
 
 - **Advertise every channel, not only the implemented ones.** A head unit offering video,
@@ -266,16 +298,9 @@ channels. Whoever mixes is whoever ducks, and that is this code.
   prompt. The sink is left open across the gap, because guidance comes every few seconds
   and reopening costs a fresh prebuffer.
 
-Measuring any of this means recording, not listening:
-
-```bash
-parecord --device=@DEFAULT_MONITOR@ --format=s16le --rate=48000 --channels=2 \
-  --file-format=wav /tmp/probe.wav
-```
-
-then a per-100 ms RMS over it. Comparisons have to be back to back on the same passage:
-two recordings a minute apart gave -2.2 dB for a -12 dB volume change, because the track
-had moved on.
+**Measuring any of this means recording, not listening.** The recipes, and the two traps
+that make a measurement wrong rather than absent, are in `docs/echo-cancellation.md`
+under "Verifying it on other hardware".
 
 ## The microphone, and the one rule it has to keep
 
@@ -311,17 +336,10 @@ protocol and `AudioInput` owns the capture thread.
   follows. Nothing here can make the hotword more reliable. Synthetic speech does not
   trigger it either, because Google's hotword stage does speaker verification.
 
-Testing it without a person in the room, through the laptop's own speakers and
-microphone, which is the acoustic path a car has:
-
-```bash
-spd-say -l de -r -20 -w "Navigiere nach Hamburg"
-```
-
-Do **not** reach for `pactl load-module module-null-sink media.class=Audio/Source` to
-fake a microphone. It broke recording machine wide on this PipeWire, and the symptom was
-`pa_simple_new` timing out after 30 seconds against a device that had worked a minute
-earlier, which looks exactly like a bug in the capture code.
+It can be exercised without a person in the room, through whatever speakers and
+microphone the machine has. **Do not fake a microphone with `module-null-sink`**: it
+broke recording machine wide here, in a way that looks exactly like a bug in the capture
+code. That and the speech synthesis recipe are in `docs/echo-cancellation.md`.
 
 ## Sensors, and why advertising one is a promise
 
@@ -356,9 +374,10 @@ turns those values into protobuf.
   Karten. Only *Automatisch* reads the head unit's sensor. A phone on *Nacht* makes a
   working night mode sensor look like a no-op in both directions, so check that before
   touching code.
-- This Pixel subscribes to eight of the twelve when all are advertised: driving status,
-  night mode, speed, gear, parking brake, location, toll card, compass. Not rpm, fuel,
-  environment or odometer.
+- The one phone tested, a Pixel 8 Pro, subscribed to eight of the twelve when all were
+  advertised: driving status, night mode, speed, gear, parking brake, location, toll
+  card, compass. Not rpm, fuel, environment or odometer. Another phone may well choose
+  differently, so treat this as one observation rather than the protocol.
 
 ## Phone calls, which are not in this code at all
 
@@ -372,7 +391,7 @@ LC3-SWB codec. Do not go looking for a telephony channel to implement.
 - **The aasdk Bluetooth channel is not needed for this.** Advertising `car_address` over
   the projection link turned out not to be required: ordinary out of band pairing was
   enough for Android Auto to stop reporting no Bluetooth and to route a call through the
-  machine. That channel may still earn its place in M10, where a wireless handover has no
+  machine. That channel may still earn its place for a wireless handover, which has no
   other way to hand the phone the head unit's details.
 - **Echo cancellation is configuration, not code, and it is not optional.** Without it
   every call sends the far end back to itself a few hundred milliseconds late, because
@@ -387,13 +406,13 @@ LC3-SWB codec. Do not go looking for a telephony channel to implement.
   must not be able to become the car's speakers or the car's microphone. See
   `DefaultHeadUnitDevice` in `pulse_sink.cc`. On this machine WirePlumber never actually
   moved the default, so that rule is defensive rather than a fix for an observed fault.
-- `tools/audio-graph.sh` dumps the audio graph, and `--watch` records it over time. The
+- `dev/audio-graph.sh` dumps the audio graph, and `--watch` records it over time. The
   Bluetooth nodes only exist while a call is up, so a snapshot taken between calls shows
   nothing and proves nothing.
 
 ## Stopping and resuming a session
 
-The order matters and it is not obvious. `PLAN.md` under M3 has the full reasoning.
+The order matters and it is not obvious.
 
 1. `ByeByeRequest`, then **wait for the acknowledgement**. The phone keeps Android Auto
    running, and its claim on the USB interface, until it answers.
@@ -434,10 +453,10 @@ has to be decoded by hand.
 
 ## USB transaction errors, and what is and is not proven about them
 
-The dropouts chased through M5 are `-EPROTO` transaction errors on the bulk endpoints,
-confirmed with usbmon. They are a physical layer fault: they hit the **ADB interface as
-well**, which this code never opens, and twice within 14 ms of each other on both. No
-amount of software causes a transaction error on an endpoint it does not use.
+The dropouts are `-EPROTO` transaction errors on the bulk endpoints, confirmed with
+usbmon. They are a physical layer fault: they hit the **ADB interface as well**, which
+this code never opens, and twice within 14 ms of each other on both. No amount of
+software causes a transaction error on an endpoint it does not use.
 
 Two things follow, and only the first is settled.
 
@@ -465,13 +484,13 @@ then not once in 46 minutes the next morning.
 
 ## A dead transport does not mean the phone went away
 
-The case that cost an evening in M5, and the reason `searching` could hang forever.
+The case that cost an evening, and the reason `searching` could hang forever.
 
 A failed bulk transfer (`LIBUSB_TRANSFER_ERROR` on a marginal link) kills the transport
-**while leaving the phone enumerated and still in accessory mode**. M3's recovery waits
-for `USBHub` to hand it a device, and the hub only fires on arrival, so nothing ever
-came: the device had never left. Stop then Start was the only way out, because stopping
-calls `ResetDevice()` and that is what makes the phone re-enumerate.
+**while leaving the phone enumerated and still in accessory mode**. The original
+recovery waits for `USBHub` to hand it a device, and the hub only fires on arrival, so
+nothing ever came: the device had never left. Stop then Start was the only way out,
+because stopping calls `ResetDevice()` and that is what makes the phone re-enumerate.
 
 So a connected session that loses its transport **bounces the phone itself** rather than
 waiting to be told about it. Right for both cases: if the cable really is out, the reset
@@ -489,8 +508,8 @@ flag; do not remove it or one failure bounces the phone once per channel.
 aasdk was written for openauto, which builds everything once and exits the process when
 the phone disconnects. Nothing in it survives being torn down and rebuilt in place: its
 objects hold raw pointers and references to things the caller owns, and they outlive
-them in ways no ordering fixes. Seven crashes came out of this, listed in `PLAN.md`
-under M3.
+them in ways no ordering fixes. Seven crashes came out of this, every one of them a
+variation on the same theme.
 
 The rules that came out of it, do not undo them:
 
@@ -531,10 +550,11 @@ that turns it into something the C ABI can carry.
   `Channel` base, answers the open and hands everything else to a decoder. Extending the
   submodule instead would have meant carrying five classes in the patch for messages
   nothing else consumes.
-- **This Pixel opens three of the five.** Navigation, playback and telephony, which are
-  the three it pushes unprompted. It never opens the generic notification or the media
-  browser, the two where the head unit has to speak first, so both of those are
-  implemented and **unverified**. `AndroidAutoConfig.metadata` defaults to the three.
+- **The one phone tested opened three of the five.** Navigation, playback and
+  telephony, which are the three it pushes unprompted. That Pixel 8 Pro never opened the
+  generic notification or the media browser, the two where the head unit has to speak
+  first, so both of those are implemented and **unverified against any phone**.
+  `AndroidAutoConfig.metadata` defaults to the three.
 - **A channel that exists is not a channel that is open.** It exists from the moment it
   is advertised. Anything sending unprompted has to go through
   `MetadataChannels::GetOpen()`, or the request vanishes exactly as an early input report
@@ -629,8 +649,8 @@ code ends at producing an `aasdk::transport::ITransport` and hands it to the sam
   later report down with it, video statistics included.
 - **A phone hosting a hotspot cannot join the head unit**, so wireless and a
   development machine whose only internet is that hotspot are mutually exclusive.
-- **`tools/wireless-test.sh` drives a real attempt and names the stage it reached;
-  `tools/wireless-capture.sh` records Bluetooth and Wi-Fi while it happens.** The
+- **`dev/wireless-test.sh` drives a real attempt and names the stage it reached;
+  `dev/wireless-capture.sh` records Bluetooth and Wi-Fi while it happens.** The
   second earns its place because nothing above the transport can tell a phone that
   never asked from one that asked and walked away.
 

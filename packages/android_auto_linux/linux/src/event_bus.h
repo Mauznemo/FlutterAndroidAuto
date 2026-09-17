@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Getting news from native threads to the Dart isolate.
 //
 // aasdk delivers everything on its io_context threads, and none of those may call into

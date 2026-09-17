@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Gets a phone projecting without a cable, and hands the result to the same session
 // the USB path uses.
 //

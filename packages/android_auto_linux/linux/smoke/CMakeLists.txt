@@ -1,6 +1,6 @@
 # Standalone build of the vendored aasdk plus a smoke test.
 #
-# Kept separate from the Flutter plugin's CMakeLists so milestone M1 stays testable on
+# Kept separate from the Flutter plugin's CMakeLists so the aasdk build stays testable on
 # its own: if this builds and the smoke binary prints OK, the Boost port is intact.
 #
 #   cmake -S packages/android_auto_linux/linux/smoke -B build/aasdk-smoke -G Ninja

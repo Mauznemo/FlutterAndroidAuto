@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "metadata_channels.h"
 
 #include <cctype>
@@ -334,10 +335,11 @@ std::shared_ptr<MetadataChannel> MetadataChannels::Get(Metadata which) const {
 
 std::shared_ptr<MetadataChannel> MetadataChannels::GetOpen(Metadata which) const {
   // A channel exists from the moment it is advertised, and the phone opens it or does
-  // not. This Pixel never opens the notification or the media browser, so a browse
-  // request sent on the strength of the channel existing goes into the void exactly as
-  // an early input report does, with nothing to say it went nowhere. The caller is told
-  // no instead.
+  // not. The one phone tested, a Pixel 8 Pro, never opened the notification or the
+  // media browser channel, and another phone may well differ. So a browse request sent
+  // on the strength of the channel existing goes into the void exactly as an early
+  // input report does, with nothing to say it went nowhere. The caller is told no
+  // instead.
   if (!state_ || (state_->opened() & MetadataBit(which)) == 0) {
     return nullptr;
   }

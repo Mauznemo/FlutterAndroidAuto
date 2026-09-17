@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The microphone, and the thread that reads it.
 //
 // The mirror of AudioOutput, with one rule that AudioOutput does not have and that is
@@ -9,7 +10,7 @@
 // same answer as "does this thread exist", and a person can check it in a mixer.
 //
 // One thread, because PcmSource::Read blocks until the microphone has produced the
-// samples and blocking an io_context thread stalls the USB transport. The buffer handler
+// samples and blocking an io_context thread stalls the transport. The buffer handler
 // is the seam in the other direction: it is called on the capture thread, must not
 // block, and must not touch an aasdk channel in place.
 //

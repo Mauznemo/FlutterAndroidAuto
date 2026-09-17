@@ -3,6 +3,10 @@
 What was found on the development machine on 2026-09-12, and how the coding agent
 drives it without a human at the keyboard.
 
+None of this is a requirement of the plugin. It is one laptop, recorded so that the
+measurements taken on it can be read in context and repeated elsewhere. See
+[`README.md`](README.md) in this directory.
+
 ## Machine
 
 | | |
@@ -21,8 +25,9 @@ Toolchain already present: Flutter 3.47.4 stable (snap, at
 `~/snap/flutter/common/flutter`), Dart 3.13.3, CMake 4.2.3, Ninja 1.13.2, GCC 15.2,
 Clang 21.1.8, git 2.53. `flutter doctor` reports the Linux desktop toolchain green.
 
-Not present yet, needed from M1: Boost, libusb, OpenSSL headers, protobuf, ffmpeg,
-libva, libpulse. Install with `tools/setup-dev-machine.sh --build-deps`.
+Not present on 2026-09-12, and needed to build: Boost, libusb, OpenSSL headers,
+protobuf, ffmpeg, libva, libpulse. Install with `tools/setup-dev-machine.sh
+--build-deps`.
 
 ## Screenshots
 
@@ -37,7 +42,7 @@ spectacle -b -n -f -p -o out.png  # include the mouse pointer
 
 Screenshot pixels map 1:1 to screen coordinates because the output scale is 1.
 
-Wrapped as `tools/ui.sh shot` / `shotwin` / `crop`.
+Wrapped as `dev/ui.sh shot` / `shotwin` / `crop`.
 
 KWin also exposes `org.kde.KWin.ScreenShot2` over D-Bus (`CaptureWindow`,
 `CaptureActiveWindow`, `CaptureArea`, `CaptureScreen`) if Spectacle ever gets in the way.
@@ -53,7 +58,7 @@ could not open `/dev/uinput`. Fixed with a udev rule plus group membership:
 KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
 ```
 
-The group change needs a re-login, so `tools/ui.sh setup` starts `ydotoold` under sudo
+The group change needs a re-login, so `dev/ui.sh setup` starts `ydotoold` under sudo
 instead and hands the socket to the user. Nothing else needs root.
 
 **2. Absolute positioning.** `ydotool mousemove --absolute` does not land on the
@@ -61,7 +66,7 @@ requested pixel on this compositor. The working approach is to slam the pointer 
 top left with a huge relative move and then move relatively to the target. That is only
 exact once pointer acceleration is off for the virtual device.
 
-KWin exposes per device settings on D-Bus, so `tools/ui.sh setup` finds the
+KWin exposes per device settings on D-Bus, so `dev/ui.sh setup` finds the
 `ydotoold virtual device` under `/org/kde/KWin/InputDevice/eventN` and sets:
 
 ```
@@ -76,22 +81,22 @@ Verified: after flattening, "home then move by (960, 540)" lands the cursor exac
 
 **3. Keyboard layout.** `ydotool` sends raw evdev keycodes and the compositor maps them
 through the **German** layout, so `ydotool type "ydotool"` arrives as `zdotool`. Use
-`tools/ui.sh paste <text>` (clipboard plus ctrl+v) whenever the text has to be exact.
-`tools/ui.sh key ctrl+c` style shortcuts are fine, modifiers and control keys are
+`dev/ui.sh paste <text>` (clipboard plus ctrl+v) whenever the text has to be exact.
+`dev/ui.sh key ctrl+c` style shortcuts are fine, modifiers and control keys are
 layout independent.
 
 ## Verified agent capabilities
 
 | Capability | Status | How |
 |---|---|---|
-| Full screen screenshot | works | `tools/ui.sh shot` |
-| Active window screenshot | works | `tools/ui.sh shotwin` |
-| Crop a region for a closer look | works | `tools/ui.sh crop` |
-| Move the pointer to an exact pixel | works, after `setup` | `tools/ui.sh move` |
-| Left / right click, drag, scroll | works | `tools/ui.sh click` etc |
-| Type text | works, layout mangled | prefer `tools/ui.sh paste` |
-| Key combinations | works | `tools/ui.sh key ctrl+s` |
-| Launch and detach a GUI app | works | `tools/run-example.sh --bg` |
+| Full screen screenshot | works | `dev/ui.sh shot` |
+| Active window screenshot | works | `dev/ui.sh shotwin` |
+| Crop a region for a closer look | works | `dev/ui.sh crop` |
+| Move the pointer to an exact pixel | works, after `setup` | `dev/ui.sh move` |
+| Left / right click, drag, scroll | works | `dev/ui.sh click` etc |
+| Type text | works, layout mangled | prefer `dev/ui.sh paste` |
+| Key combinations | works | `dev/ui.sh key ctrl+s` |
+| Launch and detach a GUI app | works | `dev/run-example.sh --bg` |
 | sudo without a password | works | |
 
 Tested end to end by opening Kate, typing into it, and reading the result back from a
@@ -111,9 +116,14 @@ Passing `--no-enable-impeller` changes nothing, verified: the log is identical w
 without it. There is no Skia fallback. See `docs/research.md` for why that shapes the
 video pipeline.
 
-## Still to confirm
+## Confirmed since
 
-- An Android phone for testing. Nothing is plugged in, and `adb` is not installed.
-  Needed from M3 onward, together with `tools/setup-dev-machine.sh --udev`.
-- VA-API zero copy for M4. `vainfo` is not installed yet, and the dmabuf export path
-  has not been exercised on this Intel UHD part.
+Both of the open questions this file recorded on 2026-09-12 have been answered:
+
+- A Pixel 8 Pro projects over the cable and over Wi-Fi, with
+  `tools/setup-dev-machine.sh --udev` in place. `adb` is still only useful for telling
+  a locked phone from an unresponsive one, since Android Auto logs nothing to `logcat`
+  on a production phone.
+- VA-API zero copy works on this Intel UHD part. The decoder exports a dmabuf that
+  `gl_adapter` imports as `EGLImage`s, measured at 0.9 to 1.1 ms wire to frame against
+  2.9 ms for the software fallback.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Where the microphone's PCM comes from, before it is wrapped in the protocol.
 //
 // The capture seam, and the mirror of pcm_sink.h: nothing above this line names
@@ -12,7 +13,7 @@
 // Every method blocks and none of them is thread safe. A source belongs to exactly one
 // thread, which is never an io_context thread: Read() waits for the microphone to
 // produce the samples, which is what paces the head unit to real time, and waiting on an
-// io thread stalls the USB transport. AudioInput owns that thread.
+// io thread stalls the transport. AudioInput owns that thread.
 
 #ifndef ANDROID_AUTO_LINUX_AUDIO_PCM_SOURCE_H_
 #define ANDROID_AUTO_LINUX_AUDIO_PCM_SOURCE_H_

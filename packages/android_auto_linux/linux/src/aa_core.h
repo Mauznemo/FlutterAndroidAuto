@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Flat C ABI for the Android Auto head unit core.
 //
 // This is the only surface Dart binds to. Everything is either a plain scalar, an
@@ -167,6 +168,9 @@ typedef struct {
 
 // How the head unit describes itself to the phone during service discovery.
 typedef struct {
+  // The protocol only names five sizes, so width and height together must be 800x480,
+  // 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is advertised as
+  // 1280x720, with a warning in the log.
   int32_t width;
   int32_t height;
   int32_t fps;
@@ -174,8 +178,6 @@ typedef struct {
   const char* head_unit_name;
   const char* car_model;
   const char* car_year;
-  // Directory holding headunit.crt and headunit.key. NULL uses the bundled pair.
-  const char* certificate_path;
   // Which sensors to advertise, an OR of AaSensor bits. Zero is read as the two that
   // are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit
   // that answers neither leaves the phone with most of its interface locked.
@@ -548,7 +550,7 @@ AA_EXPORT int64_t aa_session_metadata_updates(AaSession* session, int32_t kind);
 // Asks the phone for one node of its media library. `path` is NULL or empty for the
 // root and otherwise a path out of a previous answer; `start` is the offset into a long
 // list. The answer arrives as an AA_METADATA_BROWSE update rather than as a return
-// value, because it is a round trip over USB.
+// value, because it is a round trip to the phone.
 //
 // Returns 0 if the request was queued, -2 when the browser channel is not open, which
 // is the normal answer whenever no phone is connected or the host app did not advertise
@@ -608,8 +610,9 @@ AA_EXPORT int32_t aa_session_start_wireless(AaSession* session);
 // for the service every five seconds for as long as it is connected over Bluetooth,
 // and withdrawing the service does not stop it asking, it only stops it being
 // answered: the driver is left with a permanent notification saying the phone is
-// connecting while nothing is. Measured on a Pixel 8 Pro: a query every 5.1 seconds
-// indefinitely against silence, one query and then nothing when refused.
+// connecting while nothing is. Measured on the one phone tested, a Pixel 8 Pro: a
+// query every 5.1 seconds indefinitely against silence, one query and then nothing when
+// refused.
 //
 // The service is withdrawn for good by aa_session_destroy, and never published at all
 // when AaConfig::transports leaves AA_TRANSPORT_WIRELESS out. A phone paired while it
@@ -643,8 +646,9 @@ AA_EXPORT int32_t aa_session_wireless_active(AaSession* session);
 AA_EXPORT char* aa_session_wireless_summary(AaSession* session);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
-// app can lay its overlay out before any hardware is involved. Started life as M2
-// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
+// app can lay its overlay out before any hardware is involved. Built as scaffolding for
+// the video path and kept because it earns its place: the real H.264 path publishes into
+// the same ring, so this tells a video problem from a presentation one.
 AA_EXPORT int32_t aa_session_start_test_pattern(AaSession* session);
 AA_EXPORT int32_t aa_session_stop_test_pattern(AaSession* session);
 

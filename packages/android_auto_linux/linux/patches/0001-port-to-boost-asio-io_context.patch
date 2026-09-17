@@ -2171,7 +2171,7 @@ index fc7b143..f7826fe 100644
      AccessoryModeQueryChainFactoryMock queryChainFactoryMock_;
      AccessoryModeQueryChainMock queryChainMock_;
 diff --git a/src/USB/USBEndpoint.cpp b/src/USB/USBEndpoint.cpp
-index d60acb6..58a71c2 100644
+index d60acb6..7f67738 100644
 --- a/src/USB/USBEndpoint.cpp
 +++ b/src/USB/USBEndpoint.cpp
 @@ -24,7 +24,7 @@
@@ -2183,7 +2183,7 @@ index d60acb6..58a71c2 100644
                               uint8_t endpointAddress)
          : usbWrapper_(usbWrapper), strand_(ioService), handle_(std::move(handle)), endpointAddress_(endpointAddress) {
      }
-@@ -114,6 +114,129 @@ namespace aasdk {
+@@ -114,6 +114,134 @@ namespace aasdk {
        return handle_;
      }
  
@@ -2213,7 +2213,7 @@ index d60acb6..58a71c2 100644
 +    // Turns the Nth completed IN transfer into a transaction error whose resubmit is
 +    // refused as a halted endpoint, which is the exact failure seen in the wild.
 +    //
-+    //   AA_FAULT_TRANSFER_AFTER=200 tools/run-example.sh --bundle
++    //   AA_FAULT_TRANSFER_AFTER=200
 +    //
 +    // The recovery it exercises cannot be waited for reliably: the real fault appeared
 +    // every few minutes one evening and then not once in 46 minutes the next morning.
@@ -2224,6 +2224,10 @@ index d60acb6..58a71c2 100644
 +    // recovery does. What it proves is that the retry decides correctly, that clearing
 +    // the halt and resubmitting actually succeeds, and that nothing crashes or leaks.
 +    void USBEndpoint::injectFault(libusb_transfer *transfer) {
++#ifndef AA_FAULT_INJECTION
++      (void)transfer;
++      return;
++#else
 +      if (faultCountdown_ < 0) {
 +        const char *after = std::getenv("AA_FAULT_TRANSFER_AFTER");
 +        faultCountdown_ = (after != nullptr && *after != '\0') ? std::atoi(after) : 0;
@@ -2245,6 +2249,7 @@ index d60acb6..58a71c2 100644
 +      transfer->status = LIBUSB_TRANSFER_ERROR;
 +      transfer->actual_length = 0;
 +      injectHalt_ = true;
++#endif
 +    }
 +
 +    bool USBEndpoint::retryTransfer(libusb_transfer *transfer, Promise::Pointer &promise) {
@@ -2313,7 +2318,7 @@ index d60acb6..58a71c2 100644
      void USBEndpoint::transferHandler(libusb_transfer *transfer) {
        AASDK_LOG_USB(debug, "transferHandler()");
        auto self = reinterpret_cast<USBEndpoint *>(transfer->user_data)->shared_from_this();
-@@ -126,11 +249,23 @@ namespace aasdk {
+@@ -126,11 +254,23 @@ namespace aasdk {
  
          auto promise(std::move(self->transfers_.at(transfer)));
  

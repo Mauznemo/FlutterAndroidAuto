@@ -22,8 +22,13 @@ call is routed to a Bluetooth hands free unit it stops, because it no longer kno
 of those things. The `ec_enabled` field the phone sends is asking whether the head unit
 has handled this already, not offering to handle it.
 
-Measured on the reference machine, laptop speakers at 85% with the built-in microphone
-roughly 30 cm away:
+One measurement, on one machine, as an illustration of the size of the effect rather
+than a specification. A car's speakers, cabin and microphone placement will all give
+different numbers; what should carry over is the shape, a large positive gap in the raw
+microphone and a suppressed one after. "Verifying it on other hardware" below is how to
+take the same measurement where it matters.
+
+Laptop speakers at 85% with the built-in microphone roughly 30 cm away:
 
 | | raw microphone | echo cancelled source |
 |---|---|---|
@@ -116,6 +121,34 @@ at all, and then both recordings look identical and the canceller appears to be 
 perfectly while doing nothing. Check first that the raw microphone actually rises above
 its silent floor while the speakers play. If it does not, turn the volume up until it
 does, or there is nothing to measure.
+
+### The recipes, and two traps
+
+Recording is the only way to answer any of this. Listening to speakers and forming an
+impression is not a measurement, and the differences involved are a few dB.
+
+```bash
+parecord --device=@DEFAULT_MONITOR@ --format=s16le --rate=48000 --channels=2 \
+  --file-format=wav /tmp/probe.wav
+```
+
+Then take a per-100 ms RMS over the result. Comparisons have to be back to back on the
+same passage: two recordings taken a minute apart once gave -2.2 dB for what was
+actually a -12 dB volume change, because the track had moved on in between.
+
+To exercise the Assistant's microphone path without a person in the room, speech
+synthesis through the speakers is enough to get a query recognised, though it will not
+trigger the hotword, because Google's hotword stage does speaker verification:
+
+```bash
+spd-say -l de -r -20 -w "Navigiere nach Hamburg"
+```
+
+**Do not fake a microphone with `pactl load-module module-null-sink
+media.class=Audio/Source`.** On the PipeWire this was tried against it broke recording
+machine wide, and the symptom was `pa_simple_new` timing out after 30 seconds against a
+device that had worked a minute earlier, which looks exactly like a bug in whatever code
+is doing the capturing.
 
 ## What is not verified
 

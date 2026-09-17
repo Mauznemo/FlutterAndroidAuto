@@ -5,6 +5,10 @@
 .pub/
 build/
 pubspec.lock
+# ...except the workspace root's, which is the only one that exists now: `flutter pub
+# get` at the root resolves all four packages together into this single lockfile, and a
+# repository containing an application commits it so a build is reproducible.
+!/pubspec.lock
 *.iml
 .idea/
 .vscode/
@@ -23,9 +27,6 @@ compile_commands.json
 # Custom head unit certificates, never commit these
 **/custom_headunit.crt
 **/custom_headunit.key
-
-# Agent scratch
-/tmp-shots/
 
 # OS
 .DS_Store

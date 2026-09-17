@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The INPUT_SOURCE channel: how the head unit tells the phone it was touched.
 //
 // This is the only channel that flows the other way. Video, audio and sensors are
@@ -143,10 +144,10 @@ class InputChannel : public std::enable_shared_from_this<InputChannel> {
  private:
   // The shortest gap between two movement reports.
   //
-  // Without this the head unit emits one USB bulk write per pointer event it is handed,
-  // which on a desktop mouse measured 382 a second: six times the rate at which the
-  // phone can possibly show the result, since what comes back is a video stream of at
-  // most 60 frames a second. Nothing is lost by holding the extra ones. Movement is the
+  // Without this the head unit emits one transport write per pointer event it is
+  // handed, which on a desktop mouse measured 382 a second: six times the rate at which
+  // the phone can possibly show the result, since what comes back is a video stream of
+  // at most 60 frames a second. Nothing is lost by holding the extra ones. Movement is the
   // only action rate limited, because it is the only one that repeats; a finger landing
   // or lifting happens once and has to go immediately.
   //

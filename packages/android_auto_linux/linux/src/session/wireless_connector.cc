@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wireless_connector.h"
 
 #include <aasdk/Common/Log.hpp>
@@ -234,25 +235,45 @@ void WirelessConnector::OnBluetoothConnection(int fd, const std::string& address
 // socket. Whatever connects then speaks the message framing in wireless/aaw_handshake
 // and dials the address it is given.
 //
-// Unset, this costs one getenv per start. It cannot be reached from Dart and there is
-// deliberately no way to turn it on from the host app.
+// This accepts anything that connects as though BlueZ had handed over a paired phone,
+// and unlinks the path it is given before binding it. Neither is acceptable in a head
+// unit sitting in a car, so it is compiled in only when AA_ENABLE_FAULT_INJECTION is on:
+// a debug build by default, a release build never. It cannot be reached from Dart and
+// there is deliberately no way to turn it on from the host app either.
+//
+// Unset, and compiled in, this costs one getenv per start.
 void WirelessConnector::ListenForFakePhone() {
+#ifndef AA_FAULT_INJECTION
+  return;
+#else
   const char* path = std::getenv("AA_WIRELESS_FAKE_PHONE");
   if (path == nullptr || *path == '\0') {
     return;
   }
   ::remove(path);
+  // Opened, bound and listened in three steps taking an error code, the same way the
+  // projection acceptor above is. The one argument constructor that does all three
+  // throws instead, and a bind failure here would leave an io thread by exception.
   boost::system::error_code ec;
-  fake_phone_ = std::make_unique<boost::asio::local::stream_protocol::acceptor>(
-      io_context_, boost::asio::local::stream_protocol::endpoint(path));
+  const boost::asio::local::stream_protocol::endpoint endpoint(path);
+  fake_phone_ =
+      std::make_unique<boost::asio::local::stream_protocol::acceptor>(io_context_);
+  fake_phone_->open(endpoint.protocol(), ec);
+  if (!ec) {
+    fake_phone_->bind(endpoint, ec);
+  }
+  if (!ec) {
+    fake_phone_->listen(boost::asio::socket_base::max_listen_connections, ec);
+  }
   if (ec) {
-    AASDK_LOG(warning) << "[Wireless] could not open the fake phone socket: "
-                       << ec.message();
+    AASDK_LOG(warning) << "[Wireless] could not open the fake phone socket at " << path
+                       << ": " << ec.message();
     fake_phone_.reset();
     return;
   }
   AASDK_LOG(info) << "[Wireless] standing in for BlueZ on " << path;
   AcceptFakePhone();
+#endif
 }
 
 void WirelessConnector::AcceptFakePhone() {

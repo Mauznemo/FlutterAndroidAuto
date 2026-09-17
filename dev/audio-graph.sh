@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Dump the audio graph, for answering where call audio is actually going.
 #
-#   tools/audio-graph.sh            one snapshot to stdout
-#   tools/audio-graph.sh --watch    a snapshot every 2 s until interrupted
+#   dev/audio-graph.sh            one snapshot to stdout
+#   dev/audio-graph.sh --watch    a snapshot every 2 s until interrupted
 #
 # Android Auto does not carry phone call audio over the projection link: calls go over
 # Bluetooth HFP, with this machine as the hands free device. The downlink (the far end's

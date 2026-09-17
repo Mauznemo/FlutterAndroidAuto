@@ -1,9 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The seam between "something produced a video frame" and "Flutter shows it".
 //
 // The whole point of this file is that nothing above it names an OpenGL type. Producers
-// (the H.264 decoder in M4, the test pattern in M2) publish an AaFrame; the present
-// adapter under src/present/ imports it into whatever graphics API Flutter is using
-// today. See the Vulkan readiness section in docs/architecture.md.
+// (the H.264 decoder, the test pattern) publish an AaFrame; the present adapter under
+// src/present/ imports it into whatever graphics API Flutter is using today. See the
+// Vulkan readiness section in docs/architecture.md.
 
 #ifndef ANDROID_AUTO_LINUX_FRAME_RING_H_
 #define ANDROID_AUTO_LINUX_FRAME_RING_H_
@@ -18,7 +19,7 @@ namespace aa {
 enum class FrameKind {
   // Nothing published yet.
   kNone,
-  // Tightly packed 8 bit RGBA in host memory. Used by the M2 test pattern and by the
+  // Tightly packed 8 bit RGBA in host memory. Used by the test pattern and by the
   // software decode fallback when there is no hardware path.
   kCpuRgba,
   // DRM prime file descriptors. The zero copy path, and the one that survives the move

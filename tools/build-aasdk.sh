@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Build the vendored aasdk and run the milestone M1 smoke test.
+# Build the vendored aasdk and run its smoke test.
 #
 #   tools/build-aasdk.sh           configure, build, run the smoke test
 #   tools/build-aasdk.sh --clean   throw the build directory away first
 #
-# Takes care of the submodule and the Boost port patch, so a fresh clone only needs
-# tools/setup-dev-machine.sh --build-deps before this works.
+# Not needed to build the plugin: its CMake applies the port patch itself at configure
+# time. This exists to build aasdk on its own and prove the port, which is what you want
+# when the port is the thing in question. It takes care of the submodule and the patch
+# too, so a fresh clone only needs tools/setup-dev-machine.sh --build-deps first.
 
 set -euo pipefail
 

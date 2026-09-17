@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Finds a phone on USB and gets it into Android Auto accessory mode.
 //
 // The phone starts life as an ordinary USB device. AOAP (Android Open Accessory

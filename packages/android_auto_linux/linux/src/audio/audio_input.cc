@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "audio_input.h"
 
 #include <algorithm>
@@ -12,9 +13,9 @@ namespace {
 // How much audio one buffer carries.
 //
 // This is latency the person talking pays, so it is small: 32 ms, which at 16 kHz mono
-// is 1024 bytes and one USB bulk write every 32 ms. Smaller buys nothing, because the
-// phone's own endpointing works in tenths of a second; larger starts to be audible as
-// the Assistant being slow to notice a sentence has ended.
+// is 1024 bytes and one write onto the transport every 32 ms. Smaller buys nothing,
+// because the phone's own endpointing works in tenths of a second; larger starts to be
+// audible as the Assistant being slow to notice a sentence has ended.
 constexpr int64_t kBufferMicros = 32000;
 
 // What shows up in a mixer's recording tab. The only place a person can see that this

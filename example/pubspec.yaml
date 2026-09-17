@@ -1,7 +1,11 @@
 name: android_auto_example
-description: "Test bench for the android_auto plugin. Runs a head unit on this machine and draws Flutter UI on top of it."
+description: "Test bench for the android_auto plugin. Runs a head unit and draws Flutter UI on top of it."
 publish_to: 'none'
 version: 0.1.0+1
+
+# Resolved as part of the workspace rooted at the repository root, so `flutter pub get`
+# there covers this package too.
+resolution: workspace
 
 environment:
   sdk: ^3.13.3

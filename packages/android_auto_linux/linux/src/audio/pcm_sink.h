@@ -1,15 +1,16 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Where PCM goes once it has been unwrapped from the protocol.
 //
 // The API agnostic seam for audio, the same idea as frame_ring.h is for video: nothing
 // above this line names PulseAudio, and nothing below it knows what a channel is. One
-// backend exists today, libpulse-simple, which on this machine is PipeWire wearing
+// backend exists today, libpulse-simple, which on a PipeWire host is PipeWire wearing
 // PulseAudio's API. ALSA or a direct PipeWire backend would be another file and no
 // change anywhere else.
 //
 // Every method is blocking and none of them is thread safe. A sink belongs to exactly
 // one thread, which is never an io_context thread: Write() waits for the server to take
 // the samples, which is how the head unit is paced to real time, and waiting on an io
-// thread stalls the USB transport. AudioOutput owns that thread.
+// thread stalls the transport. AudioOutput owns that thread.
 
 #ifndef ANDROID_AUTO_LINUX_AUDIO_PCM_SINK_H_
 #define ANDROID_AUTO_LINUX_AUDIO_PCM_SINK_H_

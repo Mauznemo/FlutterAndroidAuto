@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // H.264 to frames, on a thread of its own.
 //
 // The phone sends Annex-B H.264 over the video channel. This turns it into frames and
@@ -12,7 +13,7 @@
 //             everywhere, and roughly ten times the cost per frame.
 //
 // The decoder runs on its own thread because decoding on an io_context thread would
-// stall the USB transport, and the transport falling behind is what makes a phone drop
+// stall the transport, and the transport falling behind is what makes a phone drop
 // the session.
 
 #ifndef ANDROID_AUTO_LINUX_VIDEO_VIDEO_DECODER_H_

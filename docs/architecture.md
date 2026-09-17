@@ -9,15 +9,15 @@
 │    Stack(children: [                                                 │
 │      AndroidAutoView(),        // the projected phone screen         │
 │      MyStatusBar(),            // ordinary Flutter widgets on top    │
-│      MyNowPlayingCard(),       // fed by M9 metadata, not pixels     │
+│      MyNowPlayingCard(),       // fed by metadata, not pixels        │
 │    ])                                                                │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ package:android_auto
 ┌───────────────────────────────▼──────────────────────────────────────┐
-│  android_auto                 (app facing, pure Dart, permissive)    │
+│  android_auto                 (app facing, pure Dart, no aasdk)      │
 │    AndroidAutoView, AndroidAutoController                            │
 │                                                                      │
-│  android_auto_platform_interface  (pure Dart, permissive)            │
+│  android_auto_platform_interface  (pure Dart, no aasdk)              │
 │    AndroidAutoPlatform, config and event models                      │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ implements
@@ -42,7 +42,7 @@
 │      └─ MetadataTaps     nav / media / phone status ─> Dart events   │
 │                                                                      │
 │    present/gl_adapter.cc          dmabuf ─> EGLImage ─> FlTextureGL  │
-│    present/vk_adapter.cc          dmabuf ─> VkImage   (when needed)  │
+│    (present/vk_adapter.cc         dmabuf ─> VkImage, not written yet)│
 │    event_bus.cc                   native ─> Dart event queue         │
 │                                                                      │
 │    third_party/aasdk (submodule) + patches/                          │
@@ -70,12 +70,12 @@ decodes into, and it imports into either graphics API:
 | OpenGL / EGL | `EGL_EXT_image_dma_buf_import` to `EGLImage` to GL texture |
 | Vulkan | `VK_EXT_external_memory_dma_buf` plus `VK_EXT_image_drm_format_modifier` to `VkImage` |
 
-Built and measured in M4: VA-API decodes into a surface that never leaves the GPU, it is
+Built and measured: VA-API decodes into a surface that never leaves the GPU, it is
 exported as two DRM prime layers (R8 luma, GR88 chroma), and `gl_adapter` imports both as
 `EGLImage`s and converts them to RGBA with a three instruction shader, all on Flutter's
-raster thread inside `populate()`. Wire to frame, measured against a Pixel 8 Pro at
-1280x720: **0.9 to 1.1 ms**. The software fallback, which converts with libswscale on the
-CPU, measures 2.9 ms.
+raster thread inside `populate()`. Wire to frame, measured on one machine against one
+phone (a Pixel 8 Pro) at 1280x720: **0.9 to 1.1 ms**. The software fallback, which
+converts with libswscale on the CPU, measures 2.9 ms.
 
 Concretely, the seam is:
 
@@ -87,7 +87,7 @@ H.264 ─> decoder ─> dmabuf fd + DRM format modifier + stride  ┐
                                                               │  present adapter,
    gl_adapter   dmabuf ─> EGLImage ─> FlTextureGL  (today)    │  the only API
    vk_adapter   dmabuf ─> VkImage  ─> whatever the Linux      │  specific code
-                embedder exposes for Vulkan (when it lands)   ┘
+                embedder exposes for Vulkan (not written)     ┘
 ```
 
 Rules that keep this true:
@@ -135,38 +135,21 @@ Handoff rules:
 
 ## The C ABI
 
-The FFI surface is deliberately flat and stable. Sketch, not final:
+The FFI surface is deliberately flat: plain integers, doubles and C strings, with
+anything richer crossing as one JSON string per update. Everything the head unit reports
+back to Dart goes through a single event callback rather than out parameters, so the
+whole thing binds with `ffigen` and no hand written glue.
 
-```c
-typedef struct AaSession AaSession;
+**`packages/android_auto_linux/linux/src/aa_core.h` is the definition**, and it carries
+a doc comment on every function explaining not just what it does but why it is shaped
+that way. A summary here would be a second source of truth that drifts, which is exactly
+what happened to the sketch this section used to hold: by the time anybody read it, every
+function name in it was wrong.
 
-typedef struct {
-  int32_t  width, height, fps, dpi;
-  const char* head_unit_name;
-  const char* car_model;
-  const char* car_year;
-  const char* cert_path;      // NULL = bundled certificate
-  uint32_t enabled_services;  // bitmask
-} AaConfig;
-
-AaSession* aa_session_create(const AaConfig* cfg, int64_t dart_port);
-void       aa_session_destroy(AaSession*);
-int32_t    aa_session_start(AaSession*);       // begins USB discovery
-int32_t    aa_session_stop(AaSession*);
-
-int64_t    aa_session_texture_id(AaSession*);  // -1 until video is up
-
-void       aa_touch(AaSession*, int32_t action, int32_t pointer_id,
-                    int32_t x, int32_t y);     // x,y in projected pixels
-void       aa_key(AaSession*, int32_t keycode, int32_t down);
-void       aa_set_night_mode(AaSession*, int32_t night);
-void       aa_set_driving_status(AaSession*, int32_t parked);
-void       aa_set_location(AaSession*, double lat, double lon,
-                           double bearing, double speed_mps);
-```
-
-Everything that returns data to Dart goes through the event port instead of out
-parameters, so the ABI stays trivial to bind with `ffigen`.
+Broadly, the header groups into session lifecycle, the texture id, input, audio, the
+microphone, sensors, metadata and wireless. `AaState` in that header and
+`AndroidAutoConnectionState` in the platform interface cross as plain integers, so their
+orders have to stay in step.
 
 ## Coordinate mapping
 
@@ -183,10 +166,14 @@ Do this in Dart, not native, so the widget's `BoxFit` stays the single source of
 
 ## Package boundaries and licence
 
-`android_auto` and `android_auto_platform_interface` contain no aasdk code and can stay
-permissive. `android_auto_linux` links aasdk and is GPL-3.0-or-later. Keeping the
-interface package free of GPL code means a future permissive implementation can be
-dropped in without changing a line of host app code.
+`android_auto` and `android_auto_platform_interface` contain no aasdk code.
+`android_auto_linux` links aasdk and is GPL-3.0-or-later, and so is every package here
+today: the split is in the code, not in the licence grant.
+
+What it buys is optionality. A future permissive implementation could be dropped in
+without changing a line of host app code, and at that point relicensing the two pure
+Dart packages would be a matter of agreement among their contributors rather than of
+untangling anything.
 
 ## What makes this different from shelling out to the DHU
 
@@ -195,5 +182,5 @@ widget tree**, not a separate X/Wayland window. That buys:
 
 - Flutter widgets composited over the projection with full control of z-order and opacity
 - The host app owns the window, fullscreen state, and multi-display layout
-- Metadata channels (M9) render as real Flutter widgets, in the app's own design language
+- Metadata channels render as real Flutter widgets, in the app's own design language
 - No window manager hacks, no screen scraping, no second process to babysit

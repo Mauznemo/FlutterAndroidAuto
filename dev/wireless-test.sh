@@ -2,12 +2,12 @@
 # Drive a real wireless Android Auto test on this machine, and say in plain words how
 # far it got.
 #
-#   tools/wireless-test.sh up [ssid] [passphrase]   access point up, head unit running
-#   tools/wireless-test.sh join <passphrase> [ssid] stay on the current network instead
-#   tools/wireless-test.sh pair                     open a pairing window on this machine
-#   tools/wireless-test.sh nudge                    make the phone reconsider, no pairing
-#   tools/wireless-test.sh watch                    live status, Ctrl-C to leave
-#   tools/wireless-test.sh down                     head unit stopped, network restored
+#   dev/wireless-test.sh up [ssid] [passphrase]   access point up, head unit running
+#   dev/wireless-test.sh join <passphrase> [ssid] stay on the current network instead
+#   dev/wireless-test.sh pair                     open a pairing window on this machine
+#   dev/wireless-test.sh nudge                    make the phone reconsider, no pairing
+#   dev/wireless-test.sh watch                    live status, Ctrl-C to leave
+#   dev/wireless-test.sh down                     head unit stopped, network restored
 #
 # Hosting an access point costs this machine whatever Wi-Fi it was using, which on a
 # development machine is often its only way online, so `watch` explains each stage and
@@ -39,7 +39,7 @@ start_head_unit() {
   AA_TRANSPORTS=wireless \
   AA_WIRELESS_SSID="$1" \
   AA_WIRELESS_PASSPHRASE="$2" \
-    "$REPO/tools/run-example.sh" --bundle
+    "$REPO/dev/run-example.sh" --bundle
   sleep 6
   if grep -aq "\[Wireless\] ready on" "$LOG"; then
     grep -a "\[Wireless\] ready on" "$LOG" | tail -1 | sed 's/.*\[AASDK\] //'
@@ -60,9 +60,9 @@ case "${1:-watch}" in
     say ""
     say "On the phone: turn the hotspot off, then Settings, Connected devices,"
     say "Android Auto, and check that wireless Android Auto is on."
-    say "If nothing happens within a minute, run: tools/wireless-test.sh pair"
+    say "If nothing happens within a minute, run: dev/wireless-test.sh pair"
     say ""
-    say "Then watch it with: tools/wireless-test.sh watch"
+    say "Then watch it with: dev/wireless-test.sh watch"
     ;;
 
   join)
@@ -78,7 +78,7 @@ case "${1:-watch}" in
     start_head_unit "$JOIN_SSID" "$PASSPHRASE" || exit 1
     say ""
     say "Both ends have to be on the same network. Check the line above names the one"
-    say "the phone is on, then: tools/wireless-test.sh watch"
+    say "the phone is on, then: dev/wireless-test.sh watch"
     ;;
 
   pair)
@@ -96,8 +96,8 @@ case "${1:-watch}" in
       say "Auto and pairing now would teach the phone that it has none."
       say ""
       say "Start it first:"
-      say "  tools/wireless-test.sh up        (hosting an access point)"
-      say "  tools/wireless-test.sh join ...  (already on the phone's network)"
+      say "  dev/wireless-test.sh up        (hosting an access point)"
+      say "  dev/wireless-test.sh join ...  (already on the phone's network)"
       exit 1
     fi
     step "Pairing window open for three minutes"
@@ -112,7 +112,7 @@ case "${1:-watch}" in
     say "  2. Scan, and pair with it again. Accept the code on both screens."
     say "  3. Watch for an Android Auto prompt. The phone usually tries within"
     say "     seconds of pairing, so leave the head unit running and watch it in"
-    say "     another terminal: tools/wireless-test.sh watch"
+    say "     another terminal: dev/wireless-test.sh watch"
     say ""
     say "Adapter: $(bluetoothctl show | awk -F': ' '/Name:/{print $2; exit}')"
     say "Leave it with: bluetoothctl discoverable off"
@@ -138,11 +138,11 @@ case "${1:-watch}" in
     bluetoothctl connect "$ADDRESS" 2>&1 | tail -1
     say ""
     say "The phone decides within a few seconds. Watch it:"
-    say "  tools/wireless-test.sh watch"
+    say "  dev/wireless-test.sh watch"
     say ""
     say "Nothing at all means the phone is not asking, which is a Bluetooth matter"
     say "rather than a Wi-Fi one: it has most likely not been paired since this"
-    say "machine started advertising the service. Try: tools/wireless-test.sh pair"
+    say "machine started advertising the service. Try: dev/wireless-test.sh pair"
     ;;
 
   watch)
@@ -161,7 +161,7 @@ case "${1:-watch}" in
       say ""
     fi
     say "Stuck at 1 for more than a minute is the phone not deciding this is a car."
-    say "  Try: tools/wireless-test.sh pair, with the head unit left running."
+    say "  Try: dev/wireless-test.sh pair, with the head unit left running."
     say "Stuck at 4 is a Wi-Fi problem at the phone's end. Its hotspot is the usual"
     say "  culprit: a phone that is tethering cannot join an access point."
     say ""

@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// Linux implementation of the `android_auto` plugin.
 ///
 /// Links the native head unit core, which is built on aasdk and is therefore
-/// GPL-3.0-or-later. See `docs/research.md` for what that means for host apps.
+/// GPL-3.0-or-later, and so is any application that ships it. The repository `README.md`
+/// has the full licence position.
 library;
 
 import 'dart:async';
@@ -181,7 +183,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     final headUnitName = config.headUnitName.toNativeUtf8();
     final carModel = config.carModel.toNativeUtf8();
     final carYear = config.carYear.toNativeUtf8();
-    final certificatePath = config.certificatePath?.toNativeUtf8();
     try {
       native.ref
         ..width = config.width
@@ -191,7 +192,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..head_unit_name = headUnitName.cast()
         ..car_model = carModel.cast()
         ..car_year = carYear.cast()
-        ..certificate_path = certificatePath?.cast() ?? nullptr
         ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit)
         ..metadata = config.metadata.fold(0, (mask, kind) => mask | kind.bit)
         ..transports = config.transports.fold(0, (mask, one) => mask | one.bit);
@@ -213,9 +213,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..free(headUnitName)
         ..free(carModel)
         ..free(carYear);
-      if (certificatePath != null) {
-        calloc.free(certificatePath);
-      }
     }
   }
 
@@ -288,7 +285,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     }
     // Allocated and freed per report rather than kept in a reusable scratch buffer.
     // A drag produces one of these per pointer event, so at most a few hundred a
-    // second, and calloc costs far less than the USB round trip that follows.
+    // second, and calloc costs far less than the round trip that follows.
     final points = calloc<AaTouchPoint>(pointers.length);
     try {
       for (var i = 0; i < pointers.length; i++) {

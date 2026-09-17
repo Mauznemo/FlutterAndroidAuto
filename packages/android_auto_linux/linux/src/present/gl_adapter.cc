@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "gl_adapter.h"
 
 #include <drm/drm_fourcc.h>

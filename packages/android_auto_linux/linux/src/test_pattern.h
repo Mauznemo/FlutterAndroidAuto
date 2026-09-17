@@ -1,9 +1,14 @@
-// Milestone M2 only: drives the video path without a phone.
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Drives the video path from a generated pattern instead of a phone.
 //
-// It exists to prove the whole chain (producer thread, FrameRing, present adapter,
-// Flutter Texture, widgets composited on top) before any Android Auto protocol work
-// starts, so that when M4 plugs a real H.264 decoder into the same FrameRing the only
-// new variable is the decoder. Delete it once M4 is done.
+// Built first, as a way to prove the whole chain (producer thread, FrameRing, present
+// adapter, Flutter Texture, widgets composited on top) with no protocol involved, so
+// that plugging in a real H.264 decoder left the decoder as the only new variable.
+//
+// It is supported API rather than scaffolding: `aa_session_start_test_pattern` and its
+// Dart counterparts let a host app lay an overlay out with no phone and no cable, and
+// it is still the quickest way to tell a video problem from a presentation one, since
+// the real decoder publishes into the same ring.
 
 #ifndef ANDROID_AUTO_LINUX_TEST_PATTERN_H_
 #define ANDROID_AUTO_LINUX_TEST_PATTERN_H_

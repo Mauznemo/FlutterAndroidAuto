@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The three audio streams a head unit plays, and the threads that play them.
 //
 // Android Auto sends media, system and speech as three separate PCM streams and leaves
@@ -6,7 +7,7 @@
 // different channels heading for different speakers. So the ducking lives here.
 //
 // One writer thread per stream, because PcmSink::Write blocks until the server takes
-// the samples and blocking an io_context thread stalls the USB transport. Submit() is
+// the samples and blocking an io_context thread stalls the transport. Submit() is
 // the seam: it is called from an io thread, copies, and returns at once.
 //
 // This outlives a connection, the way the video decoder does. Volume, mute and the

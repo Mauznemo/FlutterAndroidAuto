@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The three MEDIA_SINK audio channels: media, system and speech.
 //
 // The exchange is the same on all three, and the same one video runs:
@@ -16,9 +17,6 @@
 // Everything here runs on the io_context, and nothing here blocks. The moment a buffer
 // is handed to AudioOutput it is acknowledged, which lets the phone send the next one;
 // the pacing is done by the writer threads instead, where waiting is free.
-//
-// These channels used to live in support_channels.cc, answering and discarding. That is
-// what M6 replaced.
 
 #ifndef ANDROID_AUTO_LINUX_SESSION_AUDIO_CHANNELS_H_
 #define ANDROID_AUTO_LINUX_SESSION_AUDIO_CHANNELS_H_

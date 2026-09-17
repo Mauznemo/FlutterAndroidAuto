@@ -2,9 +2,9 @@
 # Record what the phone actually does over Bluetooth during a wireless Android Auto
 # attempt, so a failed attempt leaves evidence instead of a shrug.
 #
-#   tools/wireless-capture.sh start [ssid] [passphrase]
-#   tools/wireless-capture.sh stop
-#   tools/wireless-capture.sh report
+#   dev/wireless-capture.sh start [ssid] [passphrase]
+#   dev/wireless-capture.sh stop
+#   dev/wireless-capture.sh report
 #
 # The head unit's own log can only show what reached it. When nothing does, the
 # question is whether the phone asked at all, what it asked for, and who said no, and
@@ -28,6 +28,28 @@ AAW_UUID_SHORT="4de17a00"
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s ==\n' "$*"; }
 
+# btmon and tcpdump both need root, and both are started backgrounded with their output
+# redirected. Backgrounded sudo cannot ask for a password: it writes its error into the
+# redirect and exits, so the capture silently never happens and `report` later says the
+# phone did nothing. Ask once, up front, where there is still a terminal to ask on.
+require_sudo() {
+  local why="$1"
+  if ! command -v sudo >/dev/null; then
+    say "sudo is not installed, and root is needed to $why."
+    exit 1
+  fi
+  sudo -n true 2>/dev/null && return 0
+  if [ -t 0 ]; then
+    say "Root is needed to $why."
+    sudo -v && return 0
+    say "Could not get root, so there is nothing to record with."
+    exit 1
+  fi
+  say "Root is needed to $why, and there is no terminal to ask for a password on."
+  say "  Run 'sudo -v' first, then this again."
+  exit 1
+}
+
 case "${1:-report}" in
   start)
     step "Recording Bluetooth"
@@ -35,7 +57,8 @@ case "${1:-report}" in
       say "Already recording. Stop it first."
       exit 1
     fi
-    # Needs root to open the monitor socket. sudo is passwordless on this machine.
+    # btmon needs root to open the monitor socket, and tcpdump to open the interface.
+    require_sudo "run btmon and tcpdump"
     sudo setsid stdbuf -oL btmon -w "$SNOOP" >"$TEXT" 2>&1 &
     sleep 1
     pgrep -x btmon | head -1 > "$PIDFILE"
@@ -61,24 +84,25 @@ case "${1:-report}" in
       say "  sudo apt install tcpdump"
     fi
 
-    "$REPO/tools/wireless-test.sh" up "${2:-HeadUnit}" "${3:-headunit1234}" || exit 1
+    "$REPO/dev/wireless-test.sh" up "${2:-HeadUnit}" "${3:-headunit1234}" || exit 1
 
     say ""
     step "Now, in this order"
     say "  1. Turn the phone's hotspot OFF."
-    say "  2. tools/wireless-test.sh nudge"
+    say "  2. dev/wireless-test.sh nudge"
     say "  3. Wait a full minute, watching the phone for any Android Auto notice."
-    say "  4. If nothing, re-pair: tools/wireless-test.sh pair"
+    say "  4. If nothing, re-pair: dev/wireless-test.sh pair"
     say "  5. Wait another minute."
-    say "  6. tools/wireless-capture.sh stop"
+    say "  6. dev/wireless-capture.sh stop"
     say ""
     say "Then put the network back and the capture can be read at leisure:"
-    say "  tools/wireless-test.sh down"
-    say "  tools/wireless-capture.sh report"
+    say "  dev/wireless-test.sh down"
+    say "  dev/wireless-capture.sh report"
     ;;
 
   stop)
     step "Stopping the recording"
+    require_sudo "kill the capture processes, which are running as root"
     if [ -f "$PIDFILE" ]; then
       sudo kill "$(cat "$PIDFILE")" 2>/dev/null
       rm -f "$PIDFILE"
@@ -95,11 +119,11 @@ case "${1:-report}" in
     rm -f "$PCAPPID"
     sleep 1
     say "Captured $(wc -l < "$TEXT" 2>/dev/null || echo 0) lines into $TEXT"
-    say "Read it with: tools/wireless-capture.sh report"
+    say "Read it with: dev/wireless-capture.sh report"
     ;;
 
   report)
-    [ -s "$TEXT" ] || { say "No capture at $TEXT. Run: tools/wireless-capture.sh start"; exit 1; }
+    [ -s "$TEXT" ] || { say "No capture at $TEXT. Run: dev/wireless-capture.sh start"; exit 1; }
     step "What the phone asked for"
     say ""
     say "-- SDP: did the phone go looking for services at all --"
@@ -124,6 +148,10 @@ case "${1:-report}" in
     say ""
     step "The Wi-Fi side: did the phone ever dial in"
     if [ -s "$PCAP" ]; then
+      # tcpdump wrote the file as root, so reading it needs root too. Without this the
+      # reads below print nothing and the report concludes the phone never dialled in,
+      # which is a wrong answer rather than a missing one.
+      require_sudo "read $PCAP, which tcpdump wrote as root"
       say ""
       say "-- anything to or from port 5288 --"
       sudo tcpdump -r "$PCAP" -n "tcp port 5288" 2>/dev/null | head -20 \

@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The five channels that carry what the phone is doing, rather than what it looks like.
 //
-// This is the point of the whole project. Everything before M9 gets a picture of the
+// This is the point of the whole project. Every other channel gets a picture of the
 // phone's screen onto a texture; these five let the host app draw its own screen from
 // the same information the phone is drawing from. A native turn card, a native now
 // playing bar, a call banner in the car's own typeface, all fed from here.
@@ -77,7 +78,7 @@ class MetadataChannels : public std::enable_shared_from_this<MetadataChannels> {
   // whenever no phone is connected or the host app did not advertise the channel.
   //
   // The answer comes back as a Metadata::kBrowse update, not as a return value: it is
-  // a round trip over USB and everything else in this plugin that waits on the phone
+  // a round trip to the phone and everything else in this plugin that waits on it
   // reports rather than blocks.
   bool Browse(const std::string& path, int32_t start);
 
