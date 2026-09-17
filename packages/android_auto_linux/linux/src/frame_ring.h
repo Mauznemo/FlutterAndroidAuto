@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The seam between "something produced a video frame" and "Flutter shows it".
 //
 // The whole point of this file is that nothing above it names an OpenGL type. Producers

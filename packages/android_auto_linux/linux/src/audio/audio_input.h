@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The microphone, and the thread that reads it.
 //
 // The mirror of AudioOutput, with one rule that AudioOutput does not have and that is

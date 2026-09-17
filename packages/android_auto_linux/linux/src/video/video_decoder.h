@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // H.264 to frames, on a thread of its own.
 //
 // The phone sends Annex-B H.264 over the video channel. This turns it into frames and

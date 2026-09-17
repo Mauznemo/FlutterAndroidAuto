@@ -19,24 +19,38 @@ headers:
 functions:
   include:
     - 'aa_.*'
+# Every type the header declares, listed in full rather than left to be pulled in
+# through the functions that use them. Transitive inclusion works and is why the
+# bindings were complete while these lists were not, but a type nothing references yet
+# would silently fail to generate, and the config should describe the ABI.
 structs:
   include:
-    - 'AaConfig'
     - 'AaSession'
+    - 'AaConfig'
+    - 'AaWirelessConfig'
+    - 'AaLocation'
     - 'AaTouchPoint'
 enums:
   include:
     - 'AaState'
+    - 'AaTransport'
+    - 'AaWifiSecurity'
+    - 'AaAccessPointType'
     - 'AaTouchAction'
     - 'AaAudioStream'
+    - 'AaSensor'
+    - 'AaMetadata'
+    - 'AaDrivingRestriction'
 typedefs:
   include:
     - 'AaEventCallback'
     - 'AaAudioCallback'
+    - 'AaMetadataCallback'
 comments:
   style: any
   length: full
 preamble: |
+  // SPDX-License-Identifier: GPL-3.0-or-later
   // ignore_for_file: always_specify_types, camel_case_types, non_constant_identifier_names
   // ignore_for_file: unused_element, unused_field, public_member_api_docs
   // coverage:ignore-file

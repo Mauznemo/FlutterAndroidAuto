@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Drives the video path from a generated pattern instead of a phone.
 //
 // Built first, as a way to prove the whole chain (producer thread, FrameRing, present

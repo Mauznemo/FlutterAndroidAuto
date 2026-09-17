@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The only file in this project that is allowed to name an OpenGL type.
 //
 // It takes an aa::Frame off the FrameRing and gets it in front of Flutter. Today that

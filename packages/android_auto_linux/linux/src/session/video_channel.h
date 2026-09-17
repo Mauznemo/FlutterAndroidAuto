@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The MEDIA_SINK_VIDEO channel: what the phone talks to when it wants to project.
 //
 // The exchange, in order, and every step waits on the one before:

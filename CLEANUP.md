@@ -17,7 +17,7 @@ was. Sections are being worked in order.
 | C. Tied to this machine or this phone | 9 | medium | done, 2026-09-17 |
 | D. Milestone references | 3 | medium | done, 2026-09-17 |
 | E. Documentation that is stale or wrong | 12 | **high** | done, 2026-09-17 |
-| F. Packaging and structure | 9 | medium | F9 half done in C |
+| F. Packaging and structure | 9 | medium | done, 2026-09-17 |
 | G. Debug surface compiled into release | 4 | medium | not started |
 | H. CLAUDE.md | 8 | low | not started |
 
@@ -141,8 +141,10 @@ whole `--build-deps` run down after the `apt-get update` has already run.
 packages and wrong for `example/`, which is an application: applications commit their
 lockfile so a build is reproducible.
 
-- [x] Negate the pattern for `example/pubspec.lock`. The file is now untracked rather
-      than ignored, so it wants adding in the cleanup commit.
+- [x] Negate the pattern for `example/pubspec.lock`. **Superseded by F10.** The
+      repository became a Dart workspace, which has a single lockfile at the root, so
+      `example/pubspec.lock` no longer exists. `.gitignore` un-ignores `/pubspec.lock`
+      instead, which serves the same purpose for the whole repository.
 
 ---
 
@@ -662,6 +664,12 @@ merely what this machine ships. Three other places have it right:
 
 ## F. Packaging and structure
 
+**Resolved 2026-09-17.** Four decisions taken: everything stays GPL-3.0-or-later and the
+"can be permissive" claims are reworded rather than made true; the packages get their
+`license:` field but keep `publish_to: none` until publishing is actually decided; the
+aasdk patch is applied by CMake at configure time so a clean clone builds; and the
+repository becomes a Dart workspace.
+
 ### F1. The two "permissive" packages are licensed GPL-3.0
 
 All four `LICENSE` files are byte identical GPL-3.0 (`md5 1ebbd3e3...`). Meanwhile:
@@ -674,25 +682,39 @@ The *code separation* permits relicensing. The *licence grant* does not: once th
 outside contributors, relicensing needs every one of them to agree. Right now there are
 none, which makes this the cheapest moment in the project's life to decide.
 
-- [ ] Either put an actual permissive licence on `android_auto` and
+- [x] Either put an actual permissive licence on `android_auto` and
       `android_auto_platform_interface` now, or reword all three claims to say the
-      separation preserves the *option* subject to contributor agreement.
+      separation preserves the *option* subject to contributor agreement. **Reworded, and
+      in one case removed.** All four LICENSE files stay GPL-3.0-or-later. The claims in
+      `docs/architecture.md` and `docs/research.md` now say the split is in the code
+      rather than in the licence grant; the `README.md` paragraph was dropped from the
+      Licence section outright, which answers it the same way. Two more said the same
+      thing and were not listed: the `android_auto_platform_interface` library doc, and
+      the architecture diagram, which labelled both pure Dart packages "permissive"
+      where it meant "no aasdk".
 
 ### F2. Two of seventy one source files carry a licence header
 
 For GPL-3.0 the licence's own instructions ask for a per file notice, and downstream
 consumers of a single file have no way to know its terms.
 
-- [ ] Add SPDX headers (`// SPDX-License-Identifier: GPL-3.0-or-later`) across
-      `packages/*/lib/**` and `packages/android_auto_linux/linux/src/**`.
+- [x] Add SPDX headers (`// SPDX-License-Identifier: GPL-3.0-or-later`) across
+      `packages/*/lib/**` and `packages/android_auto_linux/linux/src/**`. 68 files. Three
+      outside that scope got one too, because the same argument applies: the GTK plugin
+      entry point and its header, and `example/lib/main.dart`. The generated bindings get
+      theirs from `ffigen.yaml`'s preamble, so regenerating keeps it. Flutter's own
+      template runner files under `example/linux/runner/` are left alone.
 
 ### F3. No `license:` field in any pubspec, and `publish_to: none` everywhere
 
 All three packages are unpublishable as configured.
 
-- [ ] Decide whether M11 publishes to pub.dev. If yes, drop `publish_to: none`, add
+- [x] Decide whether M11 publishes to pub.dev. If yes, drop `publish_to: none`, add
       `license:`, and note that pub.dev scores an example, a CHANGELOG and a README,
-      all three of which are currently placeholders (E9, E10, F4).
+      all three of which are currently placeholders (E9, E10, F4). **Prepared but not
+      enabled**: `license: GPL-3.0-or-later` is in all three pubspecs, `publish_to: none`
+      stays with a comment saying why, and the three things pub.dev scores are no longer
+      placeholders (E9, E10 and F4 are all done). Flipping it is a one line change.
 
 ### F4. Package READMEs are three lines and link to `PLAN.md`
 
@@ -703,17 +725,26 @@ repository README with a relative path.
 On pub.dev the package README **is** the landing page, and `../../README.md` does not
 resolve there.
 
-- [ ] Give each package a real README. Drop the `PLAN.md` links.
+- [x] Give each package a real README. Drop the `PLAN.md` links. The links went in D.
+      Each package now has a landing page written for somebody arriving at it cold: what
+      it is, whether they want it or a different one, the GPL consequence stated before
+      anything else, and an absolute repository URL rather than a relative path that
+      does not resolve on pub.dev.
 
 ### F5. API docs point at files that are not in the package
 
 Published packages do not carry the repository's `docs/` directory, so these are dead
 references for anyone consuming from pub.dev:
 
-- [ ] `android_auto.dart:4` and `android_auto_platform_interface.dart:5` point at
+- [x] `android_auto.dart:4` and `android_auto_platform_interface.dart:5` point at
       `docs/architecture.md`
-- [ ] `metadata.dart:785` points at `docs/echo-cancellation.md`
-- [ ] `android_auto_linux.dart:4` points at `docs/research.md`
+- [x] `metadata.dart:785` points at `docs/echo-cancellation.md`
+- [x] `android_auto_linux.dart:4` points at `docs/research.md`
+
+The two that stay are absolute `github.com/.../blob/main/...` links, which resolve from
+pub.dev. The `android_auto_linux.dart` one was already fixed in E, by inlining the
+licence answer it was sending people to look for. The platform interface's pointer at
+`docs/architecture.md` went with F1's rewording of that same sentence.
 
 Either inline the relevant sentence or use an absolute repository URL.
 
@@ -722,9 +753,14 @@ Either inline the relevant sentence or use an absolute repository URL.
 The contract package is meant to be implementation agnostic (its own library doc says
 so), but three doc comments name Linux internals:
 
-- [ ] `android_auto_platform_interface.dart:397` "`AaSensor` in `linux/src/aa_core.h`"
-- [ ] `metadata.dart:63` "`AaMetadata` in `linux/src/aa_core.h`"
-- [ ] `metadata.dart:526` "see the ENUM instrument cluster type in `service_discovery.cc`"
+- [x] `android_auto_platform_interface.dart:397` "`AaSensor` in `linux/src/aa_core.h`"
+- [x] `metadata.dart:63` "`AaMetadata` in `linux/src/aa_core.h`"
+- [x] `metadata.dart:526` "see the ENUM instrument cluster type in `service_discovery.cc`"
+
+The first two now say the order is part of the platform boundary and that
+implementations map it positionally, without naming a file. The third is gone, replaced
+by what the reader actually needs: treat a rendered arrow as a fallback rather than the
+normal case. `AndroidAutoKey` got the same treatment.
 
 The first two are load bearing (the enum order really is part of the FFI boundary) and
 should be reworded to state the constraint without naming the file: "the order is part
@@ -740,7 +776,11 @@ Same class: `AndroidAutoKey`'s doc says "Adding to this list means adding to
 
 Agent instructions cited from shipping source.
 
-- [ ] Restate the rule in place, or point at the header that documents it.
+- [x] Restate the rule in place, or point at the header that documents it. Both: the
+      comment now says what the cycle is and what it costs (a session that never dies
+      never releases the USB interface) and points at `session/usb_context.h`. One more
+      citation of `CLAUDE.md` existed by then, in the example README written during E,
+      and was replaced with the knobs themselves.
 
 ### F8. `ffigen.yaml` include lists are stale
 
@@ -754,9 +794,14 @@ functions that use them, so nothing is broken. But the config no longer describe
 ABI, and a type that is not yet reachable from an included function would silently not
 generate.
 
-- [ ] Bring the lists up to date. Bindings themselves are current and complete,
+- [x] Bring the lists up to date. Bindings themselves are current and complete,
       verified: every `aa_*` function in the header is present in
-      `lib/src/bindings/aa_core_bindings.dart`.
+      `lib/src/bindings/aa_core_bindings.dart`. All thirteen types and all three
+      typedefs are now named explicitly. Regenerating produced real changes: six enums
+      (`AaTransport`, `AaWifiSecurity`, `AaAccessPointType`, `AaSensor`, `AaMetadata`,
+      `AaDrivingRestriction`) and the `AaMetadataCallback` typedef now generate, where
+      before only their inline uses did. `dart analyze` and the build are clean on the
+      result.
 
 ### F9. The build depends on `tools/`, which changes what `tools/` is
 
@@ -777,8 +822,18 @@ somebody who just wants to depend on the package.
       `fake-wireless-phone.py`, `audio-graph.sh`), and separate them. **Done in C**, as
       `tools/` and `dev/`. `setup-dev-machine.sh` counts as shipped: `README.md` tells a
       new user to run it. The second bullet below is still open.
-- [ ] Better: apply the patch from CMake directly, so a clean clone builds with no
-      manual step. Then `build-aasdk.sh` is genuinely optional.
+- [x] Better: apply the patch from CMake directly, so a clean clone builds with no
+      manual step. Then `build-aasdk.sh` is genuinely optional. **Done and verified the
+      hard way**: the submodule was reset to the pinned commit, the build directory
+      cleaned, and the build applied the patch itself and compiled. `git apply` is all
+      or nothing, so a failure leaves the submodule untouched and the message says so,
+      pointing at `tools/port-aasdk.sh reset`. There is a second check for the case
+      where the patch applies but the marker header does not appear, which means the
+      patch and the pinned commit have diverged.
+
+`build-aasdk.sh` keeps its place as the way to build aasdk alone and smoke test the
+port, which is what a CI job should call as a separate check. README, CLAUDE.md and the
+script's own header all say so now.
 
 ### F10. `flutter analyze` at the repository root fails
 
@@ -793,8 +848,21 @@ Each package analyzes clean individually (verified: all four report "No issues f
 Only the root invocation is broken, and that is the obvious thing for a contributor or
 a CI job to run.
 
-- [ ] Add a root workspace pubspec, or a melos setup, or document the per package
-      invocation. M11 lists CI, so this needs settling anyway.
+- [x] Add a root workspace pubspec, or a melos setup, or document the per package
+      invocation. M11 lists CI, so this needs settling anyway. **A Dart pub workspace**,
+      no extra tooling: a root `pubspec.yaml` whose only content is the member list, and
+      `resolution: workspace` in the four members. `flutter analyze` at the root now
+      reports "No issues found" across the whole repository in under two seconds.
+
+Verified, because this moves dependency resolution: each package still analyzes on its
+own, the example still builds, `dev/run-example.sh --bundle` still runs the app, and an
+outside application path-depending on `packages/android_auto` still resolves, pulls in
+the endorsed Linux implementation and analyzes clean.
+
+One knock-on: a workspace has a single lockfile, at the root, so `flutter pub get`
+deleted `example/pubspec.lock`. That supersedes **A6**, whose point was that an
+application commits its lockfile. `.gitignore` now un-ignores `/pubspec.lock` instead,
+and the example's is removed.
 
 ---
 

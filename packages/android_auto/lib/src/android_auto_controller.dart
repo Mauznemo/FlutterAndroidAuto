@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
 
 import 'package:android_auto_platform_interface/android_auto_platform_interface.dart';

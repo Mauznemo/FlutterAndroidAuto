@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "event_bus.h"
 
 #include <cstdlib>

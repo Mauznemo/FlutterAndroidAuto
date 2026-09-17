@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The five channels that carry what the phone is doing, rather than what it looks like.
 //
 // This is the point of the whole project. Every other channel gets a picture of the

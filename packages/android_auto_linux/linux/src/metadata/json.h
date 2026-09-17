@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // A very small JSON writer, for the one thing in this plugin that needs one.
 //
 // The metadata channels carry structured news from the phone to the host app: a turn

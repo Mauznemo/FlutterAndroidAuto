@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // A channel aasdk has a name for but no messages for.
 //
 // The five metadata channels are in aasdk's ChannelId list and four of them have a

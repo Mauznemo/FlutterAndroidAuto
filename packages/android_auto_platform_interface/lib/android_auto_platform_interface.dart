@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// Platform interface for the `android_auto` plugin.
 ///
-/// Contains no native code and no GPL code, so a future permissive implementation
-/// can replace `android_auto_linux` without any host app change. See
-/// `docs/architecture.md`.
+/// Contains no native code and no aasdk derived code, so a future permissive
+/// implementation could replace `android_auto_linux` without any host app change. This
+/// package is itself GPL-3.0-or-later, like the rest of the repository.
 library;
 
 import 'dart:typed_data';
@@ -228,9 +229,10 @@ class AndroidAutoTouchPoint {
 ///
 /// These are the keys advertised during service discovery, which is a promise that the
 /// head unit can produce every one of them rather than a request to receive them. A
-/// phone may bind any of them and route it itself. Adding to this list means adding to
-/// `SupportedKeycodes()` in the Linux implementation as well, otherwise the phone is
-/// sent a key it was never told about.
+/// phone may bind any of them and route it itself. The list is part of the platform
+/// boundary: an implementation advertises exactly these to the phone, so adding an entry
+/// here without teaching every implementation about it means sending a key the phone was
+/// never told the head unit had.
 enum AndroidAutoKey {
   /// Go back one screen.
   back(4),
@@ -393,8 +395,9 @@ class AndroidAutoAudioBuffer {
 /// the entry, so a head unit that offers a fix it cannot supply has taken navigation
 /// away from a phone that was managing without it. Offer what the app can feed.
 ///
-/// The order is part of the FFI boundary: each entry is one bit, in this order, in
-/// `AaSensor` in `linux/src/aa_core.h`.
+/// The order is part of the platform boundary rather than an internal detail: each
+/// entry is one bit, in this order, and implementations map it positionally. Adding an
+/// entry anywhere but the end changes what every existing implementation means.
 enum AndroidAutoSensor {
   /// Whether it is dark outside, which drives the phone's own light and dark theme.
   nightMode,

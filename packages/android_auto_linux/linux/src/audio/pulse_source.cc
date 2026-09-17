@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The PcmSource backend built on libpulse-simple, plus input enumeration on libpulse.
 //
 // The capture half of pulse_sink.cc, and the same reasoning: on most current Linux

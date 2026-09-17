@@ -1,0 +1,24 @@
+# The workspace root. Exists so that `flutter analyze` and `flutter test` work from the
+# repository root, which is the obvious thing for a contributor or a CI job to run, and
+# so that the root analysis_options.yaml can resolve package:flutter_lints.
+#
+# It is not a package anybody depends on and it ships nothing: no lib/, no version, and
+# publish_to: none. Its whole content is the member list below.
+#
+# Each member carries `resolution: workspace`, which is what makes one `flutter pub get`
+# here resolve all four together into a single .dart_tool/package_config.json.
+name: flutter_android_auto_workspace
+description: "Workspace root for the android_auto packages. Not a package in its own right."
+publish_to: none
+
+environment:
+  sdk: ^3.13.3
+
+workspace:
+  - packages/android_auto
+  - packages/android_auto_platform_interface
+  - packages/android_auto_linux
+  - example
+
+dev_dependencies:
+  flutter_lints: ^6.0.0

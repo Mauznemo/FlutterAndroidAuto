@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Drives one connection, from an accessory mode USB device to a projecting phone.
 //
 // The sequence is fixed and every step gates the next:

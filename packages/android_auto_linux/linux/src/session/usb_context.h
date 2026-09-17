@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // One libusb context for the whole process, deliberately never destroyed.
 //
 // This is a considered decision, not laziness, and it replaced three separate crash

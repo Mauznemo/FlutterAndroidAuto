@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Flat C ABI for the Android Auto head unit core.
 //
 // This is the only surface Dart binds to. Everything is either a plain scalar, an

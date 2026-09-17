@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The three audio streams a head unit plays, and the threads that play them.
 //
 // Android Auto sends media, system and speech as three separate PCM streams and leaves

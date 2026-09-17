@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // What this head unit currently believes about the car, and nothing about the protocol.
 //
 // The API agnostic seam for sensors, the same shape as audio/pcm_sink.h: no protobuf

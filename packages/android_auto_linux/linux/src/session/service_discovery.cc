@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "service_discovery.h"
 
 #include <aap_protobuf/service/Service.pb.h>

@@ -50,7 +50,11 @@ from a presentation one.
 
 - `AA_AUTOSTART=1` makes the app press its own Start button, for tests driven from a
   script. That is an example app knob, not a plugin one.
-- The plugin's own environment knobs (`AA_LOG_LEVEL`, `AA_SERVICES`, `AA_TRANSPORTS`
-  and the rest) work here too; the repository `CLAUDE.md` lists them.
+- The plugin reads a few environment knobs, all off unless set, and they work here too.
+  `AA_LOG_LEVEL=DEBUG` turns on aasdk's own protocol log and the service discovery
+  exchange in full, `AA_SERVICES` narrows or widens the advertised channel set without a
+  rebuild, `AA_TRANSPORTS` picks `usb`, `wireless` or both, and
+  `AA_VIDEO_DECODER=software` forces the software decoder to tell a driver problem from
+  a decoder problem.
 - Sensors the app sets survive a stop and start, because a parking brake does not come
   off when a cable is pulled out. Metadata does not, because the music does stop.

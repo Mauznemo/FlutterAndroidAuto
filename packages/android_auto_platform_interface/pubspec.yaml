@@ -2,7 +2,14 @@ name: android_auto_platform_interface
 description: "Common platform interface for the android_auto plugin. Defines the contract every platform implementation has to fulfil."
 version: 0.0.1
 repository: https://github.com/mauznemo/FlutterAndroidAuto
+license: GPL-3.0-or-later
+# publish_to stays until publishing is actually decided: the metadata below is ready,
+# but an accidental `dart pub publish` should not be able to fire.
 publish_to: none
+
+# Resolved as part of the workspace rooted at the repository root, so `flutter pub get`
+# there covers this package too.
+resolution: workspace
 
 environment:
   sdk: ^3.13.3

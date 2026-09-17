@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "metadata_channel.h"
 
 #include <aap_protobuf/service/control/ControlMessageType.pb.h>
@@ -50,9 +51,11 @@ void MetadataChannel::Listen() {
     return;
   }
   auto receive = aasdk::messenger::ReceivePromise::defer(strand_);
-  // shared_from_this, the way every aasdk channel arms its own receive. The cycle
-  // warning in CLAUDE.md is about handing a channel an event handler that owns it; the
-  // decoder this ends up in holds a weak reference for exactly that reason.
+  // shared_from_this, the way every aasdk channel arms its own receive. That is safe
+  // here: the reference cycle to avoid is handing a channel an *event handler* that owns
+  // the channel, which keeps the session alive forever and so never releases the USB
+  // interface. The decoder this ends up in holds a weak reference for exactly that
+  // reason. See session/usb_context.h.
   auto self = shared_from_this();
   receive->then([self](aasdk::messenger::Message::Pointer message) {
                   self->OnMessage(std::move(message));

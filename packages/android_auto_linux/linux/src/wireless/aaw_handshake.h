@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The conversation that happens over Bluetooth before wireless projection can start.
 //
 // Its whole job is to tell the phone two things: which Wi-Fi network to be on, and

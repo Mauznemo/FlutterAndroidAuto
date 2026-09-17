@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The MEDIA_SOURCE_MICROPHONE channel: the head unit's microphone, on its way to the
 // phone's Assistant.
 //

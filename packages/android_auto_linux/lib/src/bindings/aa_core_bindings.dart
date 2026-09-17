@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ignore_for_file: always_specify_types, camel_case_types, non_constant_identifier_names
 // ignore_for_file: unused_element, unused_field, public_member_api_docs
 // coverage:ignore-file
@@ -848,12 +849,7 @@ class AaCoreBindings {
   /// Installs the metadata callback, or clears it with NULL. See AaMetadataCallback.
   int aa_session_set_metadata_callback(
     ffi.Pointer<AaSession> session,
-    ffi.Pointer<
-      ffi.NativeFunction<
-        ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
-      >
-    >
-    on_metadata,
+    AaMetadataCallback on_metadata,
   ) {
     return _aa_session_set_metadata_callback(session, on_metadata);
   }
@@ -861,27 +857,13 @@ class AaCoreBindings {
   late final _aa_session_set_metadata_callbackPtr =
       _lookup<
         ffi.NativeFunction<
-          ffi.Int32 Function(
-            ffi.Pointer<AaSession>,
-            ffi.Pointer<
-              ffi.NativeFunction<
-                ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
-              >
-            >,
-          )
+          ffi.Int32 Function(ffi.Pointer<AaSession>, AaMetadataCallback)
         >
       >('aa_session_set_metadata_callback');
   late final _aa_session_set_metadata_callback =
       _aa_session_set_metadata_callbackPtr
           .asFunction<
-            int Function(
-              ffi.Pointer<AaSession>,
-              ffi.Pointer<
-                ffi.NativeFunction<
-                  ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
-                >
-              >,
-            )
+            int Function(ffi.Pointer<AaSession>, AaMetadataCallback)
           >();
 
   /// The latest of one kind, as the same JSON the callback delivers, or an empty string
@@ -1185,6 +1167,65 @@ enum AaState {
   };
 }
 
+/// How a phone may reach this head unit, one bit each. Mirrored by
+/// AndroidAutoTransport in Dart.
+///
+/// The two are not alternatives and a head unit is normally both: the cable is what a
+/// driver reaches for when the battery is low, and it is also how a phone first learns
+/// that a given car can project. Wireless costs a Bluetooth service and an open TCP
+/// port, and nothing at all until a phone asks.
+enum AaTransport {
+  AA_TRANSPORT_USB(1),
+  AA_TRANSPORT_WIRELESS(2);
+
+  final int value;
+  const AaTransport(this.value);
+
+  static AaTransport fromValue(int value) => switch (value) {
+    1 => AA_TRANSPORT_USB,
+    2 => AA_TRANSPORT_WIRELESS,
+    _ => throw ArgumentError('Unknown value for AaTransport: $value'),
+  };
+}
+
+/// How the Wi-Fi network the phone is told to join is secured, as the protocol's own
+/// WifiSecurityMode. The gaps are deliberate: the numbering is the wire's.
+enum AaWifiSecurity {
+  AA_WIFI_OPEN(1),
+  AA_WIFI_WPA_PERSONAL(4),
+  AA_WIFI_WPA2_PERSONAL(5),
+  AA_WIFI_WPA_WPA2_PERSONAL(6);
+
+  final int value;
+  const AaWifiSecurity(this.value);
+
+  static AaWifiSecurity fromValue(int value) => switch (value) {
+    1 => AA_WIFI_OPEN,
+    4 => AA_WIFI_WPA_PERSONAL,
+    5 => AA_WIFI_WPA2_PERSONAL,
+    6 => AA_WIFI_WPA_WPA2_PERSONAL,
+    _ => throw ArgumentError('Unknown value for AaWifiSecurity: $value'),
+  };
+}
+
+/// Whether the head unit brought the network up for the phone or is merely on one.
+enum AaAccessPointType {
+  /// A network that was already there, which the head unit happens to be joined to.
+  AA_ACCESS_POINT_STATIC(0),
+
+  /// A network this head unit is hosting.
+  AA_ACCESS_POINT_DYNAMIC(1);
+
+  final int value;
+  const AaAccessPointType(this.value);
+
+  static AaAccessPointType fromValue(int value) => switch (value) {
+    0 => AA_ACCESS_POINT_STATIC,
+    1 => AA_ACCESS_POINT_DYNAMIC,
+    _ => throw ArgumentError('Unknown value for AaAccessPointType: $value'),
+  };
+}
+
 /// What a touch report describes, mirrored by AndroidAutoTouchAction in Dart and by
 /// PointerAction on the wire. All three carry Android's own MotionEvent action
 /// constants, so the gaps in the numbering are deliberate.
@@ -1240,6 +1281,101 @@ enum AaAudioStream {
     1 => AA_AUDIO_STREAM_SYSTEM,
     2 => AA_AUDIO_STREAM_SPEECH,
     _ => throw ArgumentError('Unknown value for AaAudioStream: $value'),
+  };
+}
+
+/// Which sensors the head unit tells the phone it has, one bit each. Mirrored by Sensor
+/// in sensors/sensor_state.h and by AndroidAutoSensor in Dart, so the order is part of
+/// the ABI.
+///
+/// Advertising one is a declaration that the car has it, not a feature switch. The phone
+/// subscribes to what is offered and then waits, and for AA_SENSOR_LOCATION it stops
+/// using its own position the moment it sees the entry, so a head unit that offers a
+/// position it cannot supply has taken navigation away from a phone that was managing
+/// without it. Offer what the host app can actually feed.
+enum AaSensor {
+  AA_SENSOR_NIGHT_MODE(1),
+  AA_SENSOR_DRIVING_STATUS(2),
+  AA_SENSOR_LOCATION(4),
+  AA_SENSOR_SPEED(8),
+  AA_SENSOR_RPM(16),
+  AA_SENSOR_FUEL(32),
+  AA_SENSOR_PARKING_BRAKE(64),
+  AA_SENSOR_GEAR(128),
+  AA_SENSOR_COMPASS(256),
+  AA_SENSOR_ENVIRONMENT(512),
+  AA_SENSOR_ODOMETER(1024),
+  AA_SENSOR_TOLL_CARD(2048);
+
+  final int value;
+  const AaSensor(this.value);
+
+  static AaSensor fromValue(int value) => switch (value) {
+    1 => AA_SENSOR_NIGHT_MODE,
+    2 => AA_SENSOR_DRIVING_STATUS,
+    4 => AA_SENSOR_LOCATION,
+    8 => AA_SENSOR_SPEED,
+    16 => AA_SENSOR_RPM,
+    32 => AA_SENSOR_FUEL,
+    64 => AA_SENSOR_PARKING_BRAKE,
+    128 => AA_SENSOR_GEAR,
+    256 => AA_SENSOR_COMPASS,
+    512 => AA_SENSOR_ENVIRONMENT,
+    1024 => AA_SENSOR_ODOMETER,
+    2048 => AA_SENSOR_TOLL_CARD,
+    _ => throw ArgumentError('Unknown value for AaSensor: $value'),
+  };
+}
+
+/// What the phone tells the head unit about itself, one channel each. Mirrored by
+/// Metadata in metadata/metadata_state.h and by AndroidAutoMetadata in Dart, both as an
+/// index and as the bit `1 << index`, so the order is part of the ABI.
+///
+/// The mirror image of AaSensor: those are what the head unit tells the phone about the
+/// car, these are what the phone tells the head unit about itself. Advertising one
+/// promises nothing, unlike a sensor. A phone pushes what it has and a head unit that
+/// ignores it simply draws no turn card.
+enum AaMetadata {
+  AA_METADATA_NAVIGATION(0),
+  AA_METADATA_MEDIA(1),
+  AA_METADATA_PHONE(2),
+  AA_METADATA_NOTIFICATION(3),
+  AA_METADATA_BROWSE(4);
+
+  final int value;
+  const AaMetadata(this.value);
+
+  static AaMetadata fromValue(int value) => switch (value) {
+    0 => AA_METADATA_NAVIGATION,
+    1 => AA_METADATA_MEDIA,
+    2 => AA_METADATA_PHONE,
+    3 => AA_METADATA_NOTIFICATION,
+    4 => AA_METADATA_BROWSE,
+    _ => throw ArgumentError('Unknown value for AaMetadata: $value'),
+  };
+}
+
+/// What the car forbids while it is moving, as the protocol's DrivingStatus bits. They
+/// combine: a parked car sets none of them.
+enum AaDrivingRestriction {
+  AA_DRIVING_UNRESTRICTED(0),
+  AA_DRIVING_NO_VIDEO(1),
+  AA_DRIVING_NO_KEYBOARD(2),
+  AA_DRIVING_NO_VOICE(4),
+  AA_DRIVING_NO_CONFIG(8),
+  AA_DRIVING_LIMIT_MESSAGE_LENGTH(16);
+
+  final int value;
+  const AaDrivingRestriction(this.value);
+
+  static AaDrivingRestriction fromValue(int value) => switch (value) {
+    0 => AA_DRIVING_UNRESTRICTED,
+    1 => AA_DRIVING_NO_VIDEO,
+    2 => AA_DRIVING_NO_KEYBOARD,
+    4 => AA_DRIVING_NO_VOICE,
+    8 => AA_DRIVING_NO_CONFIG,
+    16 => AA_DRIVING_LIMIT_MESSAGE_LENGTH,
+    _ => throw ArgumentError('Unknown value for AaDrivingRestriction: $value'),
   };
 }
 
@@ -1397,5 +1533,26 @@ typedef AaAudioCallback =
           ffi.Int32 sample_rate,
           ffi.Int32 channels,
         )
+      >
+    >;
+
+/// Called when the phone says something about itself: a turn coming up, a track
+/// starting, a call arriving, a notification, or the answer to a browse request.
+///
+/// `kind` is an AaMetadata. `json` is a UTF-8 JSON object, heap allocated by the core,
+/// and ownership passes to the callee, which must hand it back to aa_string_free once it
+/// has been copied into Dart. Invoked from an io_context thread, so the Dart side must
+/// use a NativeCallable.listener.
+///
+/// JSON rather than a struct per kind because the shapes are deep and they are the one
+/// thing here the protocol is likely to add to: a turn carries a lane diagram and a list
+/// of destinations, a call list has a call per entry with a photo in it. A field the
+/// phone did not send is absent from the object rather than present and zero, for the
+/// reason the sensors document at length. Pictures are base64 of whatever image format
+/// the phone chose.
+typedef AaMetadataCallback =
+    ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(ffi.Int32 kind, ffi.Pointer<ffi.Char> json)
       >
     >;

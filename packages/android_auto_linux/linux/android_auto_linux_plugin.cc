@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "include/android_auto_linux/android_auto_linux_plugin.h"
 
 #include <flutter_linux/flutter_linux.h>

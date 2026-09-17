@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The PcmSink backend built on libpulse-simple, plus device enumeration on libpulse.
 //
 // On most current Linux systems PulseAudio is PipeWire answering to PulseAudio's API,

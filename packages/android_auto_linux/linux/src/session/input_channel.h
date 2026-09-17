@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The INPUT_SOURCE channel: how the head unit tells the phone it was touched.
 //
 // This is the only channel that flows the other way. Video, audio and sensors are

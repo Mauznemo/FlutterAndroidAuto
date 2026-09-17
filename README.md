@@ -82,8 +82,13 @@ tools/                                what anyone cloning this needs
   install-echo-cancel.sh              the echo canceller a hands free call needs
   wireless-ap.sh                      bring this machine up as the access point
 dev/                                  the author's own machine tooling, not shipped
+pubspec.yaml                          workspace root, not a package
 PLAN.md                               how it was built, milestone by milestone
 ```
+
+The three packages and the example are one Dart workspace, so `flutter pub get`,
+`flutter analyze` and `flutter test` all work from the repository root and there is a
+single `pubspec.lock`.
 
 `dev/` is not part of the plugin: it drives one KDE-on-Wayland laptop with one paired
 phone, and the project builds and runs without it. See [`dev/README.md`](dev/README.md).
@@ -112,14 +117,17 @@ To build the repository itself, on Ubuntu or Debian:
 ```bash
 git submodule update --init --recursive
 tools/setup-dev-machine.sh --build-deps --udev
-tools/build-aasdk.sh
 cd example && flutter run -d linux
 ```
 
-`build-aasdk.sh` is not optional: the vendored aasdk does not compile unpatched against
-a current Boost, and the plugin's CMake refuses to build until it has been run. `--udev`
-installs the rule that lets a normal user open a phone in accessory mode, without which
-projection needs root.
+The vendored aasdk does not compile unpatched against Boost 1.87 or newer, but that is
+not a step to remember: the plugin's CMake applies the patch itself at configure time,
+and refuses with a readable message if it cannot. `tools/build-aasdk.sh` builds aasdk on
+its own and runs a smoke test against it, which is useful when the port is what is in
+question and unnecessary otherwise.
+
+`--udev` installs the rule that lets a normal user open a phone in accessory mode,
+without which projection needs root.
 
 ## Licence
 
@@ -127,10 +135,6 @@ projection needs root.
 
 The Linux implementation links [`aasdk`](https://github.com/opencardev/aasdk), which is
 GPL-3.0-or-later, so any application shipping this plugin is GPL-3.0-or-later too.
-
-`android_auto` and `android_auto_platform_interface` contain no aasdk derived code. That
-is deliberate: if a permissively licensed protocol implementation ever appears, those two
-packages can be relicensed without untangling anything.
 
 The bundled head unit certificate is the publicly known Google Automotive Link
 certificate that every open source Android Auto implementation uses. aasdk compiles it

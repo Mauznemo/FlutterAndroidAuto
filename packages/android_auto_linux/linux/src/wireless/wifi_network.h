@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // What network the head unit is going to tell the phone to use.
 //
 // The Bluetooth handshake hands the phone an SSID, a passphrase, a BSSID and an

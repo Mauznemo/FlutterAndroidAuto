@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// Linux implementation of the `android_auto` plugin.
 ///
 /// Links the native head unit core, which is built on aasdk and is therefore

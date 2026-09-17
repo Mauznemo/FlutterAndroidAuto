@@ -161,9 +161,12 @@ and the infotainment app this is built for is GPL-3.0 anyway.
 The federated package split still matters, for future optionality rather than for
 licensing today:
 
-- `android_auto_platform_interface` - pure Dart, no aasdk, can be permissive
-- `android_auto` - pure Dart, no aasdk, can be permissive
+- `android_auto_platform_interface` - pure Dart, no aasdk, could be permissive
+- `android_auto` - pure Dart, no aasdk, could be permissive
 - `android_auto_linux` - links aasdk, **must be GPL-3.0-or-later**
+
+All three are GPL-3.0-or-later as shipped. "Could be" means the code permits it, not
+that the licence has been granted.
 
 An app that depends on `android_auto` and therefore pulls in `android_auto_linux` is
 subject to GPL-3.0. The README says so plainly.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The three MEDIA_SINK audio channels: media, system and speech.
 //
 // The exchange is the same on all three, and the same one video runs:

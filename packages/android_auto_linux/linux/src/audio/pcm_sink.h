@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Where PCM goes once it has been unwrapped from the protocol.
 //
 // The API agnostic seam for audio, the same idea as frame_ring.h is for video: nothing

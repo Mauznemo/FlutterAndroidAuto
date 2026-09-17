@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Holds the Flutter objects that only the GTK plugin entry point can hand us.
 //
 // A pure FFI plugin never gets an FlPluginRegistrar, and without one there is no

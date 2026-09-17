@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// Embed an Android Auto head unit inside a Flutter app.
 ///
 /// The projected phone screen is rendered into a Flutter [Texture], so ordinary
-/// widgets can be composited on top of it. See `docs/architecture.md`.
+/// widgets can be composited on top of it. How the pieces fit together is written up in
+/// [docs/architecture.md](https://github.com/mauznemo/FlutterAndroidAuto/blob/main/docs/architecture.md).
 library;
 
 export 'package:android_auto_platform_interface/android_auto_platform_interface.dart'

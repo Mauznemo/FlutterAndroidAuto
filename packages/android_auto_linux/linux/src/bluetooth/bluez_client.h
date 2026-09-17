@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The only file that talks to BlueZ, and the only one that names a D-Bus type.
 //
 // Wireless Android Auto starts over Bluetooth: the head unit advertises an RFCOMM

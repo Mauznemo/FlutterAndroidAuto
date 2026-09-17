@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// What the phone tells the head unit about itself.
 ///
 /// The mirror image of the sensors: those are the car describing itself to the phone,
@@ -59,8 +60,9 @@ List<Map<String, dynamic>> _objects(Map<String, dynamic> json, String key) {
 /// Unlike a sensor that is not a promise of anything: the phone pushes what it has and
 /// a head unit that never reads it is simply a head unit with no turn card.
 ///
-/// The order is part of the FFI boundary: each entry is one bit, in this order, in
-/// `AaMetadata` in `linux/src/aa_core.h`.
+/// The order is part of the platform boundary rather than an internal detail: each
+/// entry is one bit, in this order, and implementations map it positionally. Adding an
+/// entry anywhere but the end changes what every existing implementation means.
 enum AndroidAutoMetadata {
   /// Turn by turn guidance: the next maneuver, its distance, the lanes, the
   /// destination.
@@ -523,7 +525,7 @@ class AndroidAutoNavigation {
   ///
   /// Only older phones do. A phone on the current protocol describes the maneuver
   /// instead and leaves the drawing to the head unit, which is what this plugin asks
-  /// for: see the ENUM instrument cluster type in `service_discovery.cc`.
+  /// for, so treat this as a fallback rather than the normal case.
   final Uint8List? maneuverImage;
 
   /// Creates a navigation snapshot.
@@ -782,7 +784,9 @@ class AndroidAutoCall {
 ///
 /// Read only, deliberately. A call's audio never touches the projection link: it goes
 /// over Bluetooth hands free, with this machine as the hands free unit, and answering or
-/// hanging up belongs there rather than here. See `docs/echo-cancellation.md`.
+/// hanging up belongs there rather than here. A head unit carrying calls also has to
+/// cancel its own echo, or it sends the far end back to itself: see
+/// [docs/echo-cancellation.md](https://github.com/mauznemo/FlutterAndroidAuto/blob/main/docs/echo-cancellation.md).
 class AndroidAutoPhoneStatus {
   /// Every call the phone has. Usually none or one; two while one is on hold.
   final List<AndroidAutoCall> calls;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "audio_channels.h"
 
 #include <aasdk/Common/Log.hpp>

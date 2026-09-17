@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Builds the ServiceDiscoveryResponse: the head unit's description of itself.
 //
 // This is the single most consequential message in the protocol. The phone reads it

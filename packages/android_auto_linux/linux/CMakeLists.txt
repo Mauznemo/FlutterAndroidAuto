@@ -134,19 +134,48 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GIO)
 # === aasdk ===
 #
 # Vendored as a submodule and patched, see docs/aasdk-port-notes.md. It does not build
-# unpatched against Boost 1.87 or newer. tools/build-aasdk.sh applies the patch; this
-# build fails with a clear message rather than a wall of compiler errors if it has not
-# been run.
+# unpatched against Boost 1.87 or newer, so the patch is applied here, at configure time,
+# rather than being a manual step a fresh clone has to know about.
 set(AASDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/aasdk")
+set(AASDK_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/0001-port-to-boost-asio-io_context.patch")
+# Created by the patch, so its presence is the same question as "is this patched".
+set(AASDK_PATCH_MARKER "${AASDK_DIR}/include/aasdk/Common/Strand.hpp")
+
 if(NOT EXISTS "${AASDK_DIR}/CMakeLists.txt")
   message(FATAL_ERROR
     "The aasdk submodule is missing. Run:\n"
     "  git submodule update --init --recursive")
 endif()
-if(NOT EXISTS "${AASDK_DIR}/include/aasdk/Common/Strand.hpp")
-  message(FATAL_ERROR
-    "aasdk is not patched and will not build against this Boost. Run:\n"
-    "  tools/build-aasdk.sh")
+
+if(NOT EXISTS "${AASDK_PATCH_MARKER}")
+  find_program(AA_GIT_EXECUTABLE NAMES git)
+  if(NOT AA_GIT_EXECUTABLE)
+    message(FATAL_ERROR
+      "aasdk needs patching before it will build against Boost 1.87 or newer, and git "
+      "was not found to apply the patch with. Install git, or apply it by hand:\n"
+      "  git -C ${AASDK_DIR} apply ${AASDK_PATCH}")
+  endif()
+  message(STATUS "Applying the aasdk io_context port")
+  # git apply is all or nothing, so a failure here leaves the submodule as it was and the
+  # message can say so without qualification. The usual cause is a submodule someone has
+  # already edited by hand.
+  execute_process(
+    COMMAND "${AA_GIT_EXECUTABLE}" -C "${AASDK_DIR}" apply "${AASDK_PATCH}"
+    RESULT_VARIABLE AA_PATCH_RESULT
+    ERROR_VARIABLE AA_PATCH_ERROR)
+  if(NOT AA_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+      "Could not apply the aasdk port patch. Nothing was changed.\n"
+      "git said: ${AA_PATCH_ERROR}\n"
+      "If the submodule has been edited, reset it and try again:\n"
+      "  tools/port-aasdk.sh reset")
+  endif()
+  if(NOT EXISTS "${AASDK_PATCH_MARKER}")
+    message(FATAL_ERROR
+      "The aasdk patch applied but did not produce ${AASDK_PATCH_MARKER}. The patch and "
+      "the pinned submodule commit have diverged; regenerate it with:\n"
+      "  tools/port-aasdk.sh reset && tools/port-aasdk.sh apply && tools/port-aasdk.sh patch")
+  endif()
 endif()
 
 # aasdk's protobuf subproject uses include(FindProtobuf) rather than find_package, which

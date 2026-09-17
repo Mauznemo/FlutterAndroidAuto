@@ -14,10 +14,10 @@
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ package:android_auto
 ┌───────────────────────────────▼──────────────────────────────────────┐
-│  android_auto                 (app facing, pure Dart, permissive)    │
+│  android_auto                 (app facing, pure Dart, no aasdk)      │
 │    AndroidAutoView, AndroidAutoController                            │
 │                                                                      │
-│  android_auto_platform_interface  (pure Dart, permissive)            │
+│  android_auto_platform_interface  (pure Dart, no aasdk)              │
 │    AndroidAutoPlatform, config and event models                      │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ implements
@@ -166,10 +166,14 @@ Do this in Dart, not native, so the widget's `BoxFit` stays the single source of
 
 ## Package boundaries and licence
 
-`android_auto` and `android_auto_platform_interface` contain no aasdk code and can stay
-permissive. `android_auto_linux` links aasdk and is GPL-3.0-or-later. Keeping the
-interface package free of GPL code means a future permissive implementation can be
-dropped in without changing a line of host app code.
+`android_auto` and `android_auto_platform_interface` contain no aasdk code.
+`android_auto_linux` links aasdk and is GPL-3.0-or-later, and so is every package here
+today: the split is in the code, not in the licence grant.
+
+What it buys is optionality. A future permissive implementation could be dropped in
+without changing a line of host app code, and at that point relicensing the two pure
+Dart packages would be a matter of agreement among their contributors rather than of
+untangling anything.
 
 ## What makes this different from shelling out to the DHU
 

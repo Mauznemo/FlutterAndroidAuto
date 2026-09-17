@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "aa_core.h"
 
 #include <boost/asio.hpp>

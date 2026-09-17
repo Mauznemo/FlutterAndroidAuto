@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Where the microphone's PCM comes from, before it is wrapped in the protocol.
 //
 // The capture seam, and the mirror of pcm_sink.h: nothing above this line names

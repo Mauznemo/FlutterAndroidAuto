@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // What the phone has told this head unit about itself, and nothing about the protocol.
 //
 // The API agnostic seam for metadata, the mirror image of sensors/sensor_state.h: no

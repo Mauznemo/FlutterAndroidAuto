@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The SENSOR channel: what the head unit tells the phone about the car.
 //
 // The exchange is short and the phone drives all of it:
