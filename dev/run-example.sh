@@ -17,9 +17,6 @@
 #
 # There is deliberately no renderer switch. Impeller is the only renderer on Linux as
 # of Flutter 3.47, and --no-enable-impeller is a verified no-op here.
-#
-# The window is placed at a known position and size so screenshot coordinates in
-# dev/ui.sh line up across runs.
 
 set -euo pipefail
 

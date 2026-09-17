@@ -11,7 +11,7 @@
 //
 // Everything here runs on the io_context. The decoding does not: the bytes are copied
 // into the VideoDecoder's queue and handed to its own thread, because a decode on an
-// io_context thread stalls the USB transport and a stalled transport is what makes a
+// io_context thread stalls the transport, and a stalled transport is what makes a
 // phone drop the session.
 
 #ifndef ANDROID_AUTO_LINUX_SESSION_VIDEO_CHANNEL_H_

@@ -938,7 +938,7 @@ class AaCoreBindings {
   /// Asks the phone for one node of its media library. `path` is NULL or empty for the
   /// root and otherwise a path out of a previous answer; `start` is the offset into a long
   /// list. The answer arrives as an AA_METADATA_BROWSE update rather than as a return
-  /// value, because it is a round trip over USB.
+  /// value, because it is a round trip to the phone.
   ///
   /// Returns 0 if the request was queued, -2 when the browser channel is not open, which
   /// is the normal answer whenever no phone is connected or the host app did not advertise

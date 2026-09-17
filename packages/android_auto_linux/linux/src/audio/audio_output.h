@@ -6,7 +6,7 @@
 // different channels heading for different speakers. So the ducking lives here.
 //
 // One writer thread per stream, because PcmSink::Write blocks until the server takes
-// the samples and blocking an io_context thread stalls the USB transport. Submit() is
+// the samples and blocking an io_context thread stalls the transport. Submit() is
 // the seam: it is called from an io thread, copies, and returns at once.
 //
 // This outlives a connection, the way the video decoder does. Volume, mute and the

@@ -42,7 +42,7 @@
 │      └─ MetadataTaps     nav / media / phone status ─> Dart events   │
 │                                                                      │
 │    present/gl_adapter.cc          dmabuf ─> EGLImage ─> FlTextureGL  │
-│    present/vk_adapter.cc          dmabuf ─> VkImage   (when needed)  │
+│    (present/vk_adapter.cc         dmabuf ─> VkImage, not written yet)│
 │    event_bus.cc                   native ─> Dart event queue         │
 │                                                                      │
 │    third_party/aasdk (submodule) + patches/                          │
@@ -87,7 +87,7 @@ H.264 ─> decoder ─> dmabuf fd + DRM format modifier + stride  ┐
                                                               │  present adapter,
    gl_adapter   dmabuf ─> EGLImage ─> FlTextureGL  (today)    │  the only API
    vk_adapter   dmabuf ─> VkImage  ─> whatever the Linux      │  specific code
-                embedder exposes for Vulkan (when it lands)   ┘
+                embedder exposes for Vulkan (not written)     ┘
 ```
 
 Rules that keep this true:
@@ -135,37 +135,21 @@ Handoff rules:
 
 ## The C ABI
 
-The FFI surface is deliberately flat and stable. Sketch, not final:
+The FFI surface is deliberately flat: plain integers, doubles and C strings, with
+anything richer crossing as one JSON string per update. Everything the head unit reports
+back to Dart goes through a single event callback rather than out parameters, so the
+whole thing binds with `ffigen` and no hand written glue.
 
-```c
-typedef struct AaSession AaSession;
+**`packages/android_auto_linux/linux/src/aa_core.h` is the definition**, and it carries
+a doc comment on every function explaining not just what it does but why it is shaped
+that way. A summary here would be a second source of truth that drifts, which is exactly
+what happened to the sketch this section used to hold: by the time anybody read it, every
+function name in it was wrong.
 
-typedef struct {
-  int32_t  width, height, fps, dpi;
-  const char* head_unit_name;
-  const char* car_model;
-  const char* car_year;
-  uint32_t enabled_services;  // bitmask
-} AaConfig;
-
-AaSession* aa_session_create(const AaConfig* cfg, int64_t dart_port);
-void       aa_session_destroy(AaSession*);
-int32_t    aa_session_start(AaSession*);       // begins USB discovery
-int32_t    aa_session_stop(AaSession*);
-
-int64_t    aa_session_texture_id(AaSession*);  // -1 until video is up
-
-void       aa_touch(AaSession*, int32_t action, int32_t pointer_id,
-                    int32_t x, int32_t y);     // x,y in projected pixels
-void       aa_key(AaSession*, int32_t keycode, int32_t down);
-void       aa_set_night_mode(AaSession*, int32_t night);
-void       aa_set_driving_status(AaSession*, int32_t parked);
-void       aa_set_location(AaSession*, double lat, double lon,
-                           double bearing, double speed_mps);
-```
-
-Everything that returns data to Dart goes through the event port instead of out
-parameters, so the ABI stays trivial to bind with `ffigen`.
+Broadly, the header groups into session lifecycle, the texture id, input, audio, the
+microphone, sensors, metadata and wireless. `AaState` in that header and
+`AndroidAutoConnectionState` in the platform interface cross as plain integers, so their
+orders have to stay in step.
 
 ## Coordinate mapping
 

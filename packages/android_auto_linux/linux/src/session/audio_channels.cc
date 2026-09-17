@@ -270,7 +270,7 @@ void AudioChannels::Acknowledge(const Sink& sink) {
   // Sent as soon as the buffer is queued rather than once it has been played. The phone
   // is entitled to kMaxUnacked buffers ahead, AudioOutput's queue is bounded, and the
   // real pacing is the writer thread waiting on the speakers. Acknowledging on playback
-  // instead would put a USB round trip inside the audio clock.
+  // instead would put a round trip to the phone inside the audio clock.
   if (!sink.channel || sink.session_id < 0) {
     return;
   }

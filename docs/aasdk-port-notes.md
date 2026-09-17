@@ -1,8 +1,13 @@
-# Porting aasdk to Ubuntu 26.04
+# Porting aasdk to Boost 1.87 or newer, and CMake 4
 
-What actually broke when building `opencardev/aasdk` (pinned at `9bf6adf`) against
-Boost 1.90, protobuf 3.21.12, OpenSSL 3.5.5, libusb 1.0.29, CMake 4.2.3 and GCC 15.2,
-and what the fix was.
+What actually broke when building `opencardev/aasdk` (pinned at `9bf6adf`) against a
+current toolchain, and what the fix was. The constraints are the two in the title:
+Boost 1.87 removed `io_service`, and CMake 4 dropped compatibility with the very old
+`cmake_minimum_required` the project asks for. Neither is distribution specific, and
+most distributions have crossed both by now.
+
+Verified against Boost 1.90, protobuf 3.21.12, OpenSSL 3.5.5, libusb 1.0.29, CMake 4.2.3
+and GCC 15.2, on Ubuntu 26.04.
 
 The whole port lives in
 `packages/android_auto_linux/linux/patches/0001-port-to-boost-asio-io_context.patch`,

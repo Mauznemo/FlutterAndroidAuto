@@ -28,10 +28,10 @@ namespace {
 // How much audio the server is asked to keep buffered.
 //
 // This is the whole underrun story in one number. Too small and every scheduling hiccup
-// on the way from a USB read to the writer thread is an audible hole; too large and the
-// head unit lags behind what is on the screen. 150 ms is about seven of the phone's
-// media buffers, enough to ride out a stalled io thread, and small enough that a track
-// skip still feels immediate.
+// on the way from a transport read to the writer thread is an audible hole; too large
+// and the head unit lags behind what is on the screen. 150 ms is about seven of the
+// phone's media buffers, enough to ride out a stalled io thread, and small enough that a
+// track skip still feels immediate.
 constexpr int64_t kTargetLatencyUs = 150000;
 
 // Everything this process plays shows up under one name in a volume mixer, with the

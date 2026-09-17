@@ -1170,7 +1170,7 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   ///
   /// [path] is empty for the root and otherwise a path out of a previous answer;
   /// [start] is the offset into a long list. The answer arrives on [browseResults]
-  /// rather than being returned, because it is a round trip over USB.
+  /// rather than being returned, because it is a round trip to the phone.
   ///
   /// Returns false when the browser channel is not open, which is the normal answer
   /// whenever no phone is connected or [AndroidAutoMetadata.browse] is not in

@@ -15,8 +15,8 @@ was. Sections are being worked in order.
 | A. Things that are actually broken | 6 | **high** | done, 2026-09-17 |
 | B. Privileged commands with no error path | 4 | **high** | done, 2026-09-17 |
 | C. Tied to this machine or this phone | 9 | medium | done, 2026-09-17 |
-| D. Milestone references | 3 | medium | done, bar one line left to E1 |
-| E. Documentation that is stale or wrong | 12 | **high** | E4 done in D |
+| D. Milestone references | 3 | medium | done, 2026-09-17 |
+| E. Documentation that is stale or wrong | 12 | **high** | done, 2026-09-17 |
 | F. Packaging and structure | 9 | medium | F9 half done in C |
 | G. Debug surface compiled into release | 4 | medium | not started |
 | H. CLAUDE.md | 8 | low | not started |
@@ -433,10 +433,10 @@ describes the present state instead.
 
 ### D3. In documentation
 
-- [ ] `README.md:13,48`. Line 48 is a plain listing of a file that exists, so it stays.
-      Line 13 makes the reader depend on `PLAN.md` for the project's status, inside the
-      same three lines **E1** rewrites for being false. Left there rather than fixed
-      twice.
+- [x] `README.md:13,48`. Line 48 is a plain listing of a file that exists, so it stays,
+      reworded from "milestones with checkboxes" to what it is for. Line 13 made the
+      reader depend on `PLAN.md` for the project's status, inside the same three lines
+      **E1** rewrites for being false; **E1 fixed it** and the link is gone.
 - [x] `docs/research.md:107` "every channel M3 to M10 needs"
 - [x] `docs/aasdk-port-notes.md:23,108`
 - [x] `docs/wireless.md:4` "`PLAN.md` under M10 has the milestone checklist"
@@ -452,6 +452,12 @@ describes the present state instead.
 
 ## E. Documentation that is stale or wrong
 
+**Resolved 2026-09-17.** Two decisions taken along the way: `docs/research.md` is
+retitled and date-stamped rather than split, so the settled questions have their answers
+written in beside them and nothing is lost; and the CHANGELOGs get one real `0.0.1`
+entry each saying what exists, with the version left alone because nothing has been
+published.
+
 ### E1. The README says the project does not work
 
 **High. This is the first thing anybody reads.**
@@ -464,14 +470,24 @@ describes the present state instead.
 Everything through M10 is done and verified. The README also links to `PLAN.md` as the
 source of truth for status, which is about to be deleted.
 
-- [ ] Rewrite the status block.
-- [ ] The "What it will look like" heading and its future tense should become "Usage".
-      The snippet itself is accurate against the current API.
-- [ ] "Repository layout" omits `docs/echo-cancellation.md`, `docs/wireless.md`,
-      `docs/aasdk-port-notes.md` and eight of the eleven tools.
-- [ ] "Getting started" is two lines, one of which is a dev machine provisioner. An
+- [x] Rewrite the status block. It now says working but unreleased, names what a phone
+      actually does, and says plainly that packaging and ARM64 are outstanding and that
+      one phone model has been tested. That also closes D3's `README.md:13`, which was
+      left for this. The opening paragraph's "Linux first (x86_64 and ARM64)" was a
+      second claim of the same kind and now says ARM64 is intended and unverified.
+- [x] The "What it will look like" heading and its future tense should become "Usage".
+      The snippet itself is accurate against the current API. Done, with a paragraph
+      after it naming what the controller actually offers, and a new "What works" table
+      the status block links to.
+- [x] "Repository layout" omits `docs/echo-cancellation.md`, `docs/wireless.md`,
+      `docs/aasdk-port-notes.md` and eight of the eleven tools. **Done in C**, when the
+      `dev/` split made the block wrong in a second way.
+- [x] "Getting started" is two lines, one of which is a dev machine provisioner. An
       end user needs: add the dependency, the GPL consequence, minimum config, and the
-      fact that `tools/build-aasdk.sh` has to be run before the first build (see F9).
+      fact that `tools/build-aasdk.sh` has to be run before the first build (see F9). All
+      four are there now: a path dependency because nothing is on pub.dev, the GPL
+      consequence stated before anything else, the resolution constraint and the wireless
+      opt-in, and the build steps kept separate as "to build the repository itself".
 
 ### E2. The C ABI section of `docs/architecture.md` is fiction
 
@@ -490,15 +506,20 @@ and every function in it is wrong. Verified against `aa_core.h`:
 
 Nothing in the section survives contact with the header.
 
-- [ ] Delete the section and point at `linux/src/aa_core.h`, which is thoroughly
-      documented and cannot drift from itself.
+- [x] Delete the section and point at `linux/src/aa_core.h`, which is thoroughly
+      documented and cannot drift from itself. Done, with a short paragraph on the shape
+      of the ABI (flat scalars, one event callback, JSON for anything richer) and a note
+      that a summary here would be a second source of truth that drifts, which is what
+      happened last time.
 
 ### E3. `architecture.md` lists a file that does not exist
 
 `docs/architecture.md:45` puts `present/vk_adapter.cc` in the layer diagram with no
 qualifier. Line 89 later says "when it lands", but the diagram reads as inventory.
 
-- [ ] Mark it clearly as not yet present, or take it out of the diagram.
+- [x] Mark it clearly as not yet present, or take it out of the diagram. It is now
+      parenthesised and marked "not written yet" in the inventory, and "(not written)"
+      rather than "(when it lands)" in the seam diagram. Box drawing alignment checked.
 
 ### E4. `test_pattern.h` tells you to delete a public API
 
@@ -530,50 +551,63 @@ The header and the ABI directly contradict each other.
 There is no window placement code in the script, in the example app, or anywhere else.
 `my_application.cc:55` sets a default size of 1280x720 and no position.
 
-- [ ] Delete the comment.
+- [x] Delete the comment. Gone.
 
 ### E6. Three headers reference a file that was deleted
 
 `support_channels.cc` no longer exists. It is cited as history in:
 
-- [ ] `linux/src/session/audio_channels.h:20`
-- [ ] `linux/src/session/sensor_channel.h:28`
-- [ ] `linux/src/session/microphone_channel.h:26`
+- [x] `linux/src/session/audio_channels.h:20`
+- [x] `linux/src/session/sensor_channel.h:28`
+- [x] `linux/src/session/microphone_channel.h:26`
 
 Refactor archaeology that a new reader cannot verify or use.
+
+**Already gone.** All three were removed in D: each sat in the same sentence as a
+milestone number, so the whole clause went with it.
 
 ### E7. `docs/research.md` is a dated log presented as reference
 
 It opens "Everything here was verified on 2026-09-12" and carries open questions that
 have since been answered:
 
-- [ ] `research.md:135` "try `-DSKIP_BUILD_PROTOBUF=ON` first" is settled; both
+- [x] `research.md:135` "try `-DSKIP_BUILD_PROTOBUF=ON` first" is settled; both
       `aasdk-port-notes.md:21` and `linux/CMakeLists.txt:162` confirm it works
-- [ ] `research.md:128` "Escape hatches if this goes badly: pin and build Boost 1.86"
+- [x] `research.md:128` "Escape hatches if this goes badly: pin and build Boost 1.86"
       is moot, the port worked
-- [ ] `research.md:257` "though `vainfo` is not installed yet" is stale
-- [ ] `research.md:265` "Revisit with native libpipewire if latency is not good enough"
+- [x] `research.md:257` "though `vainfo` is not installed yet" is stale
+- [x] `research.md:265` "Revisit with native libpipewire if latency is not good enough"
       reads as an open action item
 
 `packages/android_auto_linux/lib/android_auto_linux.dart:4` points host app authors at
 this file "for what that means for host apps", which sends them into a research log to
 find a licensing answer.
 
-- [ ] Split the settled conclusions out, or retitle the whole file so nobody mistakes
-      it for current guidance.
+- [x] Split the settled conclusions out, or retitle the whole file so nobody mistakes
+      it for current guidance. Retitled "Research notes, written before the work
+      started", opening with a bold line saying it is a dated record and pointing at the
+      four places that are current. Each of the four open questions above now has its
+      answer written in beside it rather than left as an action. And
+      `android_auto_linux.dart:4` no longer sends host app authors here for a licensing
+      answer: it states the GPL consequence itself and points at `README.md`.
 
 ### E8. `aasdk-port-notes.md` is titled for one distribution
 
 "Porting aasdk to Ubuntu 26.04". The fixes apply to any system with Boost 1.87 or newer
 and CMake 4, which is most of them by now.
 
-- [ ] Retitle to the actual constraint. Keep the version table as "verified against".
+- [x] Retitle to the actual constraint. Keep the version table as "verified against".
+      Now "Porting aasdk to Boost 1.87 or newer, and CMake 4", with the two constraints
+      named in the opening and the exact toolchain kept as "verified against".
 
 ### E9. Every CHANGELOG says "Initial scaffolding"
 
 All three packages, at `0.0.1`, after ten milestones.
 
-- [ ] Write real entries before publishing.
+- [x] Write real entries before publishing. One `0.0.1` entry per package, each opening
+      "Not released" and listing what that package actually offers. The version is left
+      at `0.0.1` deliberately: nothing has been published, so there is no history to
+      invent and nothing to bump.
 
 ### E10. `example/README.md` is the Flutter template default
 
@@ -582,7 +616,11 @@ Entire contents: "# android_auto_example / A new Flutter project."
 The example is the best documentation in the repo (1364 lines exercising every channel,
 with the sensor and wireless panels) and its README says nothing about it.
 
-- [ ] Describe what the test bench does and which panels exercise what.
+- [x] Describe what the test bench does and which panels exercise what. Written: what is
+      on screen, a table of the four panels against what each one drives, and the three
+      things worth knowing (`AA_AUTOSTART`, that the plugin's own knobs work here, and
+      that sensors survive a stop while metadata does not). Each panel description was
+      checked against the widget rather than guessed, which corrected two first drafts.
 
 ### E11. "over USB" in seventeen transport-agnostic places
 
@@ -590,9 +628,11 @@ Wireless landed in M10 and the projection link can now be TCP, but the comments 
 name the cable. The user-facing ones matter most, because they tell an app author that
 a call is a USB round trip when it may not be:
 
-- [ ] `android_auto_platform_interface.dart:1173` `browse` doc
-- [ ] `android_auto_controller.dart:421` `browse` doc
-- [ ] `aa_core.h:551` `aa_session_browse` doc
+- [x] `android_auto_platform_interface.dart:1173` `browse` doc
+- [x] `android_auto_controller.dart:421` `browse` doc
+- [x] `aa_core.h:551` `aa_session_browse` doc
+
+All three now say "a round trip to the phone".
 
 Internal ones, lower priority, "the transport" would read correctly for all of them:
 
@@ -601,13 +641,22 @@ Internal ones, lower priority, "the transport" would read correctly for all of t
 `microphone_channel.h:166`, `metadata_channels.h:80`, `audio_channels.cc:273`,
 `android_auto_linux.dart:291`.
 
+- [x] All twelve done, plus `pulse_sink.cc:31` which was not listed.
+
+Four USB mentions are **deliberately left**, because they are about the cable and not
+about the link: `microphone_channel.h:54`, `video_channel.h:44` and `input_channel.h:52`
+all say a session that never dies never releases the USB *interface*, which is a
+libusb fact with no TCP equivalent, and `aa_core.cc:520` is specifically about a phone
+projecting over the cable while its Wi-Fi side is up.
+
 ### E12. `CLAUDE.md` gets the Boost version wrong
 
 `CLAUDE.md:132` "Boost 1.90 removed `io_service`". It was removed in **1.87**; 1.90 is
 merely what this machine ships. Three other places have it right:
 `docs/research.md:114`, `tools/build-aasdk.sh:24`, `linux/CMakeLists.txt:137`.
 
-- [ ] Fix the one that is wrong.
+- [x] Fix the one that is wrong. `CLAUDE.md` now says Boost removed `io_service` in
+      1.87.
 
 ---
 

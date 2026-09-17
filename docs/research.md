@@ -1,7 +1,14 @@
-# Research notes
+# Research notes, written before the work started
 
-Everything here was verified on 2026-09-12 on the dev machine described in
-`dev-environment.md`. Anything not verified is marked as such.
+**This is a dated record, not current guidance.** It is what was found out about the
+Android Auto protocol and the available libraries on **2026-09-12**, on the machine
+described in `dev/dev-environment.md`, and it is kept because the decisions taken here
+are still the ones the code lives with. It has not been re-verified since.
+
+For what is true now: `docs/architecture.md` describes how the pieces actually fit,
+`packages/android_auto_linux/linux/src/aa_core.h` is the API, `docs/aasdk-port-notes.md`
+is what the aasdk port turned out to need, and `README.md` has the licence position.
+Where this file asked an open question, the answer is written in beside it.
 
 ## How Android Auto projection actually works
 
@@ -130,12 +137,15 @@ becomes `strand<...>(io_context.get_executor())`.
 Escape hatches if this goes badly: pin and build Boost 1.86 into the repo, or replace
 Asio entirely with a small epoll reactor behind aasdk's existing IO interfaces.
 
+**Neither was needed.** The type substitution worked, against the system Boost, and the
+whole port is one patch. `docs/aasdk-port-notes.md` has what it took.
+
 ### Other dependency notes
 
 | Dependency | Ubuntu 26.04 version | Comment |
 |---|---|---|
 | Boost | 1.90 | see above |
-| protobuf | 3.21.12 | aasdk's CMake defaults to building protobuf 30.0 itself; try `-DSKIP_BUILD_PROTOBUF=ON` first, the bundled `.proto` files are plain proto2/proto3 and should not need a newer protoc |
+| protobuf | 3.21.12 | aasdk's CMake defaults to building protobuf 30.0 itself. `-DSKIP_BUILD_PROTOBUF=ON` was tried first and works: the bundled `.proto` files are plain proto2/proto3 and the system protoc handles them |
 | OpenSSL | 3.5.5 | fine |
 | libusb | 1.0.29 | fine |
 | Abseil | system | only needed if we build protobuf ourselves |
@@ -255,14 +265,18 @@ texture. Zero copy, which matters on an ARM mini PC.
 Fallback: software `libavcodec` to `YUV420P`, converted to RGBA either by a shader or on
 the CPU into an `FlPixelBufferTexture`.
 
-The dev machine has Intel UHD (Comet Lake) so VA-API is available, though `vainfo` is not
-installed yet.
+The dev machine has Intel UHD (Comet Lake) so VA-API is available. **This is what was
+built**, and the zero copy path measures 0.9 to 1.1 ms wire to frame against 2.9 ms for
+the software fallback.
 
 ### Audio
 
 PipeWire is running with the PulseAudio compatibility layer, so `libpulse-simple` is the
 pragmatic first backend: it works on PipeWire, PulseAudio and on the target mini PC.
-Revisit with native libpipewire if latency is not good enough.
+
+**That is what was built and it has not needed revisiting.** `audio/pcm_sink.h` and
+`audio/pcm_source.h` are the seams a native libpipewire backend would slot into if it
+ever earns its place.
 
 ## Sources
 

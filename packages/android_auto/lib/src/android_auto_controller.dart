@@ -418,7 +418,7 @@ class AndroidAutoController extends ChangeNotifier {
   ///
   /// [path] is empty for the root and otherwise a path out of a previous answer. The
   /// answer arrives on [browseResults] rather than being returned, because it is a
-  /// round trip over USB. Needs [AndroidAutoMetadata.browse] in
+  /// round trip to the phone. Needs [AndroidAutoMetadata.browse] in
   /// [AndroidAutoConfig.metadata].
   bool browse({String path = '', int start = 0}) =>
       _platform.browse(path: path, start: start);

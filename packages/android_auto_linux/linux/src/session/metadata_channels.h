@@ -77,7 +77,7 @@ class MetadataChannels : public std::enable_shared_from_this<MetadataChannels> {
   // whenever no phone is connected or the host app did not advertise the channel.
   //
   // The answer comes back as a Metadata::kBrowse update, not as a return value: it is
-  // a round trip over USB and everything else in this plugin that waits on the phone
+  // a round trip to the phone and everything else in this plugin that waits on it
   // reports rather than blocks.
   bool Browse(const std::string& path, int32_t start);
 

@@ -161,8 +161,8 @@ class MicrophoneChannel : public std::enable_shared_from_this<MicrophoneChannel>
   std::atomic<bool> capturing_{false};
   std::atomic<bool> stopped_{false};
 
-  // Buffers posted but not yet written to USB. This is the backpressure, and it is
-  // counted against the send rather than against the phone's acknowledgements on
+  // Buffers posted but not yet written to the transport. This is the backpressure, and
+  // it is counted against the send rather than against the phone's acknowledgements on
   // purpose: a phone that never acknowledges would otherwise stall the microphone
   // outright, while a link that has stopped moving has to drop something, and for live
   // speech the right thing to drop is the oldest.

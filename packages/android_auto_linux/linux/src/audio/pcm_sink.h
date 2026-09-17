@@ -9,7 +9,7 @@
 // Every method is blocking and none of them is thread safe. A sink belongs to exactly
 // one thread, which is never an io_context thread: Write() waits for the server to take
 // the samples, which is how the head unit is paced to real time, and waiting on an io
-// thread stalls the USB transport. AudioOutput owns that thread.
+// thread stalls the transport. AudioOutput owns that thread.
 
 #ifndef ANDROID_AUTO_LINUX_AUDIO_PCM_SINK_H_
 #define ANDROID_AUTO_LINUX_AUDIO_PCM_SINK_H_
