@@ -1,0 +1,133 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Only one phone model has been tested
+        so far, so the phone and machine details below are often what makes a report
+        solvable rather than a guess.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before reporting
+      options:
+        - label: I searched the existing issues and this is not already reported
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What went wrong, as you saw it.
+      placeholder: The projected screen stays black after the phone connects.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. Include whether it happens every time or now and then.
+      placeholder: |
+        1. Plug the phone in
+        2. Press Start in the example app
+        3. Wait about 10 seconds
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      description: Your best guess is fine.
+      options:
+        - Video
+        - Input (touch, keys, rotary)
+        - Audio out (media, system, speech)
+        - Microphone
+        - Sensors
+        - Metadata (navigation, media, calls)
+        - Connecting over USB
+        - Connecting wirelessly
+        - Building or setting up the project
+        - Example app
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - USB cable
+        - Wireless (Wi-Fi and Bluetooth)
+        - Both
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone
+      description: Model and Android version.
+      placeholder: Pixel 8 Pro, Android 16
+    validations:
+      required: true
+
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      description: Distribution, version and architecture.
+      placeholder: Ubuntu 24.04, x86_64
+    validations:
+      required: true
+
+  - type: input
+    id: flutter
+    attributes:
+      label: Flutter version
+      description: The first line of `flutter --version`.
+      placeholder: Flutter 3.47.4 stable
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version or commit
+      placeholder: 94d8e14
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run with `AA_LOG_LEVEL=DEBUG` and paste the relevant part, including anything
+        just before the failure. This is pasted as a code block, no backticks needed.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, a video of the screen, or anything you already ruled out.
+    validations:
+      required: false

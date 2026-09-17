@@ -1,0 +1,74 @@
+name: Feature request
+description: Suggest something the project should be able to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Good feature requests describe the problem first and the solution second. If you
+        already know how you would build it, say so, but the problem is the part that
+        cannot be guessed.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before requesting
+      options:
+        - label: I searched the existing issues and this is not already requested
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: What are you trying to do, and what stops you today.
+      placeholder: I want to show the phone's media queue in my own UI, but only the current track is exposed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The capability, as you would ask for it. An API sketch is welcome but not required.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Video
+        - Input (touch, keys, rotary)
+        - Audio out (media, system, speech)
+        - Microphone
+        - Sensors
+        - Metadata (navigation, media, calls)
+        - Connecting over USB
+        - Connecting wirelessly
+        - App facing Dart API
+        - Platform support (Android, ARM64, other)
+        - Build, tooling or documentation
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried or considered
+      description: Workarounds you are using now, or approaches you rejected and why.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: help
+    attributes:
+      label: Would you like to work on this
+      options:
+        - "Yes, if someone points me at the right place"
+        - "Maybe, depending on the size"
+        - "No, just suggesting it"
+    validations:
+      required: true
