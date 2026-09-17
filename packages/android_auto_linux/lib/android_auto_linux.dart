@@ -37,6 +37,11 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   bool _audioOutputEnabled = true;
   String _microphoneDevice = '';
 
+  /// Which network to send a phone to, held here for the same reason the audio
+  /// settings are: an app can set it before there is a session, and it has to be
+  /// pushed into each new one.
+  AndroidAutoWirelessConfig? _wireless;
+
   /// What the car is doing, held here for the same reason the audio settings are: a
   /// host app that sets the parking brake before it ever starts a session should not
   /// lose it, and the core only exists from [start] onwards. Replayed into each new
@@ -114,10 +119,27 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  Future<void> initialize(AndroidAutoConfig config) async {
+    _createSession(config);
+    if (_session == nullptr) {
+      return;
+    }
+    // Publish the Bluetooth service and refuse on it, without offering anything.
+    //
+    // A head unit that is switched on and not projecting is the state a head unit is
+    // in most of the time, and it is worth being in deliberately: a phone that knows
+    // this machine as a wireless car asks for the service every five seconds and
+    // shows its driver a notification saying it is connecting for as long as nothing
+    // answers. A no-op unless the config asked for wireless.
+    _bindings.aa_session_decline_wireless(_session);
+  }
+
+  @override
   Future<void> start(AndroidAutoConfig config) async {
     // A stopped session is restarted, not rebuilt. The native side keeps its USB
     // discovery alive across stop and start on purpose, so throwing the session away
-    // here would defeat that.
+    // here would defeat that. The same applies to a session that only exists because
+    // initialize built it.
     if (_session != nullptr) {
       final result = _bindings.aa_session_start(_session);
       if (result != 0) {
@@ -126,6 +148,26 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
           'Could not restart the head unit session (code $result).',
         );
       }
+      return;
+    }
+    _createSession(config);
+    if (_session == nullptr) {
+      return;
+    }
+    final result = _bindings.aa_session_start(_session);
+    if (result != 0) {
+      _emit(
+        AndroidAutoConnectionState.error,
+        'Could not start the head unit session (code $result).',
+      );
+    }
+  }
+
+  /// Builds the native session if there is not one already. Split out because a head
+  /// unit application wants the session to exist from the moment it opens, so that it
+  /// can refuse phones, while still only projecting once it is started.
+  void _createSession(AndroidAutoConfig config) {
+    if (_session != nullptr) {
       return;
     }
 
@@ -151,23 +193,19 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..car_year = carYear.cast()
         ..certificate_path = certificatePath?.cast() ?? nullptr
         ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit)
-        ..metadata = config.metadata.fold(0, (mask, kind) => mask | kind.bit);
+        ..metadata = config.metadata.fold(0, (mask, kind) => mask | kind.bit)
+        ..transports = config.transports.fold(0, (mask, one) => mask | one.bit);
 
       _session = _bindings.aa_session_create(native, _callback!.nativeFunction);
       if (_session == nullptr) {
         _emit(AndroidAutoConnectionState.error, 'Could not create a head unit session.');
         return;
       }
+      _wireless = config.wireless ?? _wireless;
       _applyAudioSettings();
       _applySensorSettings();
+      _applyWirelessSettings();
       _installMetadataListener();
-      final result = _bindings.aa_session_start(_session);
-      if (result != 0) {
-        _emit(
-          AndroidAutoConnectionState.error,
-          'Could not start the head unit session (code $result).',
-        );
-      }
     } finally {
       // The core copies every string during aa_session_create, so they can go now.
       calloc
@@ -347,6 +385,138 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
       );
     }
     return devices;
+  }
+
+  @override
+  Future<List<AndroidAutoBluetoothDevice>> pairedPhones() async {
+    final listing = _bindings.aa_paired_phones();
+    if (listing == nullptr) {
+      return const <AndroidAutoBluetoothDevice>[];
+    }
+    final text = listing.cast<Utf8>().toDartString();
+    _bindings.aa_string_free(listing);
+    final devices = <AndroidAutoBluetoothDevice>[];
+    for (final line in text.split('\n')) {
+      if (line.isEmpty) {
+        continue;
+      }
+      final fields = line.split('\t');
+      if (fields.length < 4) {
+        continue;
+      }
+      devices.add(
+        AndroidAutoBluetoothDevice(
+          address: fields[0],
+          name: fields[1],
+          connected: fields[2] == '1',
+          isPhone: fields[3] == '1',
+        ),
+      );
+    }
+    return devices;
+  }
+
+  @override
+  void setWirelessConfig(AndroidAutoWirelessConfig config) {
+    _wireless = config;
+    _applyWirelessSettings();
+  }
+
+  /// Pushes the held wireless configuration into the core. Called when it changes and
+  /// again for every new session, the same shape as [_applyAudioSettings].
+  void _applyWirelessSettings() {
+    final config = _wireless;
+    if (_session == nullptr || config == null) {
+      return;
+    }
+    final native = calloc<AaWirelessConfig>();
+    final ssid = config.ssid.toNativeUtf8();
+    final passphrase = config.passphrase.toNativeUtf8();
+    final bssid = config.bssid.toNativeUtf8();
+    final interfaceName = config.interfaceName.toNativeUtf8();
+    final ipAddress = config.ipAddress.toNativeUtf8();
+    final phoneAddress = config.phoneAddress.toNativeUtf8();
+    try {
+      native.ref
+        ..ssid = ssid.cast()
+        ..passphrase = passphrase.cast()
+        ..bssid = bssid.cast()
+        ..interface_name = interfaceName.cast()
+        ..ip_address = ipAddress.cast()
+        ..phone_address = phoneAddress.cast()
+        ..port = config.port
+        ..security = config.security.value
+        ..access_point = config.accessPoint.value;
+      _bindings.aa_session_set_wireless_config(_session, native);
+    } finally {
+      // The core copies every string, so they can go as soon as the call returns.
+      calloc
+        ..free(native)
+        ..free(ssid)
+        ..free(passphrase)
+        ..free(bssid)
+        ..free(interfaceName)
+        ..free(ipAddress)
+        ..free(phoneAddress);
+    }
+  }
+
+  @override
+  Future<void> startWireless() async {
+    if (_session == nullptr) {
+      _emit(
+        AndroidAutoConnectionState.error,
+        'Start the head unit session before turning wireless on.',
+      );
+      return;
+    }
+    _applyWirelessSettings();
+    // A failure has already gone out through the event callback with the reason in
+    // it, which is more use than a code here would be.
+    _bindings.aa_session_start_wireless(_session);
+  }
+
+  @override
+  Future<void> stopWireless() async {
+    if (_session == nullptr) {
+      return;
+    }
+    _bindings.aa_session_stop_wireless(_session);
+  }
+
+  @override
+  bool get wirelessActive => _session == nullptr
+      ? false
+      : _bindings.aa_session_wireless_active(_session) == 1;
+
+  @override
+  AndroidAutoWirelessStatus? get wirelessStatus {
+    if (_session == nullptr) {
+      return null;
+    }
+    final line = _bindings.aa_session_wireless_summary(_session);
+    if (line == nullptr) {
+      return null;
+    }
+    final text = line.cast<Utf8>().toDartString();
+    _bindings.aa_string_free(line);
+    if (text.isEmpty) {
+      return null;
+    }
+    final fields = text.split('\t');
+    if (fields.length < 8) {
+      return null;
+    }
+    return AndroidAutoWirelessStatus(
+      interfaceName: fields[0],
+      ssid: fields[1],
+      bssid: fields[2],
+      ipAddress: fields[3],
+      port: int.tryParse(fields[4]) ?? 0,
+      hosting: fields[5] == '1',
+      bluetoothReady: fields[6] == '1',
+      phoneLinked: fields[7] == '1',
+    );
   }
 
   @override

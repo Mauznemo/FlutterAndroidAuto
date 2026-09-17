@@ -25,12 +25,14 @@
 #include "frame_ring.h"
 #include "metadata/metadata_state.h"
 #include "present/gl_adapter.h"
+#include "bluetooth/bluez_client.h"
 #include "sensors/sensor_state.h"
 #include "session/input_channel.h"
 #include "session/metadata_channels.h"
 #include "session/protocol_session.h"
 #include "session/service_discovery.h"
 #include "session/usb_connector.h"
+#include "session/wireless_connector.h"
 #include "test_pattern.h"
 #include "video/video_decoder.h"
 
@@ -132,6 +134,56 @@ void ApplyServiceOverride(aa::HeadUnitDescription* description) {
   description->metadata = metadata;
 }
 
+// Narrows or widens the transports, from AA_TRANSPORTS in the environment.
+//
+// The same idea as AA_SERVICES and for the same reason: a wireless connection cannot
+// be tested while the cable is plugged in, because the phone projects over the cable
+// and the head unit will not replace a working session with an offered one. Unplugging
+// is not always possible, and on this machine the USB port is the flaky part.
+//
+//   AA_TRANSPORTS=wireless          radio only, ignore anything on the cable
+//   AA_TRANSPORTS=usb,wireless      both
+//
+// Unset leaves whatever the host app asked for.
+int32_t ApplyTransportOverride(int32_t transports) {
+  const char* value = std::getenv("AA_TRANSPORTS");
+  if (value == nullptr || *value == '\0') {
+    return transports;
+  }
+  const std::string list(value);
+  int32_t mask = 0;
+  if (list.find("usb") != std::string::npos) {
+    mask |= AA_TRANSPORT_USB;
+  }
+  if (list.find("wireless") != std::string::npos) {
+    mask |= AA_TRANSPORT_WIRELESS;
+  }
+  return mask == 0 ? transports : mask;
+}
+
+// Overrides the network the phone is told to join, from the environment.
+//
+// Same idea as AA_TRANSPORTS: a test that brings an access point up cannot then stop
+// to have its passphrase typed into a text field, and the moment that is needed is
+// the moment the machine has given up its network to host the one being tested.
+//
+//   AA_WIRELESS_SSID=HeadUnit AA_WIRELESS_PASSPHRASE=headunit1234
+//
+// A passphrase in an environment variable is a test bench convenience and nothing
+// more. A real head unit gets it from its host app.
+void ApplyWirelessOverride(aa::WirelessSettings* settings) {
+  if (const char* ssid = std::getenv("AA_WIRELESS_SSID")) {
+    if (*ssid != '\0') {
+      settings->ssid = ssid;
+    }
+  }
+  if (const char* passphrase = std::getenv("AA_WIRELESS_PASSPHRASE")) {
+    if (*passphrase != '\0') {
+      settings->passphrase = passphrase;
+    }
+  }
+}
+
 // Turns aasdk's own logging up, from AA_LOG_LEVEL in the environment.
 //
 // aasdk already has a console sink wired up and sits at INFO, where it says almost
@@ -174,6 +226,9 @@ struct AaSession {
     std::string certificate_path;
     aa::SensorMask sensors = aa::kRequiredSensors;
     aa::MetadataMask metadata = aa::kDefaultMetadata;
+    // A cable only, until the host app asks for more. Wireless costs a Bluetooth
+    // service and an open port, and no head unit should acquire either by accident.
+    int32_t transports = AA_TRANSPORT_USB;
   };
 
   explicit AaSession(AaEventCallback callback) : events(callback) {}
@@ -245,6 +300,14 @@ struct AaSession {
   std::atomic<AaMetadataCallback> metadata_callback{nullptr};
 
   std::unique_ptr<aa::UsbConnector> usb;
+  // Wireless, or null until the host app asks for it. Unlike the USB connector this
+  // one can be destroyed: it registers no callback with a library that outlives it,
+  // and its Bluetooth thread is joined by Stop before anything is released.
+  std::unique_ptr<aa::WirelessConnector> wireless;
+  // What to tell a phone about the Wi-Fi network. Written from Flutter's platform
+  // thread before wireless starts and read once when it does, which is why it needs
+  // no lock: there is no moment at which both happen.
+  aa::WirelessSettings wireless_settings;
   // The live connection, or nullptr between them.
   //
   // Assigned from an io_context thread when a phone reaches accessory mode, and read
@@ -308,6 +371,198 @@ std::shared_ptr<aa::MetadataChannels> LockMetadata(AaSession* session) {
   }
   std::lock_guard<std::mutex> lock(session->metadata_mutex);
   return session->metadata_channels.lock();
+}
+
+// Builds the session for one connection and wires up everything that has to be told
+// when it changes state.
+//
+// `wireless` picks the recovery, which is the one thing the two transports do not
+// share. A cable that goes quiet leaves the phone enumerated and still in accessory
+// mode, so it has to be bounced; a Wi-Fi link that goes quiet leaves nothing behind at
+// all, so opening the port again and waiting is the whole of it.
+std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
+                                                        bool wireless) {
+  if (auto previous = session->Protocol()) {
+    previous->Stop();
+  }
+  session->reached_connected = false;
+
+  auto protocol = aa::ProtocolSession::Create(
+      session->io_context, *session->channel_strand, session->Describe(),
+      session->decoder, session->audio, session->microphone, session->sensors,
+      session->metadata,
+      [session, wireless](int state, const std::string& message) {
+        if (state == AA_STATE_CONNECTED) {
+          session->reached_connected = true;
+          session->recovery_attempts = 0;
+        }
+
+        // One dead transport is one event, however many channels notice it. They all
+        // do, within a millisecond of each other, and the channels report their
+        // failures as messages on the connected state, which puts reached_connected
+        // back up between them. Without this guard the first error starts a bounce and
+        // the next six each start another.
+        if (state == AA_STATE_ERROR && session->recovering) {
+          return;
+        }
+
+        if (state == AA_STATE_ERROR && wireless) {
+          // Nothing to bounce and nothing to re-enumerate. Either the phone left the
+          // network, in which case it will dial in again when it comes back, or the
+          // link broke, in which case it will notice long before this end does. Both
+          // want the same thing: the port open and somebody listening.
+          session->reached_connected = false;
+          session->recovery_attempts = 0;
+          session->recovering = true;
+          session->events.Emit(AA_STATE_SEARCHING,
+                               "Lost the phone over Wi-Fi, waiting for it to come "
+                               "back. " +
+                                   message);
+          if (session->wireless) {
+            session->wireless->Rearm();
+          }
+          return;
+        }
+
+        // A session that was connected and then failed has lost the transport.
+        // Sometimes that is the cable coming out, and the phone will re-enumerate on
+        // its own when it goes back in. Often it is not: a single failed bulk transfer
+        // (LIBUSB_TRANSFER_ERROR on a marginal link, say) kills the transport while
+        // leaving the phone enumerated and still in accessory mode. Waiting for a
+        // hotplug then waits forever, because the device never left, which is why
+        // stopping and starting by hand was the only way out: stopping resets the
+        // device and that is what re-arms it.
+        //
+        // So bounce the phone rather than waiting to be told about it. This is right
+        // for both cases: if the cable really is out the reset fails harmlessly on a
+        // device that has already gone, and re-arming discovery is what the replug
+        // needs anyway.
+        if (state == AA_STATE_ERROR && session->reached_connected) {
+          session->reached_connected = false;
+          session->recovery_attempts = 0;
+          // The original error comes along. It is usually the transport, but the
+          // description of what actually failed is the only thing that tells one
+          // transport failure from another, and throwing it away made them all look
+          // identical.
+          session->events.Emit(
+              AA_STATE_SEARCHING,
+              "Lost the link to the phone, resetting it and reconnecting. " + message);
+          if (session->usb) {
+            session->recovering = true;
+            session->usb->RecoverAndRediscover();
+          }
+          return;
+        }
+
+        // A session that fails before it ever connected usually means the phone is
+        // still in accessory mode from a run that died without saying goodbye. It will
+        // not answer on those endpoints again until it has been through the AOAP
+        // handshake, so bounce it and start over rather than reporting a dead end the
+        // user can only fix by unplugging the cable.
+        if (state == AA_STATE_ERROR && !session->reached_connected &&
+            session->recovery_attempts < kMaxRecoveryAttempts && session->usb) {
+          ++session->recovery_attempts;
+          session->events.Emit(
+              AA_STATE_SEARCHING,
+              "The phone did not answer, resetting it and trying again (" +
+                  std::to_string(session->recovery_attempts) + " of " +
+                  std::to_string(kMaxRecoveryAttempts) + ").");
+          session->recovering = true;
+          session->usb->RecoverAndRediscover();
+          return;
+        }
+        session->events.Emit(static_cast<AaState>(state), message);
+      },
+      [session](std::shared_ptr<aa::InputChannel> input) {
+        std::lock_guard<std::mutex> lock(session->input_mutex);
+        session->input = input;
+      },
+      [session](std::shared_ptr<aa::MetadataChannels> metadata) {
+        std::lock_guard<std::mutex> lock(session->metadata_mutex);
+        session->metadata_channels = metadata;
+      });
+  {
+    std::lock_guard<std::mutex> lock(session->protocol_mutex);
+    session->protocol = protocol;
+  }
+  return protocol;
+}
+
+// Publishes the Bluetooth service and opens the projection port. Returns the same
+// codes aa_session_start_wireless does, which is the only caller besides
+// aa_session_start.
+int32_t StartWirelessTransport(AaSession* session) {
+  if (!session->running) {
+    return -1;
+  }
+  if (!session->wireless) {
+    session->wireless = std::make_unique<aa::WirelessConnector>(session->io_context);
+  }
+  if (session->wireless->running()) {
+    aa::WirelessSettings wanted = session->wireless_settings;
+    ApplyWirelessOverride(&wanted);
+    if (session->wireless->settings() == wanted) {
+      return 0;
+    }
+    // The host app changed the network since this started. Restart rather than
+    // quietly keeping the old one: a driver who types a passphrase and presses start
+    // has every right to expect that passphrase to be the one offered.
+    //
+    // Safe mid journey. Stop only withdraws the offer, and a phone that is already
+    // projecting holds its own transport, so this does not touch it.
+    session->wireless->Stop();
+  }
+  aa::WirelessSettings settings = session->wireless_settings;
+  ApplyWirelessOverride(&settings);
+  const std::string error = session->wireless->Start(
+      settings,
+      [session](aasdk::transport::ITransport::Pointer transport, std::string peer) {
+        // A cable beats a radio, and a connection that is already working beats one
+        // that is merely offered. A phone projecting over USB while its Wi-Fi side
+        // dials in would otherwise have the wired session torn down under it, which
+        // looks to the driver like the screen going black for no reason.
+        //
+        // Not symmetric, deliberately. A cable being plugged in is something a person
+        // did on purpose, so the USB path is allowed to take over; a wireless
+        // connection arriving is not, so it waits its turn.
+        if (session->reached_connected) {
+          AASDK_LOG(info) << "[Wireless] " << peer
+                          << " dialled in while a session is already connected, "
+                             "leaving the connected one alone";
+          transport->stop();
+          if (session->wireless) {
+            session->wireless->Rearm();
+          }
+          return;
+        }
+        // A phone dialled in, so whatever wait was in flight is over.
+        session->recovering = false;
+        auto protocol = NewProtocolSession(session, true);
+        session->events.Emit(AA_STATE_HANDSHAKING,
+                             "Phone connected over Wi-Fi from " + peer + ".");
+        protocol->Start(std::move(transport));
+      },
+      [session](int state, const std::string& message) {
+        // Bluetooth and Wi-Fi progress is news rather than a lifecycle change, in the
+        // same way the decoder's is. Searching is the truthful state while nothing is
+        // connected, so it goes out as that, but it must never move a connected
+        // session backwards: a second phone touching Bluetooth while the first one is
+        // projecting had the head unit reporting that it was looking for a phone, and
+        // every report after that, the video statistics included, inherited it.
+        //
+        // Errors are a different matter and go out as themselves. Nothing here can
+        // recover a session, so there is no bounce to debounce.
+        if (state == AA_STATE_SEARCHING && session->reached_connected) {
+          session->events.Emit(session->events.last_state(), message);
+          return;
+        }
+        session->events.Emit(static_cast<AaState>(state), message);
+      });
+  if (!error.empty()) {
+    session->events.Emit(AA_STATE_ERROR, error);
+    return -2;
+  }
+  return 0;
 }
 
 // Every sensor setter has the same guard in front of it.
@@ -377,6 +632,10 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
     session->config.metadata = config->metadata < 0
                                    ? aa::kDefaultMetadata
                                    : static_cast<aa::MetadataMask>(config->metadata);
+    // Zero is a host app written before wireless existed, and a head unit that stops
+    // answering the cable because of a recompile would be a nasty surprise.
+    session->config.transports =
+        config->transports == 0 ? AA_TRANSPORT_USB : config->transports;
   }
 
   session->ring.Configure(session->config.width, session->config.height);
@@ -452,6 +711,15 @@ void aa_session_destroy(AaSession* session) {
     // The connector outlives this session, so cut its link back to it first.
     session->usb->ClearHandlers();
   }
+  if (session->wireless) {
+    // Destroyed rather than leaked, unlike the USB connector below: nothing in BlueZ
+    // or asio holds a callback into it once Stop has withdrawn the profile, joined the
+    // Bluetooth thread and closed the acceptor, and aa_session_stop above has already
+    // drained the io_context that the accept handler would have run on.
+    session->wireless->ClearHandlers();
+    session->wireless->Stop();
+    session->wireless.reset();
+  }
   // Deliberately not destroyed. USBHub registers a libusb hotplug callback that holds a
   // raw pointer back to itself and calls shared_from_this() when a device arrives; if
   // the hub is gone by then, that throws std::bad_weak_ptr from inside libusb's event
@@ -522,111 +790,44 @@ int32_t aa_session_start(AaSession* session) {
   if (!session->channel_strand) {
     session->channel_strand = std::make_unique<aasdk::Strand>(session->io_context);
   }
-  const std::string usb_error = session->usb->Start(
-      [session](aasdk::usb::IAOAPDevice::Pointer device) {
-        // A phone reached accessory mode. Hand it to a fresh protocol session; any
-        // previous one belongs to a connection that has already gone away.
-        if (auto previous = session->Protocol()) {
-          previous->Stop();
-        }
-        session->reached_connected = false;
-        // A device arrived, so whatever bounce was in flight has done its job.
-        session->recovering = false;
-        auto protocol = aa::ProtocolSession::Create(
-            session->io_context, *session->channel_strand, session->Describe(),
-            session->decoder, session->audio, session->microphone, session->sensors,
-            session->metadata,
-            [session](int state, const std::string& message) {
-              if (state == AA_STATE_CONNECTED) {
-                session->reached_connected = true;
-                session->recovery_attempts = 0;
-              }
+  const int32_t transports = ApplyTransportOverride(session->config.transports);
+  const bool want_usb = (transports & AA_TRANSPORT_USB) != 0;
+  const bool want_wireless = (transports & AA_TRANSPORT_WIRELESS) != 0;
 
-              // One dead transport is one event, however many channels notice it. They
-              // all do, within a millisecond of each other, and the channels report
-              // their failures as messages on the connected state, which puts
-              // reached_connected back up between them. Without this guard the first
-              // error starts a bounce and the next six each start another.
-              if (state == AA_STATE_ERROR && session->recovering) {
-                return;
-              }
-
-              // A session that was connected and then failed has lost the transport.
-              // Sometimes that is the cable coming out, and the phone will re-enumerate
-              // on its own when it goes back in. Often it is not: a single failed bulk
-              // transfer (LIBUSB_TRANSFER_ERROR on a marginal link, say) kills the
-              // transport while leaving the phone enumerated and still in accessory
-              // mode. Waiting for a hotplug then waits forever, because the device
-              // never left, which is why stopping and starting by hand was the only way
-              // out: stopping resets the device and that is what re-arms it.
-              //
-              // So bounce the phone rather than waiting to be told about it. This is
-              // right for both cases: if the cable really is out the reset fails
-              // harmlessly on a device that has already gone, and re-arming discovery
-              // is what the replug needs anyway.
-              if (state == AA_STATE_ERROR && session->reached_connected) {
-                session->reached_connected = false;
-                session->recovery_attempts = 0;
-                // The original error comes along. It is usually the transport, but the
-                // description of what actually failed is the only thing that tells one
-                // transport failure from another, and throwing it away made them all
-                // look identical.
-                session->events.Emit(
-                    AA_STATE_SEARCHING,
-                    "Lost the link to the phone, resetting it and reconnecting. " +
-                        message);
-                if (session->usb) {
-                  session->recovering = true;
-                  session->usb->RecoverAndRediscover();
-                }
-                return;
-              }
-
-              // A session that fails before it ever connected usually means the phone is
-              // still in accessory mode from a run that died without saying goodbye. It
-              // will not answer on those endpoints again until it has been through the
-              // AOAP handshake, so bounce it and start over rather than reporting a dead
-              // end the user can only fix by unplugging the cable.
-              if (state == AA_STATE_ERROR && !session->reached_connected &&
-                  session->recovery_attempts < kMaxRecoveryAttempts && session->usb) {
-                ++session->recovery_attempts;
-                session->events.Emit(
-                    AA_STATE_SEARCHING,
-                    "The phone did not answer, resetting it and trying again (" +
-                        std::to_string(session->recovery_attempts) + " of " +
-                        std::to_string(kMaxRecoveryAttempts) + ").");
-                session->recovering = true;
-                session->usb->RecoverAndRediscover();
-                return;
-              }
-              session->events.Emit(static_cast<AaState>(state), message);
-            },
-            [session](std::shared_ptr<aa::InputChannel> input) {
-              std::lock_guard<std::mutex> lock(session->input_mutex);
-              session->input = input;
-            },
-            [session](std::shared_ptr<aa::MetadataChannels> metadata) {
-              std::lock_guard<std::mutex> lock(session->metadata_mutex);
-              session->metadata_channels = metadata;
-            });
-        {
-          std::lock_guard<std::mutex> lock(session->protocol_mutex);
-          session->protocol = protocol;
-        }
-        // Started from the local reference: a stop landing right now can take the
-        // member away, and Start() itself waits for that stop rather than racing it.
-        protocol->Start(std::move(device));
-      },
-      [session](const std::string& message) {
-        session->events.Emit(AA_STATE_ERROR, message);
-      });
-
-  if (!usb_error.empty()) {
-    session->events.Emit(AA_STATE_ERROR, usb_error);
-    return -3;
+  if (want_usb) {
+    const std::string usb_error = session->usb->Start(
+        [session](aasdk::usb::IAOAPDevice::Pointer device) {
+          // A phone reached accessory mode. Hand it to a fresh protocol session; any
+          // previous one belongs to a connection that has already gone away.
+          //
+          // A device arrived, so whatever bounce was in flight has done its job.
+          session->recovering = false;
+          auto protocol = NewProtocolSession(session, false);
+          // Started from the local reference: a stop landing right now can take the
+          // member away, and Start() itself waits for that stop rather than racing it.
+          protocol->Start(std::move(device));
+        },
+        [session](const std::string& message) {
+          session->events.Emit(AA_STATE_ERROR, message);
+        });
+    if (!usb_error.empty()) {
+      session->events.Emit(AA_STATE_ERROR, usb_error);
+      return -3;
+    }
   }
 
-  session->events.Emit(AA_STATE_SEARCHING, "Looking for a phone on USB.");
+  if (want_wireless) {
+    // An error here has already been reported, and it must not stop a head unit that
+    // also has a cable: a machine with no Bluetooth is still a working wired head
+    // unit, and failing the whole start would make it neither.
+    StartWirelessTransport(session);
+  }
+
+  session->events.Emit(AA_STATE_SEARCHING, want_usb && want_wireless
+                                               ? "Looking for a phone on USB or Wi-Fi."
+                                           : want_wireless
+                                               ? "Looking for a phone over Wi-Fi."
+                                               : "Looking for a phone on USB.");
   return 0;
 }
 
@@ -679,6 +880,16 @@ int32_t aa_session_stop(AaSession* session) {
     // from scratch. Without this the phone stays in accessory mode with its Android Auto
     // session closed, and the next version request simply times out.
     session->usb->ResetDevice();
+  }
+  if (session->wireless) {
+    // Declined rather than withdrawn. A phone that knows this machine as a wireless
+    // car asks for the service every five seconds for as long as Bluetooth is
+    // connected, and withdrawing it does not stop the asking, it only stops the
+    // answering: the driver is left with a notification saying the phone is
+    // connecting, permanently, while nothing is. Refusing makes it give up, and a
+    // head unit whose session the user has stopped is exactly a head unit that should
+    // be saying no. The service goes away for good in aa_session_destroy.
+    session->wireless->Decline();
   }
   if (!session->running) {
     std::lock_guard<std::mutex> lock(session->protocol_mutex);
@@ -1162,6 +1373,116 @@ int32_t aa_session_browse_select(AaSession* session, const char* path) {
     return -2;
   }
   return metadata->BrowseSelect(CopyOrEmpty(path)) ? 0 : -2;
+}
+
+char* aa_paired_phones(void) {
+  std::string error;
+  std::string listing;
+  for (const aa::BluetoothDevice& device : aa::BluezClient::PairedDevices(&error)) {
+    listing += device.address;
+    listing += '\t';
+    listing += device.name;
+    listing += '\t';
+    listing += device.connected ? '1' : '0';
+    listing += '\t';
+    listing += device.is_phone ? '1' : '0';
+    listing += '\n';
+  }
+  return strdup(listing.c_str());
+}
+
+int32_t aa_session_set_wireless_config(AaSession* session,
+                                       const AaWirelessConfig* config) {
+  if (session == nullptr || config == nullptr) {
+    return -1;
+  }
+  aa::WirelessSettings settings;
+  settings.ssid = CopyOrEmpty(config->ssid);
+  settings.passphrase = CopyOrEmpty(config->passphrase);
+  settings.bssid = CopyOrEmpty(config->bssid);
+  settings.interface = CopyOrEmpty(config->interface_name);
+  settings.ip = CopyOrEmpty(config->ip_address);
+  settings.phone_address = CopyOrEmpty(config->phone_address);
+  settings.port = config->port > 0 && config->port <= 65535
+                      ? static_cast<uint16_t>(config->port)
+                      : 5288;
+  settings.security = config->security == 0 ? AA_WIFI_WPA2_PERSONAL : config->security;
+  settings.access_point = config->access_point;
+  session->wireless_settings = settings;
+  return 0;
+}
+
+int32_t aa_session_start_wireless(AaSession* session) {
+  if (session == nullptr) {
+    return -1;
+  }
+  return StartWirelessTransport(session);
+}
+
+int32_t aa_session_stop_wireless(AaSession* session) {
+  if (session == nullptr) {
+    return -1;
+  }
+  if (session->wireless) {
+    // Only the offer is withdrawn. A phone already projecting keeps its connection,
+    // because a driver who turns wireless off halfway through a journey meant "do not
+    // start another one", not "cut this one off in a tunnel".
+    //
+    // And the Bluetooth service stays published so that a phone asking for it is told
+    // no rather than ignored, which is what actually stops it asking. See
+    // WirelessConnector::Decline.
+    session->wireless->Decline();
+  }
+  return 0;
+}
+
+int32_t aa_session_decline_wireless(AaSession* session) {
+  if (session == nullptr) {
+    return -1;
+  }
+  if ((session->config.transports & AA_TRANSPORT_WIRELESS) == 0) {
+    // A head unit that does not do wireless must not publish the service, even to
+    // refuse on it. A phone reads the service list at pairing time and decides from
+    // it that a machine is a wireless car; publishing anything here would teach a
+    // phone paired today to start asking tomorrow.
+    return 0;
+  }
+  if (!session->wireless) {
+    session->wireless = std::make_unique<aa::WirelessConnector>(session->io_context);
+  }
+  session->wireless->Decline();
+  return 0;
+}
+
+int32_t aa_session_wireless_active(AaSession* session) {
+  if (session == nullptr || !session->wireless) {
+    return 0;
+  }
+  return session->wireless->running() ? 1 : 0;
+}
+
+char* aa_session_wireless_summary(AaSession* session) {
+  if (session == nullptr || !session->wireless || !session->wireless->running()) {
+    return strdup("");
+  }
+  const aa::WirelessSummary summary = session->wireless->summary();
+  std::string line;
+  line += summary.interface;
+  line += '\t';
+  line += summary.ssid;
+  line += '\t';
+  line += summary.bssid;
+  line += '\t';
+  line += summary.ip;
+  line += '\t';
+  line += std::to_string(summary.port);
+  line += '\t';
+  line += summary.hosting ? '1' : '0';
+  line += '\t';
+  line += summary.bluetooth_ready ? '1' : '0';
+  line += '\t';
+  line += summary.phone_linked ? '1' : '0';
+  return strdup(line.c_str());
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

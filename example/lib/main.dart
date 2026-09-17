@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:android_auto/android_auto.dart';
 import 'package:flutter/material.dart';
@@ -58,6 +59,17 @@ class _TestBenchPageState extends State<TestBenchPage> {
         AndroidAutoMetadata.notification,
         AndroidAutoMetadata.browse,
       },
+      // Both, which is what a head unit with a cable and a radio is. This is the
+      // whole of turning wireless on: a set and a passphrase. Nothing else in this
+      // app knows that wireless exists, which is the point.
+      //
+      // A real head unit picks its own set. Leaving wireless out means the Bluetooth
+      // service is never published, and a phone paired while it is out never learns
+      // this machine can project, so it never asks.
+      transports: {AndroidAutoTransport.usb, AndroidAutoTransport.wireless},
+      // The one thing that cannot be read off the machine. Everything else, the SSID,
+      // the access point's MAC and the address to dial, comes from the interface.
+      wireless: AndroidAutoWirelessConfig(passphrase: 'headunit1234'),
     ),
   );
 
@@ -72,6 +84,15 @@ class _TestBenchPageState extends State<TestBenchPage> {
   double _pcmPeak = 0;
   bool _sensorPanelOpen = false;
   bool _metadataPanelOpen = false;
+  bool _wirelessPanelOpen = false;
+  List<AndroidAutoBluetoothDevice> _pairedPhones = const [];
+  String _wirelessPhone = '';
+  /// Polls the wireless summary while the panel is open. The interesting fields
+  /// change without an event: an address renewed, a phone opening the Bluetooth
+  /// channel. One second is far more often than any of them moves.
+  Timer? _wirelessTimer;
+  final TextEditingController _wifiSsid = TextEditingController();
+  final TextEditingController _wifiPassphrase = TextEditingController();
   AndroidAutoNotification? _lastNotification;
   AndroidAutoBrowseNode? _browseNode;
   /// Set when a browse request was refused, which is what a phone that never opened the
@@ -91,6 +112,12 @@ class _TestBenchPageState extends State<TestBenchPage> {
   void initState() {
     super.initState();
     _controller.addListener(_onControllerChanged);
+    // Pressing Start is one click too many when the machine running this has no
+    // network for anything else and the test is being driven from a script. See
+    // tools/wireless-test.sh.
+    if (Platform.environment['AA_AUTOSTART'] == '1') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _controller.start());
+    }
     // Once a second, which is what a GPS receiver produces and what the phone expects.
     // Started here rather than on connect because the value is remembered across
     // sessions: setting it before there is a phone is the case this exercises.
@@ -114,6 +141,9 @@ class _TestBenchPageState extends State<TestBenchPage> {
   @override
   void dispose() {
     _gpsTimer?.cancel();
+    _wirelessTimer?.cancel();
+    _wifiSsid.dispose();
+    _wifiPassphrase.dispose();
     _latitude.dispose();
     _longitude.dispose();
     _pcmSubscription?.cancel();
@@ -218,6 +248,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
             Positioned(top: 60, left: 20, width: 380, child: _sensorPanel()),
           if (_metadataPanelOpen)
             Positioned(top: 60, left: 420, width: 440, child: _metadataPanel()),
+          if (_wirelessPanelOpen)
+            Positioned(top: 60, right: 400, width: 380, child: _wirelessPanel()),
           // The point of M9, drawn as ordinary Flutter widgets over the projection
           // rather than read off the phone's own pixels.
           Positioned(left: 20, bottom: 160, width: 440, child: _metadataOverlay()),
@@ -994,6 +1026,144 @@ class _TestBenchPageState extends State<TestBenchPage> {
     setState(() => _lastInput = 'rotary $steps');
   }
 
+  Future<void> _toggleWirelessPanel() async {
+    if (_wirelessPanelOpen) {
+      _wirelessTimer?.cancel();
+      _wirelessTimer = null;
+      setState(() => _wirelessPanelOpen = false);
+      return;
+    }
+    final phones = await _controller.pairedPhones();
+    _wirelessTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => setState(() {}),
+    );
+    setState(() {
+      _pairedPhones = phones;
+      if (_wirelessPhone.isEmpty) {
+        final phone = phones.where((one) => one.isPhone);
+        _wirelessPhone = phone.isEmpty ? '' : phone.first.address;
+      }
+      _wirelessPanelOpen = true;
+    });
+  }
+
+  Future<void> _toggleWireless() async {
+    if (_controller.wirelessActive) {
+      await _controller.stopWireless();
+      return;
+    }
+    // The session has to exist first: wireless hangs off it, and the io threads it
+    // runs the acceptor on are started by start().
+    if (_controller.state == AndroidAutoConnectionState.idle) {
+      await _controller.start();
+    }
+    _controller.setWirelessConfig(
+      AndroidAutoWirelessConfig(
+        ssid: _wifiSsid.text,
+        passphrase: _wifiPassphrase.text,
+        phoneAddress: _wirelessPhone,
+      ),
+    );
+    await _controller.startWireless();
+  }
+
+  Widget _wirelessPanel() {
+    final status = _controller.wirelessStatus;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Wireless', style: TextStyle(fontWeight: FontWeight.bold)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  status == null
+                      ? 'Not offering wireless.'
+                      : '${status.ssid} on ${status.interfaceName}\n'
+                            '${status.ipAddress}:${status.port}'
+                            '${status.hosting ? ", hosting" : ", joined"}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              Switch(
+                value: _controller.wirelessActive,
+                onChanged: (_) => _toggleWireless(),
+              ),
+            ],
+          ),
+          if (status != null)
+            // The two questions worth answering separately. Bluetooth not published is
+            // this machine's problem; a phone that linked over Bluetooth and then did
+            // not dial in is a Wi-Fi problem at the phone's end.
+            Text(
+              'Bluetooth ${status.bluetoothReady ? "published" : "down"}, '
+              'phone ${status.phoneLinked ? "linked" : "not linked"}',
+              style: TextStyle(
+                fontSize: 12,
+                color: status.phoneLinked ? Colors.greenAccent : Colors.white70,
+              ),
+            ),
+          TextField(
+            controller: _wifiSsid,
+            decoration: const InputDecoration(
+              labelText: 'SSID',
+              helperText: 'Empty reads it off the wireless interface',
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+          TextField(
+            controller: _wifiPassphrase,
+            decoration: const InputDecoration(
+              labelText: 'Wi-Fi passphrase',
+              helperText: 'The one thing nothing here can read off the machine',
+              isDense: true,
+            ),
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          const Text('Paired phones', style: TextStyle(fontSize: 12)),
+          if (_pairedPhones.isEmpty)
+            const Text(
+              'None. Pair the phone the way you would for music first.',
+              style: TextStyle(fontSize: 12, color: Colors.white54),
+            ),
+          RadioGroup<String>(
+            groupValue: _wirelessPhone,
+            onChanged: (value) => setState(() => _wirelessPhone = value ?? ''),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final phone in _pairedPhones)
+                  RadioListTile<String>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: phone.address,
+                    title: Text(
+                      '${phone.name}${phone.connected ? " (connected)" : ""}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    subtitle: Text(
+                      phone.address,
+                      style: const TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _controls() {
     final message = _controller.message;
     return Column(
@@ -1044,6 +1214,13 @@ class _TestBenchPageState extends State<TestBenchPage> {
               onPressed: _toggleMetadataPanel,
               icon: const Icon(Icons.info_outline),
               label: const Text('Metadata'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _toggleWirelessPanel,
+              icon: Icon(
+                _controller.wirelessActive ? Icons.wifi : Icons.wifi_off,
+              ),
+              label: const Text('Wireless'),
             ),
             OutlinedButton.icon(
               onPressed: () async {

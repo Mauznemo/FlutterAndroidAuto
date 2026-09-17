@@ -180,8 +180,19 @@ void ProtocolSession::Start(aasdk::usb::IAOAPDevice::Pointer device) {
     return;
   }
   device_ = std::move(device);
+  StartLocked(std::make_shared<aasdk::transport::USBTransport>(io_context_, device_));
+}
 
-  transport_ = std::make_shared<aasdk::transport::USBTransport>(io_context_, device_);
+void ProtocolSession::Start(aasdk::transport::ITransport::Pointer transport) {
+  std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+  if (stopped_.load()) {
+    return;
+  }
+  StartLocked(std::move(transport));
+}
+
+void ProtocolSession::StartLocked(aasdk::transport::ITransport::Pointer transport) {
+  transport_ = std::move(transport);
 
   auto ssl_wrapper = std::make_shared<aasdk::transport::SSLWrapper>();
   cryptor_ = std::make_shared<aasdk::messenger::Cryptor>(std::move(ssl_wrapper));

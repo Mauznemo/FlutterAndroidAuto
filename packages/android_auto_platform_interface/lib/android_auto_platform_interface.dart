@@ -90,6 +90,25 @@ class AndroidAutoConfig {
   /// metadata channel a phone insists on.
   final Set<AndroidAutoMetadata> metadata;
 
+  /// How a phone may reach this head unit.
+  ///
+  /// The cable only, unless the app asks for more. Wireless costs a Bluetooth service
+  /// and an open TCP port, and no head unit should acquire either by accident.
+  ///
+  /// Adding [AndroidAutoTransport.wireless] publishes one extra UUID in the machine's
+  /// Bluetooth service record and takes nothing away, so a head unit whose own
+  /// software pairs the phone for music and hands free calling keeps working exactly
+  /// as it did. That software is worth keeping: the hands free profile is part of how
+  /// a phone decides a machine is a car.
+  final Set<AndroidAutoTransport> transports;
+
+  /// Which network to send a phone to when [transports] includes
+  /// [AndroidAutoTransport.wireless]. Ignored otherwise.
+  ///
+  /// Read when the session starts. [AndroidAutoPlatform.setWirelessConfig] changes it
+  /// afterwards, which takes effect the next time wireless starts.
+  final AndroidAutoWirelessConfig? wireless;
+
   /// Creates a head unit description. The defaults are a safe 720p30 head unit
   /// that every phone accepts.
   const AndroidAutoConfig({
@@ -110,6 +129,8 @@ class AndroidAutoConfig {
       AndroidAutoMetadata.media,
       AndroidAutoMetadata.phone,
     },
+    this.transports = const {AndroidAutoTransport.usb},
+    this.wireless,
   });
 }
 
@@ -518,6 +539,207 @@ class AndroidAutoEvent {
   const AndroidAutoEvent(this.state, [this.message]);
 }
 
+/// How a phone may reach the head unit.
+///
+/// Not alternatives. A head unit is normally both: the cable is what a driver reaches
+/// for when the battery is low, and wireless is what they use the rest of the time.
+enum AndroidAutoTransport {
+  /// A cable, with the phone switched into Android Open Accessory mode.
+  usb,
+
+  /// Bluetooth to agree the details, then Wi-Fi to carry the projection.
+  wireless;
+
+  /// The bit this transport occupies in the native mask.
+  int get bit => 1 << index;
+}
+
+/// How the Wi-Fi network the phone is told to join is secured.
+///
+/// The numbers are the protocol's own `WifiSecurityMode`, which is why they are not
+/// consecutive.
+enum AndroidAutoWifiSecurity {
+  /// No passphrase. A real configuration, and a terrible one for a car.
+  open(1),
+
+  /// WPA personal.
+  wpaPersonal(4),
+
+  /// WPA2 personal, which is what almost every access point is set to.
+  wpa2Personal(5),
+
+  /// A network accepting either WPA or WPA2.
+  wpaWpa2Personal(6);
+
+  /// The value the protocol carries.
+  final int value;
+
+  const AndroidAutoWifiSecurity(this.value);
+}
+
+/// Whether the head unit brought the network up for the phone, or is merely on one.
+///
+/// The phone is told which, and it is worth getting right: it describes whose network
+/// this is, not how good it is.
+enum AndroidAutoAccessPointType {
+  /// Work it out from whether the wireless interface is hosting the network rather
+  /// than joined to it. The right answer almost always.
+  automatic(-1),
+
+  /// A network that was already there, which the head unit happens to be joined to.
+  /// A workshop's Wi-Fi, or a car with a built in router.
+  existing(0),
+
+  /// A network this head unit is hosting for the phone.
+  hosted(1);
+
+  /// The value the protocol carries, or -1 for [automatic], which never reaches it.
+  final int value;
+
+  const AndroidAutoAccessPointType(this.value);
+}
+
+/// Which network to send the phone to, and where to dial once it is on it.
+///
+/// Every field but the passphrase can be left out and read off the machine. The
+/// passphrase cannot: the kernel does not keep one and the network manager's copy is
+/// behind a privileged interface, so a head unit sitting on an ordinary Wi-Fi network
+/// needs exactly one thing configured.
+///
+/// Nothing here brings a network up. Hosting an access point, or joining someone
+/// else's, is the machine's own configuration, in the same way the echo canceller for
+/// phone calls is.
+class AndroidAutoWirelessConfig {
+  /// The passphrase of the network the phone should join. Empty only makes sense with
+  /// [AndroidAutoWifiSecurity.open].
+  final String passphrase;
+
+  /// The network's name. Empty reads it off the wireless interface, which is right
+  /// whenever the head unit is already on the network it wants the phone on.
+  final String ssid;
+
+  /// The access point's MAC. Empty reads it off the interface.
+  final String bssid;
+
+  /// Which wireless interface to describe, `wlan0` and the like. Empty picks the
+  /// first one with an address.
+  final String interfaceName;
+
+  /// The address the phone connects back to. Empty reads the interface's IPv4.
+  final String ipAddress;
+
+  /// Which paired phone to prod when wireless starts being offered and nothing asks
+  /// for it. Normally left empty, which prods whichever paired phone is connected;
+  /// worth naming on a machine several phones are paired with.
+  ///
+  /// The prod drops and remakes that phone's Bluetooth link, because re-reading the
+  /// service list is something a phone only does when the link comes up. It costs
+  /// that phone's Bluetooth audio a few seconds, so it only happens when a phone has
+  /// gone quiet. Fill it from [AndroidAutoPlatform.pairedPhones].
+  final String phoneAddress;
+
+  /// The port the head unit listens on. 5288 is what Android Auto dials.
+  final int port;
+
+  /// How the network is secured.
+  final AndroidAutoWifiSecurity security;
+
+  /// Whose network this is.
+  final AndroidAutoAccessPointType accessPoint;
+
+  /// Describes the network to send a phone to.
+  const AndroidAutoWirelessConfig({
+    this.passphrase = '',
+    this.ssid = '',
+    this.bssid = '',
+    this.interfaceName = '',
+    this.ipAddress = '',
+    this.phoneAddress = '',
+    this.port = 5288,
+    this.security = AndroidAutoWifiSecurity.wpa2Personal,
+    this.accessPoint = AndroidAutoAccessPointType.automatic,
+  });
+}
+
+/// A device this machine is paired with over Bluetooth.
+class AndroidAutoBluetoothDevice {
+  /// `AA:BB:CC:DD:EE:FF`, and what [AndroidAutoWirelessConfig.phoneAddress] takes.
+  final String address;
+
+  /// What the device calls itself.
+  final String name;
+
+  /// Whether it is connected over Bluetooth right now. Says nothing about whether it
+  /// is projecting.
+  final bool connected;
+
+  /// Whether its Bluetooth device class says it is a phone. A hint for sorting a
+  /// picker, not a fact to depend on.
+  final bool isPhone;
+
+  /// Creates a description of a paired device.
+  const AndroidAutoBluetoothDevice({
+    required this.address,
+    required this.name,
+    this.connected = false,
+    this.isPhone = false,
+  });
+
+  @override
+  String toString() => 'AndroidAutoBluetoothDevice($name, $address)';
+}
+
+/// What the head unit resolved to and is telling phones.
+///
+/// The answer to "why is nothing happening". It shows whether the machine found a
+/// network at all, and how far a phone has got.
+class AndroidAutoWirelessStatus {
+  /// The wireless interface being described.
+  final String interfaceName;
+
+  /// The network the phone is being told to join.
+  final String ssid;
+
+  /// That network's access point.
+  final String bssid;
+
+  /// The address the phone is being told to dial.
+  final String ipAddress;
+
+  /// The port it is being told to dial.
+  final int port;
+
+  /// Whether this machine is hosting the network rather than joined to it.
+  final bool hosting;
+
+  /// Whether the Bluetooth service is published. False means no phone can even find
+  /// the head unit, which is usually BlueZ not running.
+  final bool bluetoothReady;
+
+  /// Whether a phone has opened the Bluetooth channel. True with no connection
+  /// following means the phone heard the offer and could not act on it, which is a
+  /// Wi-Fi problem rather than a Bluetooth one.
+  final bool phoneLinked;
+
+  /// Creates a description of what wireless is currently offering.
+  const AndroidAutoWirelessStatus({
+    required this.interfaceName,
+    required this.ssid,
+    required this.bssid,
+    required this.ipAddress,
+    required this.port,
+    required this.hosting,
+    required this.bluetoothReady,
+    required this.phoneLinked,
+  });
+
+  @override
+  String toString() =>
+      'AndroidAutoWirelessStatus($ssid on $interfaceName, $ipAddress:$port'
+      '${hosting ? ", hosting" : ""}'
+      '${phoneLinked ? ", phone linked" : ""})';
+}
+
 /// The contract every platform implementation fulfils.
 ///
 /// Implementations register themselves by assigning to [instance] from their
@@ -551,12 +773,79 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
     _instance = instance;
   }
 
+  /// Makes the head unit exist without starting it.
+  ///
+  /// Nothing is projected and no hardware is touched. What it does do, when
+  /// [AndroidAutoConfig.transports] includes [AndroidAutoTransport.wireless], is
+  /// publish the Bluetooth service and refuse every phone that asks for it.
+  ///
+  /// That is worth doing from the moment the application opens. A phone that knows
+  /// this machine as a wireless car asks for the service every five seconds for as
+  /// long as Bluetooth is connected, and shows its driver a notification saying it is
+  /// connecting for as long as nothing answers. Refusing makes it stop; staying silent
+  /// does not. Nothing is published when wireless is not in the transports, so an app
+  /// that does not want it pays nothing and a phone paired in that state never learns
+  /// the machine can project at all.
+  ///
+  /// Called for you by [AndroidAutoController]'s constructor. Calling [start] without
+  /// it works exactly as before.
+  Future<void> initialize(AndroidAutoConfig config) async {}
+
   /// Starts looking for a phone. Completes once the session is running, not once a
   /// phone has actually connected. Watch [events] for that.
   Future<void> start(AndroidAutoConfig config);
 
   /// Tears the session down and releases the transport.
   Future<void> stop();
+
+  /// Every phone this machine is paired with, so an app can present a picker.
+  ///
+  /// Describes the machine rather than a session, so it works before [start] and
+  /// after [stop]. Empty when the Bluetooth daemon cannot be reached, which on a
+  /// machine with no Bluetooth is not a fault.
+  Future<List<AndroidAutoBluetoothDevice>> pairedPhones() async =>
+      const <AndroidAutoBluetoothDevice>[];
+
+  /// Changes which network a phone is sent to.
+  ///
+  /// Takes effect the next time wireless starts, so a change while a phone is
+  /// projecting does not disturb it.
+  void setWirelessConfig(AndroidAutoWirelessConfig config) {}
+
+  /// Publishes the Bluetooth service and opens the projection port.
+  ///
+  /// Called for you by [start] when [AndroidAutoConfig.transports] includes
+  /// [AndroidAutoTransport.wireless]. This exists so an app can offer wireless as a
+  /// switch the driver can turn off.
+  ///
+  /// Failures arrive on [events] rather than as an exception, because the interesting
+  /// ones are about the machine rather than about the call: no Wi-Fi network, no
+  /// address, no Bluetooth.
+  Future<void> startWireless() async {}
+
+  /// Stops offering wireless.
+  ///
+  /// Leaves a phone that is already projecting alone. A driver who switches wireless
+  /// off halfway through a journey meant "do not start another one", not "cut this one
+  /// off in a tunnel".
+  ///
+  /// The projection port closes, but the Bluetooth service stays published and phones
+  /// that ask for it are told no. That is deliberate, and it is what stops the phone
+  /// showing a permanent "connecting to Android Auto" notification: a phone that knows
+  /// this machine as a wireless car asks for the service every five seconds for as
+  /// long as Bluetooth is connected, and withdrawing the service only stops it being
+  /// answered, not asked. Refusing makes it give up.
+  ///
+  /// To have the service never published at all, leave [AndroidAutoTransport.wireless]
+  /// out of [AndroidAutoConfig.transports]. A phone paired while it is out never learns
+  /// this machine can project, so it never asks in the first place.
+  Future<void> stopWireless() async {}
+
+  /// Whether wireless is being offered right now.
+  bool get wirelessActive => false;
+
+  /// What wireless resolved to, or null when it is not running.
+  AndroidAutoWirelessStatus? get wirelessStatus => null;
 
   /// Lifecycle and error events from the native session.
   Stream<AndroidAutoEvent> get events;

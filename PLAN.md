@@ -28,8 +28,8 @@ implementation can be added later without touching the app-facing API.
 | M7b | Phone calls over Bluetooth HFP | **done**, bar a two way call |
 | M8 | Sensors (night mode, GPS, driving status) | **done** |
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
-| M10 | Wireless Android Auto | **next** |
-| M11 | Packaging, ARM64, CI, docs | not started |
+| M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
+| M11 | Packaging, ARM64, CI, docs | **next** |
 | M12 | Android implementation package | not started |
 
 ---
@@ -1079,16 +1079,88 @@ rather than leaving a track that finished.
 
 ## M10. Wireless Android Auto
 
-- [ ] Bluetooth RFCOMM service advertising the Android Auto Wireless UUID
-- [ ] `WifiProjectionService` handshake: send Wi-Fi SSID, password, IP, port to the phone over RFCOMM
-- [ ] TCP transport to the phone on port 5288, then the same SSL and channel stack as M3
-- [ ] Handle the host being the Wi-Fi AP versus joining an existing network
-- [ ] Reconnect on Wi-Fi drop
-- [ ] Dart API to start/stop wireless mode and list paired phones
+- [x] Bluetooth RFCOMM service advertising the Android Auto Wireless UUID
+- [x] `WifiProjectionService` handshake: send Wi-Fi SSID, password, IP, port to the phone over RFCOMM
+- [x] TCP transport to the phone on port 5288, then the same SSL and channel stack as M3
+- [x] Handle the host being the Wi-Fi AP versus joining an existing network
+- [x] Reconnect on Wi-Fi drop
+- [x] Dart API to start/stop wireless mode and list paired phones
+- [x] A wireless connection must never displace a session that is already connected
+- [x] Exercise the whole path without a phone (`AA_WIRELESS_FAKE_PHONE`)
+- [x] **A real phone projects over Wi-Fi.** All twelve channels, video decoded, one session with no reconnects, ended by the phone saying goodbye
+- [x] Microphone and speech audio over Wi-Fi
+- [x] Wireless enabled from `AndroidAutoConfig` alone, no environment variables and no shell script
+- [x] A head unit that is not projecting refuses phones rather than ignoring them
+- [ ] Media audio, touch input and the sensor channel watched over Wi-Fi rather than over the cable. None is transport specific, so none is expected to differ, but none has been observed
 
-**Note:** this is a large milestone. Do not start it before M3 to M6 are solid on USB.
+Full write up in `docs/wireless.md`.
 
----
+### What was verified
+
+On a Pixel 8 Pro, over an access point this machine hosted: one Bluetooth channel, one
+dial-in, version 256.1792, SSL, service discovery, and all twelve advertised channels
+opened. Video ran 1280x720 through VA-API at 1.0 to 1.4 ms from wire to frame,
+indistinguishable from the cable. The Assistant was invoked twice, capturing microphone
+buffers and answering on the speech stream, with nothing dropped and no underruns.
+
+### The head unit listens on both legs
+
+The phone advertises no Android Auto UUID of its own, so the head unit is the RFCOMM
+server; and it fills in the `ip_address` in `WifiStartRequest`, so it is the TCP server
+too. Neither was apparent from the protobuf.
+
+### Two things decide whether a phone will ever ask
+
+Both fail identically and silently, which is what makes them expensive.
+
+**A phone reads the service list at pairing time** and decides from it that a machine
+is a wireless car. One paired before the service existed never asks, however long it is
+advertised afterwards.
+
+**BlueZ publishes a useless record unless it is given an RFCOMM channel.** With no
+`Channel` in the `RegisterProfile` options the protocol descriptor list is L2CAP and
+nothing else, so a phone reads it, finds nothing to dial, and disconnects. Neither end
+logs anything. This is why every working implementation hardcodes a channel number.
+
+### Only the passphrase has to be configured, and a hosting head unit needs a MAC
+
+SSID, BSSID and address are read off the machine; a passphrase cannot be read by
+anything unprivileged. The exception is access point mode, where `SIOCGIWESSID` and
+`SIOCGIWAP` both answer `EINVAL` while `SIOCGIWMODE` works, so a hosting head unit
+correctly knows it is hosting and reads an empty BSSID in the same breath. An empty
+BSSID is silently fatal: the phone rejects the offer without scanning and calls it
+incorrect credentials. When hosting, the BSSID comes from `SIOCGIFHWADDR`.
+
+Bringing a network **up** is not this plugin's business, the same call
+`docs/echo-cancellation.md` makes about the echo canceller.
+
+### The start request is an instruction
+
+`WifiStartRequest` carries the address to dial, so the phone connects when it arrives.
+Sent before the phone has a network it is answered and forgotten and the phone never
+dials in; sent to a phone that is already projecting it tears down a working session to
+obey. Once, when the phone reports it is on the network, is the only right number of
+times.
+
+### Not projecting means refusing, not going quiet
+
+A phone that knows this machine asks for the service every five seconds for as long as
+Bluetooth is connected and does not stop, showing the driver a notification meanwhile.
+Withdrawing the service stops the answering, not the asking. Refusing makes it give up,
+and is measurably cheaper for the phone: zero service queries over a hundred seconds
+against a query every 5.1 seconds. So the Bluetooth service is published whenever the
+host app has configured wireless, and a head unit that is open but not started answers
+no. It is never published when wireless is left out of the transports, which is what a
+head unit wanting Bluetooth music and nothing else should do.
+
+The one cosmetic residue: a notification the phone has already shown is not taken down
+by the refusal. It can be swiped away and stays away, because a refused phone does not
+retry.
+
+### A phone hosting a hotspot cannot join the head unit
+
+Which rules out testing this on a machine whose only internet is that hotspot. Use
+Bluetooth tethering for the machine's network, or put both ends on an ordinary one.
 
 ## M11. Packaging, ARM64, CI, docs
 

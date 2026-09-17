@@ -19,6 +19,7 @@ list(APPEND PLUGIN_SOURCES
   "src/audio/audio_output.cc"
   "src/audio/pulse_sink.cc"
   "src/audio/pulse_source.cc"
+  "src/bluetooth/bluez_client.cc"
   "src/event_bus.cc"
   "src/frame_ring.cc"
   "src/test_pattern.cc"
@@ -29,6 +30,7 @@ list(APPEND PLUGIN_SOURCES
   "src/sensors/sensor_state.cc"
   "src/session/usb_context.cc"
   "src/session/usb_connector.cc"
+  "src/session/wireless_connector.cc"
   "src/session/audio_channels.cc"
   "src/session/service_discovery.cc"
   "src/session/input_channel.cc"
@@ -39,6 +41,8 @@ list(APPEND PLUGIN_SOURCES
   "src/session/sensor_channel.cc"
   "src/session/video_channel.cc"
   "src/video/video_decoder.cc"
+  "src/wireless/aaw_handshake.cc"
+  "src/wireless/wifi_network.cc"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -105,6 +109,23 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBAV)
 # src/audio/pcm_source.h for where a second backend would go.
 pkg_check_modules(LIBPULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBPULSE)
+
+# === wireless ===
+#
+# Wireless Android Auto starts over Bluetooth, and the only supported way to publish an
+# SDP record on a modern system is BlueZ's D-Bus interface. GDBus is the D-Bus client
+# that comes with GLib, which is already linked through GTK above, so this costs
+# nothing beyond naming gio explicitly rather than relying on GTK to drag it in.
+# libbluetooth's own SDP API is deprecated and its development package is not a
+# dependency this project wants to add.
+#
+# gio-unix is what carries the RFCOMM file descriptor across D-Bus. Once it has
+# arrived it is an ordinary socket and nothing else here touches GLib.
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0 gio-unix-2.0)
+target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GIO)
+
+# Reading the SSID and BSSID off the wireless interface needs linux/wireless.h, which
+# like drm_fourcc.h below is kernel headers and no library.
 
 # drm_fourcc.h is a header of macros with no library behind it, and it ships with the
 # kernel headers rather than with libdrm, so there is nothing to find_package and

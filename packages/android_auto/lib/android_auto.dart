@@ -6,9 +6,11 @@ library;
 
 export 'package:android_auto_platform_interface/android_auto_platform_interface.dart'
     show
+        AndroidAutoAccessPointType,
         AndroidAutoAudioBuffer,
         AndroidAutoAudioDevice,
         AndroidAutoAudioStream,
+        AndroidAutoBluetoothDevice,
         AndroidAutoBrowseList,
         AndroidAutoBrowseListType,
         AndroidAutoBrowseNode,
@@ -40,7 +42,11 @@ export 'package:android_auto_platform_interface/android_auto_platform_interface.
         AndroidAutoSensor,
         AndroidAutoTouchAction,
         AndroidAutoTouchPoint,
-        AndroidAutoVideoInfo;
+        AndroidAutoTransport,
+        AndroidAutoVideoInfo,
+        AndroidAutoWifiSecurity,
+        AndroidAutoWirelessConfig,
+        AndroidAutoWirelessStatus;
 
 export 'src/android_auto_controller.dart';
 export 'src/android_auto_view.dart';

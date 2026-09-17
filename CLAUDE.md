@@ -18,7 +18,7 @@ the top of `PLAN.md` when a milestone changes state.
 Background reading, only when relevant: `docs/research.md` (protocol and library
 evaluation), `docs/architecture.md` (how the pieces fit), `docs/dev-environment.md`
 (machine specifics), `docs/echo-cancellation.md` (phone calls, which are not in this
-code).
+code), `docs/wireless.md` (Android Auto without a cable).
 
 ## Layout
 
@@ -28,7 +28,7 @@ code).
 | `packages/android_auto_platform_interface` | the contract, pure Dart, no GPL code |
 | `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
 | `example/` | test bench app, run this to verify anything visually |
-| `tools/` | `ui.sh`, `run-example.sh`, `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `audio-graph.sh`, and `config/` for the PipeWire drop-in the first of those installs |
+| `tools/` | `ui.sh`, `run-example.sh`, `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `audio-graph.sh`, `wireless-ap.sh`, `wireless-test.sh`, `fake-wireless-phone.py`, and `config/` for the PipeWire drop-in the first of those installs |
 
 Keep aasdk code out of the two pure Dart packages. That split is what keeps a future
 permissive implementation possible.
@@ -85,6 +85,10 @@ Environment knobs, all off unless set:
 | `AA_FAULT_TRANSPORT_AFTER=20` | kills the transport after N seconds without touching USB, to exercise the reconnect path on demand |
 | `AA_FAULT_TRANSFER_AFTER=400` | turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
 | `AA_FAULT_SLOW_START=3000` | stalls N ms inside `ProtocolSession::Start`, between the messenger existing and the channels being handed it, so a stop pressed during it lands in the window that used to crash |
+| `AA_TRANSPORTS=wireless` | narrows or widens the transports without a rebuild, `usb`, `wireless` or both. Wireless cannot be tested while the cable is in, because a wireless connection is never allowed to displace a connected session |
+| `AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock` | listens on a Unix socket and treats a connection to it as the RFCOMM socket BlueZ would have handed over, so the whole wireless path can run with no phone. Drive it with `tools/fake-wireless-phone.py` |
+| `AA_WIRELESS_SSID`, `AA_WIRELESS_PASSPHRASE` | what to tell the phone to join, for a test that cannot stop to type into a text field. A real head unit gets these from its host app |
+| `AA_AUTOSTART=1` | the example app presses its own Start button. Example app only, not the plugin |
 
 Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`.
 
@@ -143,6 +147,10 @@ Do NOT git commit unless you are toled to do so!
 | `linux/src/metadata/json.*` | the small JSON writer the metadata ABI carries its updates in |
 | `linux/src/session/metadata_channel.*` | a channel aasdk names but does not speak: open response plus a decoder hook |
 | `linux/src/session/metadata_channels.*` | the five M9 decoders, the only thing that turns wire messages into state |
+| `linux/src/bluetooth/bluez_client.*` | **the only file that names a D-Bus type**, the RFCOMM service and the paired device list |
+| `linux/src/wireless/wifi_network.*` | which SSID, BSSID and address to tell the phone, read off the interface |
+| `linux/src/wireless/aaw_handshake.*` | the Bluetooth conversation that precedes wireless projection, **the only file that names the `aaw` protobufs** |
+| `linux/src/session/wireless_connector.*` | Bluetooth, then the handshake, then the acceptor on 5288, ending at a transport |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 
 After changing `aa_core.h`, regenerate the Dart bindings:
@@ -551,6 +559,80 @@ that turns it into something the C ABI can carry.
 - **Unlike the sensors, none of this outlives the connection.** A parking brake does not
   come off because a cable was pulled out; the music does stop. `MetadataChannels::Stop`
   clears the state and `AndroidAutoLinux.stop` clears the Dart snapshots.
+
+## Wireless, and the one thing it must not disturb
+
+Android Auto without a cable is three stages, and only the middle one is new code: the
+head unit publishes a Bluetooth RFCOMM service, tells the phone over it which Wi-Fi
+network to be on and which address to dial, and the phone connects to port 5288. Above
+that TCP connection everything is byte for byte the USB path, which is why the wireless
+code ends at producing an `aasdk::transport::ITransport` and hands it to the same
+`ProtocolSession`. Full write up in `docs/wireless.md`.
+
+- **The head unit listens on both legs.** The phone advertises no Android Auto UUID of
+  its own, so the head unit is the RFCOMM server; and it fills in the `ip_address` in
+  `WifiStartRequest`, so it is the TCP server too.
+- **Nothing here changes how the machine presents itself on Bluetooth**, and that is a
+  rule rather than an accident. The machine this runs on has its own software pairing
+  the phone for music and hands free calling, and that software is part of what makes a
+  phone treat the machine as a car at all. One UUID is added to the adapter's service
+  record; pairing, the agent, the adapter class, the alias and discoverability are
+  untouched, and `AutoConnect` is deliberately off because it would make BlueZ reach
+  out on a link other software owns.
+- **Two things decide whether a phone will ever ask, and both fail silently.** It reads
+  the service list at pairing time, so one paired before the service existed never
+  asks; and BlueZ publishes a record with no RFCOMM entry at all unless
+  `RegisterProfile` is given a `Channel`, which a phone reads and then disconnects
+  from without a word at either end. That is why every working implementation
+  hardcodes a channel number.
+- **Only the passphrase has to be configured.** SSID, BSSID and address come off the
+  machine. Bringing a network *up* is not this plugin's business, the same call
+  `docs/echo-cancellation.md` makes about the echo canceller.
+- **The wireless extensions cannot describe an access point.** `SIOCGIWESSID` and
+  `SIOCGIWAP` answer `EINVAL` for an AP mode interface while `SIOCGIWMODE` works, so a
+  hosting head unit knows it is hosting and reads an empty BSSID in the same breath.
+  An empty BSSID is silently fatal, so when hosting it comes from `SIOCGIFHWADDR`.
+- **`WifiStartRequest` is an instruction to connect, so send it once and only when the
+  phone says it is on the network.** Sent early it is answered and forgotten and the
+  phone never dials in; sent to a phone that is already projecting it tears the session
+  down to obey, which looks like the splash screen appearing and vanishing in a loop.
+- **A phone reporting `STATUS_WIFI_INCORRECT_CREDENTIALS` is rarely complaining about
+  the passphrase.** It is its only word for an association that failed, and for an
+  offer it rejected outright. The head unit logs the whole offer on every start for
+  that reason; `journalctl -t wpa_supplicant` showing no association attempt at all
+  means the offer was rejected rather than the join. The usual cause when it did try is
+  an access point that is not WPA2 personal after all.
+- **An access point needs a channel the kernel will beacon on**, a narrower set than
+  the card supports: `no IR` channels cannot be used and asking NetworkManager for one
+  blocks for ninety seconds in silence. Watch two traps in `iw phy`: `(disabled)`
+  channels do not say `no IR`, and 6 GHz frequencies start at 5955 MHz.
+- **Saying nothing is worse than saying no.** A phone that knows this machine asks for
+  the service every five seconds for as long as Bluetooth is connected, forever, and
+  shows the driver a "connecting" notice meanwhile. Withdrawing the service stops the
+  answering, not the asking. So a head unit that is not projecting publishes the
+  service and refuses, and the phone gives up: zero queries over a hundred seconds
+  against one every 5.1 seconds. Never published at all when wireless is left out of
+  `AaConfig::transports`, which is the setting for Bluetooth music and nothing else.
+- **The service goes up when the controller is built, not when the session starts**, so
+  an application that is open and not projecting answers phones instead of ignoring
+  them. Starting stays an explicit act for wireless exactly as for the cable.
+- **Refusing works well enough to need undoing.** A refused phone stops asking and does
+  not notice when the answer changes, so `WirelessConnector` drops and remakes the
+  Bluetooth link eight seconds after it starts offering, if nothing has asked by then.
+  `ConnectProfile` on the Android Auto UUID is not an alternative: the phone asks for
+  that service rather than offering it, so BlueZ answers "No more profiles to connect
+  to".
+- **A wireless connection never displaces a connected session, and a cable may.** A
+  person plugging in a cable did something on purpose; a phone dialling in did not.
+- **Wireless progress is news, not a lifecycle change**, the same rule the decoder
+  follows. Reporting it as `searching` while a session was connected dragged every
+  later report down with it, video statistics included.
+- **A phone hosting a hotspot cannot join the head unit**, so wireless and a
+  development machine whose only internet is that hotspot are mutually exclusive.
+- **`tools/wireless-test.sh` drives a real attempt and names the stage it reached;
+  `tools/wireless-capture.sh` records Bluetooth and Wi-Fi while it happens.** The
+  second earns its place because nothing above the transport can tell a phone that
+  never asked from one that asked and walked away.
 
 ## Native notes that keep coming back
 

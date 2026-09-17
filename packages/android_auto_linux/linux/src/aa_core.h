@@ -36,6 +36,35 @@ typedef enum {
   AA_STATE_ERROR = 4,
 } AaState;
 
+// How a phone may reach this head unit, one bit each. Mirrored by
+// AndroidAutoTransport in Dart.
+//
+// The two are not alternatives and a head unit is normally both: the cable is what a
+// driver reaches for when the battery is low, and it is also how a phone first learns
+// that a given car can project. Wireless costs a Bluetooth service and an open TCP
+// port, and nothing at all until a phone asks.
+typedef enum {
+  AA_TRANSPORT_USB = 1 << 0,
+  AA_TRANSPORT_WIRELESS = 1 << 1,
+} AaTransport;
+
+// How the Wi-Fi network the phone is told to join is secured, as the protocol's own
+// WifiSecurityMode. The gaps are deliberate: the numbering is the wire's.
+typedef enum {
+  AA_WIFI_OPEN = 1,
+  AA_WIFI_WPA_PERSONAL = 4,
+  AA_WIFI_WPA2_PERSONAL = 5,
+  AA_WIFI_WPA_WPA2_PERSONAL = 6,
+} AaWifiSecurity;
+
+// Whether the head unit brought the network up for the phone or is merely on one.
+typedef enum {
+  // A network that was already there, which the head unit happens to be joined to.
+  AA_ACCESS_POINT_STATIC = 0,
+  // A network this head unit is hosting.
+  AA_ACCESS_POINT_DYNAMIC = 1,
+} AaAccessPointType;
+
 // What a touch report describes, mirrored by AndroidAutoTouchAction in Dart and by
 // PointerAction on the wire. All three carry Android's own MotionEvent action
 // constants, so the gaps in the numbering are deliberate.
@@ -156,7 +185,50 @@ typedef struct {
   // the phone pushes without being asked, which cost the head unit nothing but a
   // channel. Zero is a host app that wants none of them, which is a real choice.
   int32_t metadata;
+  // How a phone may reach this head unit, an OR of AaTransport bits. Zero is read as
+  // AA_TRANSPORT_USB, so a host app written before wireless existed keeps working.
+  int32_t transports;
 } AaConfig;
+
+// The Wi-Fi network a phone is told to join, and where to dial once it is on it.
+//
+// Every string may be NULL or empty, and an empty one means "work it out from the
+// machine". The one field nothing can work out is the passphrase: the kernel does not
+// keep one and the network manager's copy is behind a privileged interface, so a head
+// unit on an ordinary network needs exactly one thing configured.
+//
+// Nothing here brings a network up. Hosting an access point, or joining someone
+// else's, is the machine's configuration and not a plugin's business, in the same way
+// the echo canceller for phone calls is.
+typedef struct {
+  // Defaults to the SSID the wireless interface is on, or hosting.
+  const char* ssid;
+  const char* passphrase;
+  // The access point's MAC. Defaults to the one the interface reports.
+  const char* bssid;
+  // Which wireless interface to describe. Defaults to the first one with an address.
+  // Spelled out rather than "interface" because that is a reserved word in Dart and
+  // the generated binding would have to mangle it.
+  const char* interface_name;
+  // The address the phone connects back to. Defaults to that interface's IPv4.
+  const char* ip_address;
+  // Which paired phone to prod when wireless starts being offered and nothing asks
+  // for it, as "AA:BB:CC:DD:EE:FF". Normally left empty, which prods whichever paired
+  // phone is connected. Worth naming on a machine that several phones are paired with.
+  //
+  // The prod drops and remakes that phone's Bluetooth link, because re-reading the
+  // service list is something a phone only does when the link comes up. It costs that
+  // phone's Bluetooth audio a few seconds, so it only happens when a phone has gone
+  // quiet, which is what being refused for a while does to one.
+  const char* phone_address;
+  // Defaults to 5288, which is the port Android Auto dials.
+  int32_t port;
+  // An AaWifiSecurity. Zero is read as AA_WIFI_WPA2_PERSONAL.
+  int32_t security;
+  // An AaAccessPointType, or negative to decide it from whether the interface is
+  // hosting the network rather than joined to it.
+  int32_t access_point;
+} AaWirelessConfig;
 
 // Called when the session changes state or has something to report.
 //
@@ -486,6 +558,89 @@ AA_EXPORT int32_t aa_session_browse(AaSession* session, const char* path, int32_
 // Tells the phone the user picked `path` in the media browser, which is what makes it
 // play. Same return values as aa_session_browse.
 AA_EXPORT int32_t aa_session_browse_select(AaSession* session, const char* path);
+
+// === wireless ===
+//
+// Android Auto without a cable. The phone opens a Bluetooth channel to a service this
+// head unit publishes, is told which Wi-Fi network to be on and which address to dial,
+// and then connects to it. Everything above that connection, SSL and every channel, is
+// what already runs over USB.
+//
+// Nothing here changes how the machine presents itself on Bluetooth. One UUID is added
+// to the adapter's service record and nothing is taken away, so a head unit whose own
+// software pairs the phone for music and hands free calling keeps working exactly as
+// it did. That software is worth keeping: a phone decides a machine is a car partly
+// from the hands free profile it offers.
+
+// Every phone this machine is paired with, so a host app can present a picker.
+//
+// One device per line, four tab separated fields: the Bluetooth address, the name, "1"
+// if it is connected right now, and "1" if its device class says it is a phone. Empty
+// when BlueZ cannot be reached, which on a machine with no Bluetooth is not a fault.
+// Heap allocated, free with aa_string_free.
+//
+// Takes no session because it describes the machine rather than a connection, and
+// blocks briefly, so call it from Dart rather than from a hot path.
+AA_EXPORT char* aa_paired_phones(void);
+
+// Sets what the phone will be told about the Wi-Fi network. Takes effect the next time
+// wireless starts, so call it before aa_session_start. Returns 0, or -1 on a bad
+// argument.
+AA_EXPORT int32_t aa_session_set_wireless_config(AaSession* session,
+                                                 const AaWirelessConfig* config);
+
+// Publishes the Bluetooth service and opens the projection port. Returns 0 on success,
+// -1 if the session is not running, and -2 if the machine cannot offer a network; in
+// the last case the reason has already gone out through the event callback. Idempotent.
+//
+// Called for you by aa_session_start when AaConfig::transports has
+// AA_TRANSPORT_WIRELESS in it. This exists so a host app can turn wireless on and off
+// while it runs.
+AA_EXPORT int32_t aa_session_start_wireless(AaSession* session);
+
+// Stops offering wireless. Does not touch a session that is already projecting over
+// Wi-Fi: a driver who switches wireless off mid journey meant "do not start another
+// one", not "cut this one off". Returns 0. Idempotent.
+//
+// The projection port closes, but the Bluetooth service stays published and every
+// phone that asks is told no. That is deliberate and it is the opposite of what it
+// looks like. A phone that has been introduced to this machine as a wireless car asks
+// for the service every five seconds for as long as it is connected over Bluetooth,
+// and withdrawing the service does not stop it asking, it only stops it being
+// answered: the driver is left with a permanent notification saying the phone is
+// connecting while nothing is. Measured on a Pixel 8 Pro: a query every 5.1 seconds
+// indefinitely against silence, one query and then nothing when refused.
+//
+// The service is withdrawn for good by aa_session_destroy, and never published at all
+// when AaConfig::transports leaves AA_TRANSPORT_WIRELESS out. A phone paired while it
+// is out never learns this machine can project, so it never asks.
+AA_EXPORT int32_t aa_session_stop_wireless(AaSession* session);
+
+// Publishes the Bluetooth service and refuses every phone that asks, without offering
+// anything. Returns 0. Idempotent, and a no-op when AaConfig::transports leaves
+// AA_TRANSPORT_WIRELESS out.
+//
+// This is the state a head unit is in whenever it is switched on and not projecting,
+// and it is worth being in deliberately. A phone that knows the machine as a wireless
+// car asks for the service every five seconds for as long as Bluetooth is connected,
+// and shows the driver a notification saying it is connecting for as long as nothing
+// answers. Answering "not now" makes it stop. See aa_session_stop_wireless.
+//
+// Call it as soon as the head unit application is up, before anything is started.
+AA_EXPORT int32_t aa_session_decline_wireless(AaSession* session);
+
+// Whether wireless is currently being offered, 1 or 0.
+AA_EXPORT int32_t aa_session_wireless_active(AaSession* session);
+
+// What the head unit resolved to and is telling phones, as tab separated fields on one
+// line: interface, SSID, BSSID, IP, port, "1" or "0" for hosting the network, the same
+// for whether Bluetooth is published, and the same for whether a phone has opened the
+// Bluetooth channel. Empty while wireless is not running.
+//
+// The answer to "why is nothing happening": it shows whether the machine found a
+// network at all, and whether the phone has got as far as Bluetooth. Heap allocated,
+// free with aa_string_free.
+AA_EXPORT char* aa_session_wireless_summary(AaSession* session);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Started life as M2

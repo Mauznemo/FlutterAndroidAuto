@@ -18,9 +18,20 @@ class AndroidAutoController extends ChangeNotifier {
   int? _textureId;
   AndroidAutoVideoInfo? _videoInfo;
 
-  /// Creates a controller. Nothing happens until [start] is called.
+  /// Creates a controller. Nothing is projected until [start] is called.
+  ///
+  /// One thing does happen straight away, and only when [AndroidAutoConfig.transports]
+  /// includes [AndroidAutoTransport.wireless]: the Bluetooth service is published and
+  /// every phone that asks for it is refused. A phone that knows this machine as a
+  /// wireless car asks every five seconds for as long as Bluetooth is connected, and
+  /// shows its driver a notification saying it is connecting for as long as nothing
+  /// answers, so a head unit that is open and not projecting should be saying no
+  /// rather than saying nothing. See [AndroidAutoPlatform.initialize].
   AndroidAutoController({this.config = const AndroidAutoConfig()}) {
     _subscription = _platform.events.listen(_onEvent);
+    // Deliberately not awaited: a constructor cannot, and nothing else here depends
+    // on it having finished.
+    unawaited(_platform.initialize(config));
     // Subscribed here rather than left to the host app, so that a widget which only
     // listens to this ChangeNotifier repaints when a track or a turn changes. The
     // streams are broadcast, so an app that wants the values themselves still
@@ -66,6 +77,51 @@ class AndroidAutoController extends ChangeNotifier {
     _videoInfo = null;
     notifyListeners();
   }
+
+  /// Every phone this machine is paired with over Bluetooth.
+  ///
+  /// Describes the machine rather than the session, so it answers before [start] and
+  /// after [stop]. Use it to fill a picker whose choice goes into
+  /// [AndroidAutoWirelessConfig.phoneAddress].
+  Future<List<AndroidAutoBluetoothDevice>> pairedPhones() =>
+      _platform.pairedPhones();
+
+  /// Publishes the Bluetooth service and opens the projection port.
+  ///
+  /// Done for you by [start] when [AndroidAutoConfig.transports] includes
+  /// [AndroidAutoTransport.wireless]. Call this directly to offer wireless as
+  /// something the driver can switch on and off.
+  Future<void> startWireless() async {
+    await _platform.startWireless();
+    notifyListeners();
+  }
+
+  /// Stops offering wireless. A phone already projecting keeps its connection.
+  ///
+  /// The Bluetooth service stays published and phones that ask are refused, which is
+  /// what stops the phone showing a permanent "connecting to Android Auto" notice.
+  /// See [AndroidAutoPlatform.stopWireless].
+  Future<void> stopWireless() async {
+    await _platform.stopWireless();
+    notifyListeners();
+  }
+
+  /// Changes which Wi-Fi network a phone is sent to. Applies the next time wireless
+  /// starts, so it never disturbs a phone that is projecting.
+  void setWirelessConfig(AndroidAutoWirelessConfig config) {
+    _platform.setWirelessConfig(config);
+    notifyListeners();
+  }
+
+  /// Whether wireless is being offered right now.
+  bool get wirelessActive => _platform.wirelessActive;
+
+  /// What wireless resolved to, or null when it is not running.
+  ///
+  /// The thing to put on screen when a phone will not connect: it says whether the
+  /// machine found a network, what it is telling phones to join, and how far the
+  /// phone has got.
+  AndroidAutoWirelessStatus? get wirelessStatus => _platform.wirelessStatus;
 
   /// Drives the video path from a generated pattern instead of a phone.
   ///

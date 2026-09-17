@@ -145,6 +145,12 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // Begins the handshake with a device that has already reached accessory mode.
   void Start(aasdk::usb::IAOAPDevice::Pointer device);
 
+  // The same, for a phone that dialled in over Wi-Fi. Everything above the transport
+  // is identical: the version request, the SSL handshake, service discovery and every
+  // channel are byte for byte what goes over the cable, which is why the wireless work
+  // stops at producing one of these.
+  void Start(aasdk::transport::ITransport::Pointer transport);
+
   // Asks the phone to end its side of the session. Returns immediately; the phone's
   // acknowledgement arrives asynchronously, so pair this with WaitForShutdown.
   //
@@ -202,6 +208,8 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // thread. A caller takes its own reference and works from that.
   aasdk::channel::control::IControlServiceChannel::Pointer Control() const;
 
+  // The common half of the two Start overloads. Called with lifecycle_mutex_ held.
+  void StartLocked(aasdk::transport::ITransport::Pointer transport);
   void SendHandshakeStep();
   // Arms AA_FAULT_TRANSPORT_AFTER, see the note in the .cc file.
   void ArmFaultInjection();
@@ -219,6 +227,8 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   InputHandler on_input_;
   MetadataHandler on_metadata_;
 
+  // Only a wired session has one. Kept because the device's destructor is what
+  // releases the USB interface, and nothing else holds it once Start has returned.
   aasdk::usb::IAOAPDevice::Pointer device_;
   aasdk::transport::ITransport::Pointer transport_;
   aasdk::messenger::ICryptor::Pointer cryptor_;

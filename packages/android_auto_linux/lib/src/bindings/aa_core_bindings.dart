@@ -986,6 +986,153 @@ class AaCoreBindings {
         int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>)
       >();
 
+  /// Every phone this machine is paired with, so a host app can present a picker.
+  ///
+  /// One device per line, four tab separated fields: the Bluetooth address, the name, "1"
+  /// if it is connected right now, and "1" if its device class says it is a phone. Empty
+  /// when BlueZ cannot be reached, which on a machine with no Bluetooth is not a fault.
+  /// Heap allocated, free with aa_string_free.
+  ///
+  /// Takes no session because it describes the machine rather than a connection, and
+  /// blocks briefly, so call it from Dart rather than from a hot path.
+  ffi.Pointer<ffi.Char> aa_paired_phones() {
+    return _aa_paired_phones();
+  }
+
+  late final _aa_paired_phonesPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'aa_paired_phones',
+      );
+  late final _aa_paired_phones = _aa_paired_phonesPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  /// Sets what the phone will be told about the Wi-Fi network. Takes effect the next time
+  /// wireless starts, so call it before aa_session_start. Returns 0, or -1 on a bad
+  /// argument.
+  int aa_session_set_wireless_config(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<AaWirelessConfig> config,
+  ) {
+    return _aa_session_set_wireless_config(session, config);
+  }
+
+  late final _aa_session_set_wireless_configPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Pointer<AaWirelessConfig>,
+          )
+        >
+      >('aa_session_set_wireless_config');
+  late final _aa_session_set_wireless_config =
+      _aa_session_set_wireless_configPtr
+          .asFunction<
+            int Function(ffi.Pointer<AaSession>, ffi.Pointer<AaWirelessConfig>)
+          >();
+
+  /// Publishes the Bluetooth service and opens the projection port. Returns 0 on success,
+  /// -1 if the session is not running, and -2 if the machine cannot offer a network; in
+  /// the last case the reason has already gone out through the event callback. Idempotent.
+  ///
+  /// Called for you by aa_session_start when AaConfig::transports has
+  /// AA_TRANSPORT_WIRELESS in it. This exists so a host app can turn wireless on and off
+  /// while it runs.
+  int aa_session_start_wireless(ffi.Pointer<AaSession> session) {
+    return _aa_session_start_wireless(session);
+  }
+
+  late final _aa_session_start_wirelessPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_start_wireless',
+      );
+  late final _aa_session_start_wireless = _aa_session_start_wirelessPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Stops offering wireless. Does not touch a session that is already projecting over
+  /// Wi-Fi: a driver who switches wireless off mid journey meant "do not start another
+  /// one", not "cut this one off". Returns 0. Idempotent.
+  ///
+  /// The projection port closes, but the Bluetooth service stays published and every
+  /// phone that asks is told no. That is deliberate and it is the opposite of what it
+  /// looks like. A phone that has been introduced to this machine as a wireless car asks
+  /// for the service every five seconds for as long as it is connected over Bluetooth,
+  /// and withdrawing the service does not stop it asking, it only stops it being
+  /// answered: the driver is left with a permanent notification saying the phone is
+  /// connecting while nothing is. Measured on a Pixel 8 Pro: a query every 5.1 seconds
+  /// indefinitely against silence, one query and then nothing when refused.
+  ///
+  /// The service is withdrawn for good by aa_session_destroy, and never published at all
+  /// when AaConfig::transports leaves AA_TRANSPORT_WIRELESS out. A phone paired while it
+  /// is out never learns this machine can project, so it never asks.
+  int aa_session_stop_wireless(ffi.Pointer<AaSession> session) {
+    return _aa_session_stop_wireless(session);
+  }
+
+  late final _aa_session_stop_wirelessPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_stop_wireless',
+      );
+  late final _aa_session_stop_wireless = _aa_session_stop_wirelessPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Publishes the Bluetooth service and refuses every phone that asks, without offering
+  /// anything. Returns 0. Idempotent, and a no-op when AaConfig::transports leaves
+  /// AA_TRANSPORT_WIRELESS out.
+  ///
+  /// This is the state a head unit is in whenever it is switched on and not projecting,
+  /// and it is worth being in deliberately. A phone that knows the machine as a wireless
+  /// car asks for the service every five seconds for as long as Bluetooth is connected,
+  /// and shows the driver a notification saying it is connecting for as long as nothing
+  /// answers. Answering "not now" makes it stop. See aa_session_stop_wireless.
+  ///
+  /// Call it as soon as the head unit application is up, before anything is started.
+  int aa_session_decline_wireless(ffi.Pointer<AaSession> session) {
+    return _aa_session_decline_wireless(session);
+  }
+
+  late final _aa_session_decline_wirelessPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_decline_wireless',
+      );
+  late final _aa_session_decline_wireless = _aa_session_decline_wirelessPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Whether wireless is currently being offered, 1 or 0.
+  int aa_session_wireless_active(ffi.Pointer<AaSession> session) {
+    return _aa_session_wireless_active(session);
+  }
+
+  late final _aa_session_wireless_activePtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_wireless_active',
+      );
+  late final _aa_session_wireless_active = _aa_session_wireless_activePtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// What the head unit resolved to and is telling phones, as tab separated fields on one
+  /// line: interface, SSID, BSSID, IP, port, "1" or "0" for hosting the network, the same
+  /// for whether Bluetooth is published, and the same for whether a phone has opened the
+  /// Bluetooth channel. Empty while wireless is not running.
+  ///
+  /// The answer to "why is nothing happening": it shows whether the machine found a
+  /// network at all, and whether the phone has got as far as Bluetooth. Heap allocated,
+  /// free with aa_string_free.
+  ffi.Pointer<ffi.Char> aa_session_wireless_summary(
+    ffi.Pointer<AaSession> session,
+  ) {
+    return _aa_session_wireless_summary(session);
+  }
+
+  late final _aa_session_wireless_summaryPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)
+        >
+      >('aa_session_wireless_summary');
+  late final _aa_session_wireless_summary = _aa_session_wireless_summaryPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
+
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Started life as M2
   /// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
@@ -1158,6 +1305,62 @@ final class AaConfig extends ffi.Struct {
   /// channel. Zero is a host app that wants none of them, which is a real choice.
   @ffi.Int32()
   external int metadata;
+
+  /// How a phone may reach this head unit, an OR of AaTransport bits. Zero is read as
+  /// AA_TRANSPORT_USB, so a host app written before wireless existed keeps working.
+  @ffi.Int32()
+  external int transports;
+}
+
+/// The Wi-Fi network a phone is told to join, and where to dial once it is on it.
+///
+/// Every string may be NULL or empty, and an empty one means "work it out from the
+/// machine". The one field nothing can work out is the passphrase: the kernel does not
+/// keep one and the network manager's copy is behind a privileged interface, so a head
+/// unit on an ordinary network needs exactly one thing configured.
+///
+/// Nothing here brings a network up. Hosting an access point, or joining someone
+/// else's, is the machine's configuration and not a plugin's business, in the same way
+/// the echo canceller for phone calls is.
+final class AaWirelessConfig extends ffi.Struct {
+  /// Defaults to the SSID the wireless interface is on, or hosting.
+  external ffi.Pointer<ffi.Char> ssid;
+
+  external ffi.Pointer<ffi.Char> passphrase;
+
+  /// The access point's MAC. Defaults to the one the interface reports.
+  external ffi.Pointer<ffi.Char> bssid;
+
+  /// Which wireless interface to describe. Defaults to the first one with an address.
+  /// Spelled out rather than "interface" because that is a reserved word in Dart and
+  /// the generated binding would have to mangle it.
+  external ffi.Pointer<ffi.Char> interface_name;
+
+  /// The address the phone connects back to. Defaults to that interface's IPv4.
+  external ffi.Pointer<ffi.Char> ip_address;
+
+  /// Which paired phone to prod when wireless starts being offered and nothing asks
+  /// for it, as "AA:BB:CC:DD:EE:FF". Normally left empty, which prods whichever paired
+  /// phone is connected. Worth naming on a machine that several phones are paired with.
+  ///
+  /// The prod drops and remakes that phone's Bluetooth link, because re-reading the
+  /// service list is something a phone only does when the link comes up. It costs that
+  /// phone's Bluetooth audio a few seconds, so it only happens when a phone has gone
+  /// quiet, which is what being refused for a while does to one.
+  external ffi.Pointer<ffi.Char> phone_address;
+
+  /// Defaults to 5288, which is the port Android Auto dials.
+  @ffi.Int32()
+  external int port;
+
+  /// An AaWifiSecurity. Zero is read as AA_WIFI_WPA2_PERSONAL.
+  @ffi.Int32()
+  external int security;
+
+  /// An AaAccessPointType, or negative to decide it from whether the interface is
+  /// hosting the network rather than joined to it.
+  @ffi.Int32()
+  external int access_point;
 }
 
 /// Called when the session changes state or has something to report.
