@@ -217,7 +217,7 @@ void VideoChannel::onVideoFocusRequest(
     const video_pb::VideoFocusRequestNotification& request) {
   // The phone asks for focus back when it wants to show something on its own screen,
   // and asks for projection when it is done. Answering with what was asked for is
-  // right until the host app has a say in it, which is M9's problem.
+  // right until the host app is given a say in it, which it does not have yet.
   const bool projected = request.mode() == video_pb::VIDEO_FOCUS_PROJECTED ||
                          request.mode() == video_pb::VIDEO_FOCUS_PROJECTED_NO_INPUT_FOCUS;
   SendVideoFocus(projected, false);

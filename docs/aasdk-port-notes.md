@@ -20,8 +20,8 @@ OK
 ```
 
 System protobuf works, so `-DSKIP_BUILD_PROTOBUF=ON -DSKIP_BUILD_ABSL=ON` avoids aasdk
-building its own protobuf 30. 254 generated `.pb.h` files, covering every channel M3 to
-M10 needs. Stripped output is 1.6 MB of `libaasdk.so` plus 2.1 MB of
+building its own protobuf 30. 254 generated `.pb.h` files, covering every channel this
+plugin speaks. Stripped output is 1.6 MB of `libaasdk.so` plus 2.1 MB of
 `libaap_protobuf.so`, which is small enough that shipping them beside the plugin is fine
 and static linking is not worth patching upstream for.
 
@@ -105,7 +105,7 @@ constructed from an `io_context`.
 
 `aasdk` exposes its headers with a directory scoped `include_directories()`, which does
 not reach a parent project's targets. Anything consuming aasdk through
-`add_subdirectory()`, which is exactly how the Flutter plugin will in M2, cannot find
+`add_subdirectory()`, which is exactly how the Flutter plugin consumes it, cannot find
 `aasdk/...` headers at all. The patch adds the include directory to the `aasdk` target
 itself, where it belongs.
 

@@ -103,8 +103,8 @@ cert/{headunit.crt,headunit.key}
 
 Channel implementations present: Control, Bluetooth, GenericNotification, InputSource,
 MediaBrowser, MediaPlaybackStatus, MediaSink, MediaSource, NavigationStatus,
-PhoneStatus, Radio, SensorSource, VendorExtension, WifiProjection. That is everything
-M3 to M10 need.
+PhoneStatus, Radio, SensorSource, VendorExtension, WifiProjection. That covers every
+channel this plugin speaks, over the cable and over Wi-Fi.
 
 ### The one real build problem
 

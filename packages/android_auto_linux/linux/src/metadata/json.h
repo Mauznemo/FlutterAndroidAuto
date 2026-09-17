@@ -1,12 +1,13 @@
 // A very small JSON writer, for the one thing in this plugin that needs one.
 //
-// M9 carries structured news from the phone to the host app: a turn instruction with a
-// distance and a lane diagram, a track with its artwork, a list of calls. None of that
-// fits the flat scalars the rest of the C ABI passes, and adding a JSON library to a
-// project whose only other dependencies are the ones the protocol forces on it would be
-// out of proportion. So one string per update crosses the boundary, built here.
+// The metadata channels carry structured news from the phone to the host app: a turn
+// instruction with a distance and a lane diagram, a track with its artwork, a list of
+// calls. None of that fits the flat scalars the rest of the C ABI passes, and adding a
+// JSON library to a project whose only other dependencies are the ones the protocol
+// forces on it would be out of proportion. So one string per update crosses the
+// boundary, built here.
 //
-// Two rules, both of which exist because of what M8 learned about absent fields:
+// Two rules, both of them the sensors' rule about absent fields over again:
 //
 //   - A field the phone did not send is not written at all. Not written as zero, not
 //     written as an empty string. A track with no album and a track on an album called

@@ -15,8 +15,8 @@ was. Sections are being worked in order.
 | A. Things that are actually broken | 6 | **high** | done, 2026-09-17 |
 | B. Privileged commands with no error path | 4 | **high** | done, 2026-09-17 |
 | C. Tied to this machine or this phone | 9 | medium | done, 2026-09-17 |
-| D. Milestone references | 3 | medium | not started |
-| E. Documentation that is stale or wrong | 12 | **high** | not started |
+| D. Milestone references | 3 | medium | done, bar one line left to E1 |
+| E. Documentation that is stale or wrong | 12 | **high** | E4 done in D |
 | F. Packaging and structure | 9 | medium | F9 half done in C |
 | G. Debug surface compiled into release | 4 | medium | not started |
 | H. CLAUDE.md | 8 | low | not started |
@@ -380,46 +380,73 @@ itself calls harmless.
 
 All of these become meaningless the moment `PLAN.md` goes.
 
+**Resolved 2026-09-17.** The decision taken: `PLAN.md` stays as the project's own record,
+and nothing else is allowed to depend on it. So every milestone number is gone from
+source, build files and `docs/`, and every "see `PLAN.md` under Mx" either had its
+substance inlined or was dropped where the surrounding comment already said enough.
+`CLAUDE.md` still uses `PLAN.md`, which is what it is for, and is H's business.
+
 ### D1. In source files
 
-- [ ] `linux/src/test_pattern.h:1,5,6` (see also E4)
-- [ ] `linux/src/frame_ring.h:4,21`
-- [ ] `linux/src/sensors/sensor_state.h:13` "See PLAN.md under M8"
-- [ ] `linux/src/aa_core.h:646` "Started life as M2 scaffolding"
-- [ ] `linux/src/aa_core.cc:214` "the io_context thread pool that aasdk will run on from M3"
-- [ ] `linux/src/session/sensor_channel.h:28` "lived in support_channels.cc until M8"
-- [ ] `linux/src/session/sensor_channel.cc:84` "see PLAN.md under M8"
-- [ ] `linux/src/session/microphone_channel.h:26,135` "until M7", "in PLAN.md under M7"
-- [ ] `linux/src/session/audio_channels.h:21` "what M6 replaced"
-- [ ] `linux/src/session/video_channel.cc:220` "which is M9's problem"
-- [ ] `linux/src/session/protocol_session.h:254` "a later milestone will let the host app"
-- [ ] `linux/src/session/metadata_channels.h:3` "Everything before M9"
-- [ ] `linux/src/session/metadata_channel.h:3` "The five M9 channels"
-- [ ] `linux/src/metadata/json.h:3,9` "M9 carries", "what M8 learned"
-- [ ] `linux/src/metadata/metadata_state.h:3,25` "the API agnostic seam for M9", "for the reason M8 spells"
-- [ ] `lib/src/bindings/aa_core_bindings.dart:1137` (regenerate after fixing `aa_core.h:646`)
-- [ ] `example/lib/main.dart:163,253,599,722`
+- [x] `linux/src/test_pattern.h:1,5,6` (see also E4)
+- [x] `linux/src/frame_ring.h:4,21`
+- [x] `linux/src/sensors/sensor_state.h:13` "See PLAN.md under M8"
+- [x] `linux/src/aa_core.h:646` "Started life as M2 scaffolding"
+- [x] `linux/src/aa_core.cc:214` "the io_context thread pool that aasdk will run on from M3"
+- [x] `linux/src/session/sensor_channel.h:28` "lived in support_channels.cc until M8"
+- [x] `linux/src/session/sensor_channel.cc:84` "see PLAN.md under M8"
+- [x] `linux/src/session/microphone_channel.h:26,135` "until M7", "in PLAN.md under M7"
+- [x] `linux/src/session/audio_channels.h:21` "what M6 replaced"
+- [x] `linux/src/session/video_channel.cc:220` "which is M9's problem"
+- [x] `linux/src/session/protocol_session.h:254` "a later milestone will let the host app"
+- [x] `linux/src/session/metadata_channels.h:3` "Everything before M9"
+- [x] `linux/src/session/metadata_channel.h:3` "The five M9 channels"
+- [x] `linux/src/metadata/json.h:3,9` "M9 carries", "what M8 learned"
+- [x] `linux/src/metadata/metadata_state.h:3,25` "the API agnostic seam for M9", "for the reason M8 spells"
+- [x] `lib/src/bindings/aa_core_bindings.dart:1137` (regenerate after fixing `aa_core.h:646`)
+- [x] `example/lib/main.dart:163,253,599,722`
 
 Most read fine with the milestone simply deleted: "the API agnostic seam for M9" becomes
 "the API agnostic seam". The `PLAN.md` cross-references need their content inlined or
 dropped.
 
+That is how it went. Three needed more than a deletion:
+
+- `test_pattern.h` is rewritten rather than trimmed, since it told the reader to delete
+  what is now supported API in three layers. That closes **E4** as well.
+- `sensor_channel.cc:84` "see PLAN.md under M8 for what this one sends" now states what
+  the phone sent: 0 for most sensors and 3 for speed and compass, with the limiter never
+  having fired under the microsecond reading.
+- `sensor_state.h:13` now says what the defaults buy, rather than pointing at where it
+  was written down.
+
+Three more were history rather than information, and went entirely: "lived in
+support_channels.cc until M8", the same for M7, and "what M6 replaced". Where a
+comment described a future milestone (`video_channel.cc`, `protocol_session.h`) it now
+describes the present state instead.
+
 ### D2. In build files
 
-- [ ] `tools/build-aasdk.sh:2` "run the milestone M1 smoke test"
-- [ ] `tools/setup-dev-machine.sh:4` "native toolchain and libraries (M1 onward)"
-- [ ] `linux/smoke/CMakeLists.txt:3` "so milestone M1 stays testable"
+- [x] `tools/build-aasdk.sh:2` "run the milestone M1 smoke test"
+- [x] `tools/setup-dev-machine.sh:4` "native toolchain and libraries (M1 onward)"
+- [x] `linux/smoke/CMakeLists.txt:3` "so milestone M1 stays testable"
 
 ### D3. In documentation
 
-- [ ] `README.md:13,48`
-- [ ] `docs/research.md:107` "every channel M3 to M10 needs"
-- [ ] `docs/aasdk-port-notes.md:23,108`
-- [ ] `docs/wireless.md:4` "`PLAN.md` under M10 has the milestone checklist"
-- [ ] `docs/architecture.md:12,73,198`
-- [ ] `docs/dev-environment.md:24,117,118` (moot if C1 is done)
-- [ ] `packages/android_auto/README.md:5` and `packages/android_auto_linux/README.md:5`
-      both link to `PLAN.md`
+- [ ] `README.md:13,48`. Line 48 is a plain listing of a file that exists, so it stays.
+      Line 13 makes the reader depend on `PLAN.md` for the project's status, inside the
+      same three lines **E1** rewrites for being false. Left there rather than fixed
+      twice.
+- [x] `docs/research.md:107` "every channel M3 to M10 needs"
+- [x] `docs/aasdk-port-notes.md:23,108`
+- [x] `docs/wireless.md:4` "`PLAN.md` under M10 has the milestone checklist"
+- [x] `docs/architecture.md:12,73,198`
+- [x] `docs/dev-environment.md:24,117,118` (moot if C1 is done). Two of the three were
+      indeed moot: C1 replaced the "Still to confirm" section. The third, "needed from
+      M1", now reads "needed to build".
+- [x] `packages/android_auto/README.md:5` and `packages/android_auto_linux/README.md:5`
+      both link to `PLAN.md`. Links dropped. Giving the three packages real READMEs is
+      **F4** and is still open.
 
 ---
 
@@ -487,7 +514,11 @@ a supported way to lay out an overlay without hardware. `aa_core.h:646` even say
 
 The header and the ABI directly contradict each other.
 
-- [ ] Rewrite the header comment to describe what it is now.
+- [x] Rewrite the header comment to describe what it is now. **Done in D**, since the
+      same comment carried two of D1's milestone references. It now says the pattern was
+      built as scaffolding for the video path and kept because it earns its place: the
+      real decoder publishes into the same ring, so it tells a video problem from a
+      presentation one.
 
 ### E5. `run-example.sh` describes behaviour that does not exist
 

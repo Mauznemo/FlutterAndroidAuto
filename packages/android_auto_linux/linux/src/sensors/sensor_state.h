@@ -10,7 +10,8 @@
 // the vehicle the host app is running in, not to an Android Auto library. The two
 // exceptions are the two that must have an answer before the phone will finish opening
 // its UI, so they start at a default rather than at nothing: night mode is day and the
-// driving status is unrestricted. See PLAN.md under M8.
+// driving status is unrestricted. A phone left waiting on either keeps most of its
+// interface locked, with nothing on the wire to say why.
 //
 // Threading: every setter is called from Flutter's platform thread, the listener runs
 // on whichever thread set the value, and Snapshot() is called from the channel strand.

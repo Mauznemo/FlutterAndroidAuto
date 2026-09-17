@@ -1,10 +1,10 @@
 // A channel aasdk has a name for but no messages for.
 //
-// The five M9 channels are in aasdk's ChannelId list and four of them have a service
-// class, but only NavigationStatus and MediaPlaybackStatus parse anything, and even
-// those two stop at the message ids openauto's phones were sending in 2018: the turn
-// and distance events, both marked deprecated in the schema, and not the navigation
-// state a current phone actually sends. PhoneStatus, MediaBrowser and
+// The five metadata channels are in aasdk's ChannelId list and four of them have a
+// service class, but only NavigationStatus and MediaPlaybackStatus parse anything, and
+// even those two stop at the message ids openauto's phones were sending in 2018: the
+// turn and distance events, both marked deprecated in the schema, and not the
+// navigation state a current phone actually sends. PhoneStatus, MediaBrowser and
 // GenericNotification parse nothing at all beyond the channel open, and log an error
 // for everything else.
 //

@@ -1,10 +1,10 @@
 // What the phone has told this head unit about itself, and nothing about the protocol.
 //
-// The API agnostic seam for M9, the mirror image of sensors/sensor_state.h: no protobuf
-// and no aasdk, so the host app's widgets are written against these shapes rather than
-// against the wire. session/metadata_channels.cc is the only thing that turns wire
-// messages into them, and the JSON at the bottom of this file is the only thing that
-// turns them into something the C ABI can carry.
+// The API agnostic seam for metadata, the mirror image of sensors/sensor_state.h: no
+// protobuf and no aasdk, so the host app's widgets are written against these shapes
+// rather than against the wire. session/metadata_channels.cc is the only thing that
+// turns wire messages into them, and the JSON at the bottom of this file is the only
+// thing that turns them into something the C ABI can carry.
 //
 // The direction is the one thing that makes this unlike SensorState, and it changes
 // two decisions:
@@ -22,8 +22,8 @@
 //     all of it in, so each message writes its own fields and every update publishes
 //     the whole.
 //
-// A field the phone did not send is absent rather than zero, for the reason M8 spells
-// out at length: a track with no album and a track on an album called "" are different
+// A field the phone did not send is absent rather than zero, the same rule the sensors
+// keep: a track with no album and a track on an album called "" are different
 // questions. Numbers and enumerations say so with std::optional, strings by being
 // empty, and both come out of the JSON as an absent key.
 //

@@ -211,9 +211,9 @@ void ApplyAasdkLogLevel() {
 
 // A head unit session.
 //
-// Owns the io_context thread pool that aasdk will run on from M3, the video frame path,
-// and the channel back to Dart. Nothing here touches Flutter's platform thread except
-// the FFI entry points themselves, which Dart already calls from it.
+// Owns the io_context thread pool that aasdk runs on, the video frame path, and the
+// channel back to Dart. Nothing here touches Flutter's platform thread except the FFI
+// entry points themselves, which Dart already calls from it.
 struct AaSession {
   struct Config {
     int32_t width = 1280;

@@ -160,7 +160,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
   ///
   /// A fixed point rather than a simulated drive. Feeding a phone a route it is not on
   /// makes Maps recalculate all the way through a test, which is noise rather than
-  /// evidence: what M8 has to show is that a fix reaches the phone at all.
+  /// evidence: what this has to show is that a fix reaches the phone at all.
   void _sendFix() {
     if (!_feedGps) {
       return;
@@ -250,8 +250,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
             Positioned(top: 60, left: 420, width: 440, child: _metadataPanel()),
           if (_wirelessPanelOpen)
             Positioned(top: 60, right: 400, width: 380, child: _wirelessPanel()),
-          // The point of M9, drawn as ordinary Flutter widgets over the projection
-          // rather than read off the phone's own pixels.
+          // The point of the metadata channels, drawn as ordinary Flutter widgets over
+          // the projection rather than read off the phone's own pixels.
           Positioned(left: 20, bottom: 160, width: 440, child: _metadataOverlay()),
           Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
         ],
@@ -596,10 +596,10 @@ class _TestBenchPageState extends State<TestBenchPage> {
 
   /// The turn card, the call banner and the now playing bar, over the projection.
   ///
-  /// This is what M9 is for: none of it is read off the phone's pixels, all of it is
-  /// ordinary Flutter drawn from the metadata channels. Each piece appears only when
-  /// there is something to say, so an idle head unit shows an empty corner rather than
-  /// three placeholders.
+  /// This is what the metadata channels are for: none of it is read off the phone's
+  /// pixels, all of it is ordinary Flutter drawn from what the phone reports. Each
+  /// piece appears only when there is something to say, so an idle head unit shows an
+  /// empty corner rather than three placeholders.
   Widget _metadataOverlay() {
     final navigation = _controller.lastNavigation;
     final call = _controller.lastPhoneStatus?.activeCall;
@@ -719,7 +719,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
     ),
   );
 
-  /// The now playing bar. The deliverable M9 is measured by.
+  /// The now playing bar, drawn from the media playback channel rather than the video.
   Widget _nowPlayingBar(AndroidAutoMediaInfo media) {
     final duration = media.duration;
     final position = media.position;

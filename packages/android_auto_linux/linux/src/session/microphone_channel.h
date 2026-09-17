@@ -22,8 +22,6 @@
 // blocks on the microphone, which is what paces the stream to real time, so it posts
 // each buffer onto the channel strand rather than sending in place, exactly as
 // InputChannel does with a finger movement.
-//
-// This lived in support_channels.cc until M7, answering the phone and capturing nothing.
 
 #ifndef ANDROID_AUTO_LINUX_SESSION_MICROPHONE_CHANNEL_H_
 #define ANDROID_AUTO_LINUX_SESSION_MICROPHONE_CHANNEL_H_
@@ -132,8 +130,7 @@ class MicrophoneChannel : public std::enable_shared_from_this<MicrophoneChannel>
   // asked for two and then never sent a single Ack across five sessions and seven
   // hundred buffers, so taking it literally would cap this head unit at 64 ms of speech
   // in flight for no reason anyone could observe. So the phone's number is used once it
-  // has proved it acknowledges, and kQueueBound until then. Right under both readings,
-  // and the measurement that motivated it is in PLAN.md under M7.
+  // has proved it acknowledges, and kQueueBound until then. Right under both readings.
   int32_t Window() const;
   // Capture thread. Copies the buffer and posts the send onto the strand.
   void Publish(const uint8_t* data, size_t size);

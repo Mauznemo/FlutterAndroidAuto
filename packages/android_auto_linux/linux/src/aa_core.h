@@ -645,8 +645,9 @@ AA_EXPORT int32_t aa_session_wireless_active(AaSession* session);
 AA_EXPORT char* aa_session_wireless_summary(AaSession* session);
 
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
-// app can lay its overlay out before any hardware is involved. Started life as M2
-// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
+// app can lay its overlay out before any hardware is involved. Built as scaffolding for
+// the video path and kept because it earns its place: the real H.264 path publishes into
+// the same ring, so this tells a video problem from a presentation one.
 AA_EXPORT int32_t aa_session_start_test_pattern(AaSession* session);
 AA_EXPORT int32_t aa_session_stop_test_pattern(AaSession* session);
 

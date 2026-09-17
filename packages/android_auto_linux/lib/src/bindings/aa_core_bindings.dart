@@ -1135,8 +1135,9 @@ class AaCoreBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
 
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
-  /// app can lay its overlay out before any hardware is involved. Started life as M2
-  /// scaffolding and earned its keep; the real H.264 path publishes into the same ring.
+  /// app can lay its overlay out before any hardware is involved. Built as scaffolding for
+  /// the video path and kept because it earns its place: the real H.264 path publishes into
+  /// the same ring, so this tells a video problem from a presentation one.
   int aa_session_start_test_pattern(ffi.Pointer<AaSession> session) {
     return _aa_session_start_test_pattern(session);
   }

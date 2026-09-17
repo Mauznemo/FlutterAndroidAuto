@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One shot provisioning for a Linux dev machine.
 #
-#   tools/setup-dev-machine.sh --build-deps   native toolchain and libraries (M1 onward)
+#   tools/setup-dev-machine.sh --build-deps   native toolchain and libraries
 #   tools/setup-dev-machine.sh --udev         let a normal user talk to an Android phone
 #   tools/setup-dev-machine.sh --agent-tools  KDE desktop software, only for dev/
 #   tools/setup-dev-machine.sh --all         all three, KDE included

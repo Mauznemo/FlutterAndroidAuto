@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the vendored aasdk and run the milestone M1 smoke test.
+# Build the vendored aasdk and run its smoke test.
 #
 #   tools/build-aasdk.sh           configure, build, run the smoke test
 #   tools/build-aasdk.sh --clean   throw the build directory away first

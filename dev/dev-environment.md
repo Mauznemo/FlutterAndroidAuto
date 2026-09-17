@@ -25,8 +25,9 @@ Toolchain already present: Flutter 3.47.4 stable (snap, at
 `~/snap/flutter/common/flutter`), Dart 3.13.3, CMake 4.2.3, Ninja 1.13.2, GCC 15.2,
 Clang 21.1.8, git 2.53. `flutter doctor` reports the Linux desktop toolchain green.
 
-Not present yet, needed from M1: Boost, libusb, OpenSSL headers, protobuf, ffmpeg,
-libva, libpulse. Install with `tools/setup-dev-machine.sh --build-deps`.
+Not present on 2026-09-12, and needed to build: Boost, libusb, OpenSSL headers,
+protobuf, ffmpeg, libva, libpulse. Install with `tools/setup-dev-machine.sh
+--build-deps`.
 
 ## Screenshots
 

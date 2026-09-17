@@ -1,6 +1,6 @@
 // The five channels that carry what the phone is doing, rather than what it looks like.
 //
-// This is the point of the whole project. Everything before M9 gets a picture of the
+// This is the point of the whole project. Every other channel gets a picture of the
 // phone's screen onto a texture; these five let the host app draw its own screen from
 // the same information the phone is drawing from. A native turn card, a native now
 // playing bar, a call banner in the car's own typeface, all fed from here.

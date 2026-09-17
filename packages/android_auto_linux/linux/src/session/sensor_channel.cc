@@ -81,9 +81,10 @@ constexpr std::chrono::milliseconds kMaxHoldBack{5000};
 //
 // `min_update_period` is an int64 and the schema does not say what of. Microseconds is
 // the reading taken here, and the raw number is logged on every subscription so the
-// assumption is checkable against a real phone rather than believed; see PLAN.md under
-// M8 for what this one sends. Zero means "as often as you like", which is what every
-// subscription observed so far has asked for.
+// assumption is checkable against a real phone rather than believed. The one phone
+// tested sent 0 for most sensors and 3 for speed and compass, and under the microsecond
+// reading the limiter below has never fired against it. Zero means "as often as you
+// like", which is what every subscription observed so far has asked for.
 std::chrono::steady_clock::duration UpdatePeriod(int64_t raw) {
   if (raw <= 0) {
     return std::chrono::steady_clock::duration::zero();

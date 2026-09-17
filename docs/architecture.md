@@ -9,7 +9,7 @@
 │    Stack(children: [                                                 │
 │      AndroidAutoView(),        // the projected phone screen         │
 │      MyStatusBar(),            // ordinary Flutter widgets on top    │
-│      MyNowPlayingCard(),       // fed by M9 metadata, not pixels     │
+│      MyNowPlayingCard(),       // fed by metadata, not pixels        │
 │    ])                                                                │
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ package:android_auto
@@ -70,7 +70,7 @@ decodes into, and it imports into either graphics API:
 | OpenGL / EGL | `EGL_EXT_image_dma_buf_import` to `EGLImage` to GL texture |
 | Vulkan | `VK_EXT_external_memory_dma_buf` plus `VK_EXT_image_drm_format_modifier` to `VkImage` |
 
-Built and measured in M4: VA-API decodes into a surface that never leaves the GPU, it is
+Built and measured: VA-API decodes into a surface that never leaves the GPU, it is
 exported as two DRM prime layers (R8 luma, GR88 chroma), and `gl_adapter` imports both as
 `EGLImage`s and converts them to RGBA with a three instruction shader, all on Flutter's
 raster thread inside `populate()`. Wire to frame, measured on one machine against one
@@ -194,5 +194,5 @@ widget tree**, not a separate X/Wayland window. That buys:
 
 - Flutter widgets composited over the projection with full control of z-order and opacity
 - The host app owns the window, fullscreen state, and multi-display layout
-- Metadata channels (M9) render as real Flutter widgets, in the app's own design language
+- Metadata channels render as real Flutter widgets, in the app's own design language
 - No window manager hacks, no screen scraping, no second process to babysit
