@@ -6,7 +6,11 @@
 #   tools/setup-dev-machine.sh --udev         let a normal user talk to an Android phone
 #   tools/setup-dev-machine.sh --all
 #
-# Written for Ubuntu/Debian. Uses sudo.
+# Written for Ubuntu/Debian. All three sub-commands need root, and say so before they
+# touch anything: --build-deps installs packages, --udev writes a rule into
+# /etc/udev/rules.d and adds this user to plugdev, and --agent-tools does both of those
+# for ydotool. Nothing here works without it, so it is checked up front rather than
+# discovered halfway through an apt run.
 
 set -euo pipefail
 
@@ -21,6 +25,27 @@ BUILD_DEPS=(
 )
 
 AGENT_TOOLS=(ydotool kde-spectacle wl-clipboard python3-pil)
+
+# Checked once, before any sub-command runs, rather than left to the first sudo in the
+# middle of an apt run. `sudo -v` prompts here, where the caller is expecting it, and
+# warms the timestamp so the rest of the run does not stop to ask again.
+require_sudo() {
+  local why="$1"
+  if ! command -v sudo >/dev/null; then
+    echo "sudo is not installed, and root is needed to $why." >&2
+    exit 1
+  fi
+  sudo -n true 2>/dev/null && return 0
+  if [ -t 0 ]; then
+    echo "Root is needed to $why."
+    sudo -v && return 0
+    echo "Could not get root. Nothing has been installed or changed." >&2
+    exit 1
+  fi
+  echo "Root is needed to $why, and there is no terminal to ask for a password on." >&2
+  echo "  Run 'sudo -v' first, then this again. Nothing has been changed." >&2
+  exit 1
+}
 
 # Flutter's Linux build uses clang, and clang on this distro targets the newest installed
 # GCC, which is not necessarily the one `gcc` runs. Without that GCC's libstdc++ headers,
@@ -109,7 +134,17 @@ EOF
   echo "udev rules installed. Replug the phone."
 }
 
-[ $# -gt 0 ] || { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+[ $# -gt 0 ] || { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+
+# Reject unknown options before asking for a password, so a typo costs nothing.
+for arg in "$@"; do
+  case "$arg" in
+    --build-deps|--agent-tools|--udev|--all) ;;
+    *) echo "unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
+
+require_sudo "install packages and write udev rules"
 
 for arg in "$@"; do
   case "$arg" in

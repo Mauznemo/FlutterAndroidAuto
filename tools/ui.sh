@@ -35,6 +35,23 @@ mkdir -p "$SHOT_DIR"
 
 die() { echo "ui.sh: $*" >&2; exit 1; }
 
+# Only `setup` needs root, and it needs it for two commands in a row, the second of
+# which is backgrounded with stdin on /dev/null. Backgrounded sudo cannot ask for a
+# password: it writes its error into the redirected log and exits, so the daemon simply
+# never appears. Ask once, here, where there is still a terminal to ask on.
+require_sudo() {
+  local why="$1"
+  command -v sudo >/dev/null || die "sudo is not installed, and root is needed to $why"
+  sudo -n true 2>/dev/null && return 0
+  if [ -t 0 ]; then
+    echo "ui.sh: root is needed to $why."
+    sudo -v || die "could not get root, so ydotoold cannot be started"
+    return 0
+  fi
+  die "root is needed to $why, and there is no terminal to ask for a password on.
+  Run 'sudo -v' first, or give this user passwordless sudo for ydotoold."
+}
+
 need_daemon() {
   [ -S "$SOCKET" ] || die "ydotoold is not running, run: tools/ui.sh setup"
 }
@@ -114,6 +131,7 @@ cmd_setup() {
   # A socket file left behind by a killed daemon looks alive but is not, so key off
   # the process instead.
   if ! pgrep -x ydotoold >/dev/null; then
+    require_sudo "start ydotoold, which opens /dev/uinput"
     sudo rm -f "$SOCKET"
     sudo setsid ydotoold --socket-path="$SOCKET" --socket-perm=0600 \
       --socket-own="$(id -u):$(id -g)" >/tmp/ydotoold.log 2>&1 </dev/null &

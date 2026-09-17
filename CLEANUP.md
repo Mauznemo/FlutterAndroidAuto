@@ -13,7 +13,7 @@ was. Sections are being worked in order.
 | Section | Items | Worst severity | State |
 |---|---|---|---|
 | A. Things that are actually broken | 6 | **high** | done, 2026-09-17 |
-| B. Privileged commands with no error path | 4 | **high** | not started |
+| B. Privileged commands with no error path | 4 | **high** | done, 2026-09-17 |
 | C. Tied to this machine or this phone | 9 | medium | not started |
 | D. Milestone references | 3 | medium | not started |
 | E. Documentation that is stale or wrong | 12 | **high** | not started |
@@ -148,6 +148,15 @@ lockfile so a build is reproducible.
 
 ## B. Privileged commands with no error path
 
+**Resolved 2026-09-17.** The four scripts that need root now each carry a `require_sudo`
+preflight: `sudo -n true` first, then `sudo -v` to prompt up front when there is a
+terminal, and otherwise a message naming the command, why it needs root and what to run
+instead. Nothing is touched before it passes. It is a small function repeated per script
+rather than a shared file, because F9 is going to split `tools/` into shipped
+infrastructure and the author's own tools, and these four fall on both sides of that line.
+
+The audit as written:
+
 You asked specifically about this. **There is no sudo check anywhere in `tools/`.** Not
 one `sudo -n true` probe, no EUID test, no message explaining what is needed and why.
 The only acknowledgement is a comment stating the assumption:
@@ -170,9 +179,13 @@ writes its error into the redirected log and exits. `ui.sh` at least then says
 `wireless-capture.sh` says "btmon did not start. Check: sudo btmon" only after a sleep,
 and the tcpdump path says nothing useful at all.
 
-- [ ] Probe once at the top of each script with `sudo -n true`, and on failure either
+- [x] Probe once at the top of each script with `sudo -n true`, and on failure either
       run `sudo -v` to prompt interactively up front, or exit with a message naming
-      exactly which command needs root and why.
+      exactly which command needs root and why. Both, in that order. `wireless-capture.sh`
+      also preflights `stop` (the capture processes are root-owned) and the `report`
+      read of `/tmp/aa-wifi.pcap`: without root that read printed nothing and the report
+      concluded the phone never dialled in, which is a wrong answer rather than a
+      missing one. The stale "sudo is passwordless on this machine" comment is gone.
 
 ### B2. `ui.sh setup` prompts halfway through
 
@@ -180,8 +193,8 @@ and the tcpdump path says nothing useful at all.
 That one is foreground and will prompt, so on a password-requiring machine the script
 blocks at a prompt the caller did not expect, then silently fails at the next line.
 
-- [ ] Same preflight. If the intent is that this can prompt, do the prompting first and
-      say so.
+- [x] Same preflight, inside the branch that starts the daemon, so the other
+      sub-commands stay root-free.
 
 ### B3. `wireless-ap.sh` mutates network state before it knows it can finish
 
@@ -191,16 +204,26 @@ second prompt is left with the old connection deleted and no new one, which on a
 whose only link is that Wi-Fi means no way back online. The script does not `set -e`
 (deliberately, per its own header), so it carries on through the wreckage.
 
-- [ ] Preflight sudo before the first destructive `nmcli`.
-- [ ] Consider making `up` verify it can acquire root before deleting anything.
+- [x] Preflight sudo before the first destructive `nmcli`. It sits directly after the
+      argument checks in `up`, so a refusal costs nothing and prints "Nothing has been
+      changed". `check` and `down` preflight too, `down` because it is the way back.
+- [x] Consider making `up` verify it can acquire root before deleting anything. Same
+      preflight: it runs before the channel probe, so nothing is printed about bringing
+      an access point up that then cannot be brought up.
+
+Also fixed in passing, because it sits on the line this touches: the comment above the
+`connection delete` claimed "This script runs under `set -e`", which the header four
+lines earlier says it deliberately does not.
 
 ### B4. `setup-dev-machine.sh` documents sudo in one line and never checks
 
 `tools/setup-dev-machine.sh:9` says "Written for Ubuntu/Debian. Uses sudo." That is the
 whole of it. It is also the only thing `README.md` tells a new user to run.
 
-- [ ] Preflight, and say up front which of the three sub-commands need root
-      (`--build-deps` and `--udev` do; `--agent-tools` should not exist at all, see C4).
+- [x] Preflight, and say up front which of the three sub-commands need root. All three
+      do today, and the usage block now names what each one changes. Unknown options are
+      rejected before the preflight, so a typo never costs a password prompt.
+      `--agent-tools` is left in place here; whether it should exist at all is C4.
 
 **The model to copy is already in the repo.** `tools/install-echo-cancel.sh` needs no
 root, checks its prerequisites by name across library paths rather than guessing an

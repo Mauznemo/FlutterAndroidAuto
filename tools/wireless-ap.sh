@@ -55,6 +55,28 @@ device() {
   nmcli -t -f DEVICE,TYPE device | awk -F: '$2=="wifi" {print $1; exit}'
 }
 
+# Every nmcli here runs under sudo, and each one would prompt separately. That matters
+# more than usual: `up` deletes the old profile before adding the new one, so somebody
+# who cancels at the second prompt is left with neither, on a machine whose only link
+# may be the Wi-Fi that just went away. Find out once, before anything is touched.
+require_sudo() {
+  local why="$1"
+  if ! command -v sudo >/dev/null; then
+    echo "sudo is not installed, and root is needed to $why." >&2
+    exit 1
+  fi
+  sudo -n true 2>/dev/null && return 0
+  if [ -t 0 ]; then
+    echo "Root is needed to $why."
+    sudo -v && return 0
+    echo "Could not get root. Nothing has been changed." >&2
+    exit 1
+  fi
+  echo "Root is needed to $why, and there is no terminal to ask for a password on." >&2
+  echo "  Run 'sudo -v' first, then this again. Nothing has been changed." >&2
+  exit 1
+}
+
 case "$ACTION" in
   up)
     DEV="$(device || true)"
@@ -63,6 +85,7 @@ case "$ACTION" in
       echo "WPA2 needs a passphrase of at least eight characters." >&2
       exit 1
     fi
+    require_sudo "reconfigure this machine's wireless interface through NetworkManager"
 
     # Built as an explicit profile rather than with `nmcli device wifi hotspot`.
     #
@@ -121,10 +144,10 @@ case "$ACTION" in
     echo "Bringing up '$SSID' on $DEV, band $BAND channel $CHANNEL."
     echo "Anything this machine is connected to over Wi-Fi, its internet included, is"
     echo "about to go away."
-    # `|| true` is load bearing. This script runs under `set -e`, and deleting a
-    # profile that is not there exits non-zero, so without it the whole thing stops
-    # dead at this line having printed everything above and nothing after. It looks
-    # exactly like the script doing nothing at all.
+    # `|| true` is load bearing. Deleting a profile that is not there exits non-zero,
+    # and this line is what made the script run under `set -u -o pipefail` and not
+    # `set -e`: with `-e` the whole thing stopped dead here, having printed everything
+    # above and nothing after, which looks exactly like doing nothing at all.
     sudo nmcli connection delete "$CONNECTION" >/dev/null 2>&1 || true
     sudo nmcli connection add type wifi ifname "$DEV" con-name "$CONNECTION" \
       autoconnect no ssid "$SSID" \
@@ -179,6 +202,7 @@ case "$ACTION" in
     DEV="$(device || true)"
     [ -n "$DEV" ] || { echo "No wireless interface." >&2; exit 1; }
     CHECK="${CONNECTION}-check"
+    require_sudo "build a throwaway NetworkManager profile"
     sudo nmcli connection delete "$CHECK" >/dev/null 2>&1 || true
     sudo nmcli connection add type wifi ifname "$DEV" con-name "$CHECK" \
       autoconnect no ssid "$SSID" \
@@ -208,6 +232,7 @@ case "$ACTION" in
     ;;
 
   down)
+    require_sudo "take the access point down again"
     sudo nmcli connection down "$CONNECTION" 2>/dev/null || true
     sudo nmcli connection delete "$CONNECTION" 2>/dev/null || true
     echo "Down. Reconnect to a network the usual way."

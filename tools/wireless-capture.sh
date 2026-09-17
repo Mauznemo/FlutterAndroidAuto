@@ -28,6 +28,28 @@ AAW_UUID_SHORT="4de17a00"
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s ==\n' "$*"; }
 
+# btmon and tcpdump both need root, and both are started backgrounded with their output
+# redirected. Backgrounded sudo cannot ask for a password: it writes its error into the
+# redirect and exits, so the capture silently never happens and `report` later says the
+# phone did nothing. Ask once, up front, where there is still a terminal to ask on.
+require_sudo() {
+  local why="$1"
+  if ! command -v sudo >/dev/null; then
+    say "sudo is not installed, and root is needed to $why."
+    exit 1
+  fi
+  sudo -n true 2>/dev/null && return 0
+  if [ -t 0 ]; then
+    say "Root is needed to $why."
+    sudo -v && return 0
+    say "Could not get root, so there is nothing to record with."
+    exit 1
+  fi
+  say "Root is needed to $why, and there is no terminal to ask for a password on."
+  say "  Run 'sudo -v' first, then this again."
+  exit 1
+}
+
 case "${1:-report}" in
   start)
     step "Recording Bluetooth"
@@ -35,7 +57,8 @@ case "${1:-report}" in
       say "Already recording. Stop it first."
       exit 1
     fi
-    # Needs root to open the monitor socket. sudo is passwordless on this machine.
+    # btmon needs root to open the monitor socket, and tcpdump to open the interface.
+    require_sudo "run btmon and tcpdump"
     sudo setsid stdbuf -oL btmon -w "$SNOOP" >"$TEXT" 2>&1 &
     sleep 1
     pgrep -x btmon | head -1 > "$PIDFILE"
@@ -79,6 +102,7 @@ case "${1:-report}" in
 
   stop)
     step "Stopping the recording"
+    require_sudo "kill the capture processes, which are running as root"
     if [ -f "$PIDFILE" ]; then
       sudo kill "$(cat "$PIDFILE")" 2>/dev/null
       rm -f "$PIDFILE"
@@ -124,6 +148,10 @@ case "${1:-report}" in
     say ""
     step "The Wi-Fi side: did the phone ever dial in"
     if [ -s "$PCAP" ]; then
+      # tcpdump wrote the file as root, so reading it needs root too. Without this the
+      # reads below print nothing and the report concludes the phone never dialled in,
+      # which is a wrong answer rather than a missing one.
+      require_sudo "read $PCAP, which tcpdump wrote as root"
       say ""
       say "-- anything to or from port 5288 --"
       sudo tcpdump -r "$PCAP" -n "tcp port 5288" 2>/dev/null | head -20 \
