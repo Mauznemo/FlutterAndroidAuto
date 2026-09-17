@@ -139,7 +139,7 @@ void ApplyServiceOverride(aa::HeadUnitDescription* description) {
 // The same idea as AA_SERVICES and for the same reason: a wireless connection cannot
 // be tested while the cable is plugged in, because the phone projects over the cable
 // and the head unit will not replace a working session with an offered one. Unplugging
-// is not always possible, and on this machine the USB port is the flaky part.
+// is not always possible, and a marginal USB port is its own source of confusion.
 //
 //   AA_TRANSPORTS=wireless          radio only, ignore anything on the cable
 //   AA_TRANSPORTS=usb,wireless      both
@@ -191,7 +191,7 @@ void ApplyWirelessOverride(aa::WirelessSettings* settings) {
 // message arrived on which channel, is at DEBUG. That is far too loud to leave on once
 // video is flowing, so it is opt in:
 //
-//   AA_LOG_LEVEL=DEBUG tools/run-example.sh
+//   AA_LOG_LEVEL=DEBUG dev/run-example.sh
 //
 // Accepted values are TRACE, DEBUG, INFO, WARN, ERROR and FATAL.
 void ApplyAasdkLogLevel() {

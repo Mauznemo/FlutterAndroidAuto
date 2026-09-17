@@ -2,15 +2,19 @@
 # One shot provisioning for a Linux dev machine.
 #
 #   tools/setup-dev-machine.sh --build-deps   native toolchain and libraries (M1 onward)
-#   tools/setup-dev-machine.sh --agent-tools  screenshot and synthetic input (agent only)
 #   tools/setup-dev-machine.sh --udev         let a normal user talk to an Android phone
-#   tools/setup-dev-machine.sh --all
+#   tools/setup-dev-machine.sh --agent-tools  KDE desktop software, only for dev/
+#   tools/setup-dev-machine.sh --all         all three, KDE included
 #
-# Written for Ubuntu/Debian. All three sub-commands need root, and say so before they
-# touch anything: --build-deps installs packages, --udev writes a rule into
-# /etc/udev/rules.d and adds this user to plugdev, and --agent-tools does both of those
-# for ydotool. Nothing here works without it, so it is checked up front rather than
-# discovered halfway through an apt run.
+# Building and running this project needs the first two. --agent-tools is for the
+# scripts in dev/, which drive one particular desktop and are not part of the plugin:
+# it installs KDE's Spectacle and ydotool, so it pulls KDE onto a machine that may not
+# have it. Do not run it unless you want dev/ui.sh to work.
+#
+# Written for Ubuntu/Debian. All three need root, and say so before they touch anything:
+# --build-deps installs packages, --udev writes a rule into /etc/udev/rules.d and adds
+# this user to plugdev, and --agent-tools does both of those for ydotool. Checked up
+# front rather than discovered halfway through an apt run.
 
 set -euo pipefail
 
@@ -24,6 +28,7 @@ BUILD_DEPS=(
   libgtk-3-dev libegl1-mesa-dev libgles2-mesa-dev
 )
 
+# Only for dev/. kde-spectacle in particular drags in a good deal of KDE.
 AGENT_TOOLS=(ydotool kde-spectacle wl-clipboard python3-pil)
 
 # Checked once, before any sub-command runs, rather than left to the first sudo in the
@@ -109,7 +114,7 @@ EOF
   sudo udevadm control --reload-rules
   sudo udevadm trigger --name-match=uinput
   echo "Log out and back in for the 'input' group to take effect,"
-  echo "or keep using 'tools/ui.sh setup', which starts ydotoold via sudo."
+  echo "or keep using 'dev/ui.sh setup', which starts ydotoold via sudo."
 }
 
 do_udev() {
@@ -134,7 +139,7 @@ EOF
   echo "udev rules installed. Replug the phone."
 }
 
-[ $# -gt 0 ] || { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+[ $# -gt 0 ] || { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 
 # Reject unknown options before asking for a password, so a typo costs nothing.
 for arg in "$@"; do

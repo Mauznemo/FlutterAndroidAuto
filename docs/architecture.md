@@ -73,9 +73,9 @@ decodes into, and it imports into either graphics API:
 Built and measured in M4: VA-API decodes into a surface that never leaves the GPU, it is
 exported as two DRM prime layers (R8 luma, GR88 chroma), and `gl_adapter` imports both as
 `EGLImage`s and converts them to RGBA with a three instruction shader, all on Flutter's
-raster thread inside `populate()`. Wire to frame, measured against a Pixel 8 Pro at
-1280x720: **0.9 to 1.1 ms**. The software fallback, which converts with libswscale on the
-CPU, measures 2.9 ms.
+raster thread inside `populate()`. Wire to frame, measured on one machine against one
+phone (a Pixel 8 Pro) at 1280x720: **0.9 to 1.1 ms**. The software fallback, which
+converts with libswscale on the CPU, measures 2.9 ms.
 
 Concretely, the seam is:
 

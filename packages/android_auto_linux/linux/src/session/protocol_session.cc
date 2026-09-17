@@ -34,7 +34,7 @@ namespace control_pb = aap_protobuf::service::control::message;
 // cause took a person pressing the buttons by hand to find once and could not be
 // reproduced by a script at all. Everything a stop touches is torn down in it.
 //
-//   AA_FAULT_SLOW_START=3000 tools/run-example.sh --bundle
+//   AA_FAULT_SLOW_START=3000 dev/run-example.sh --bundle
 //
 // Unset, nothing stalls and this costs one getenv per connection.
 void StallStart() {
@@ -333,7 +333,7 @@ void ProtocolSession::ArmFaultInjection() {
   // the case that already worked, and in the wild it takes minutes of use to show up
   // once and then hides again.
   //
-  //   AA_FAULT_TRANSPORT_AFTER=20 tools/run-example.sh --bundle
+  //   AA_FAULT_TRANSPORT_AFTER=20 dev/run-example.sh --bundle
   //
   // Unset, nothing is armed and this costs one getenv per connection.
   const char* after = std::getenv("AA_FAULT_TRANSPORT_AFTER");

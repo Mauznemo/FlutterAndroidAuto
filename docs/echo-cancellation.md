@@ -22,8 +22,13 @@ call is routed to a Bluetooth hands free unit it stops, because it no longer kno
 of those things. The `ec_enabled` field the phone sends is asking whether the head unit
 has handled this already, not offering to handle it.
 
-Measured on the reference machine, laptop speakers at 85% with the built-in microphone
-roughly 30 cm away:
+One measurement, on one machine, as an illustration of the size of the effect rather
+than a specification. A car's speakers, cabin and microphone placement will all give
+different numbers; what should carry over is the shape, a large positive gap in the raw
+microphone and a suppressed one after. "Verifying it on other hardware" below is how to
+take the same measurement where it matters.
+
+Laptop speakers at 85% with the built-in microphone roughly 30 cm away:
 
 | | raw microphone | echo cancelled source |
 |---|---|---|

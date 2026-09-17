@@ -42,8 +42,9 @@ namespace aa {
 // The UUID Android looks for to decide a Bluetooth device can project wirelessly.
 //
 // Publicly known and the same in every open implementation. A phone only learns it
-// from the head unit's SDP record, never the other way round: this Pixel advertises no
-// such UUID of its own, which is what settles who listens and who connects.
+// from the head unit's SDP record, never the other way round: the one phone tested, a
+// Pixel 8 Pro, advertised no such UUID of its own, which is what settles who listens
+// and who connects.
 extern const char kAndroidAutoWirelessUuid[];
 
 // One device BlueZ knows about.

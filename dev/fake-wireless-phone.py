@@ -6,8 +6,8 @@ This connects to the Unix socket the head unit opens when AA_WIRELESS_FAKE_PHONE
 set, speaks the Bluetooth side of the handshake, and then dials the address it was
 given, which is the last thing a phone does before projection starts.
 
-    AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock tools/run-example.sh --bundle
-    tools/fake-wireless-phone.py /tmp/aaw.sock
+    AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock dev/run-example.sh --bundle
+    dev/fake-wireless-phone.py /tmp/aaw.sock
 
 It stops at the TCP connection on purpose. What happens after that is the ordinary
 projection protocol, and only a phone has the certificate to get through the SSID

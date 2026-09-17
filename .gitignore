@@ -27,8 +27,5 @@ compile_commands.json
 **/custom_headunit.crt
 **/custom_headunit.key
 
-# Agent scratch
-/tmp-shots/
-
 # OS
 .DS_Store

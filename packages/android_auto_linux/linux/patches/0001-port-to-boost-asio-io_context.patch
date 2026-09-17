@@ -2171,7 +2171,7 @@ index fc7b143..f7826fe 100644
      AccessoryModeQueryChainFactoryMock queryChainFactoryMock_;
      AccessoryModeQueryChainMock queryChainMock_;
 diff --git a/src/USB/USBEndpoint.cpp b/src/USB/USBEndpoint.cpp
-index d60acb6..58a71c2 100644
+index d60acb6..6e8cebf 100644
 --- a/src/USB/USBEndpoint.cpp
 +++ b/src/USB/USBEndpoint.cpp
 @@ -24,7 +24,7 @@
@@ -2213,7 +2213,7 @@ index d60acb6..58a71c2 100644
 +    // Turns the Nth completed IN transfer into a transaction error whose resubmit is
 +    // refused as a halted endpoint, which is the exact failure seen in the wild.
 +    //
-+    //   AA_FAULT_TRANSFER_AFTER=200 tools/run-example.sh --bundle
++    //   AA_FAULT_TRANSFER_AFTER=200 dev/run-example.sh --bundle
 +    //
 +    // The recovery it exercises cannot be waited for reliably: the real fault appeared
 +    // every few minutes one evening and then not once in 46 minutes the next morning.

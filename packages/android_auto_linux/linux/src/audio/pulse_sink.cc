@@ -1,9 +1,9 @@
 // The PcmSink backend built on libpulse-simple, plus device enumeration on libpulse.
 //
-// On this machine PulseAudio is PipeWire answering to PulseAudio's API, which is why
-// this is the first backend rather than a native PipeWire one: the same code runs on a
-// PipeWire desktop, a PulseAudio one, and the PulseAudio compatibility layer most
-// infotainment images ship, and it is a tenth of the code of pw_stream.
+// On most current Linux systems PulseAudio is PipeWire answering to PulseAudio's API,
+// which is why this is the first backend rather than a native PipeWire one: the same
+// code runs on a PipeWire desktop, a PulseAudio one, and the PulseAudio compatibility
+// layer most infotainment images ship, and it is a tenth of the code of pw_stream.
 //
 // pa_simple is blocking by design and that is the point. The head unit has no clock of
 // its own, so being paced by the speakers is exactly right: Write() returns when the

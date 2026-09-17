@@ -8,19 +8,19 @@
 # do not work. Screenshots come from spectacle, synthetic input from ydotool.
 #
 # Usage:
-#   tools/ui.sh setup                 start ydotoold and make pointer motion 1:1
-#   tools/ui.sh shot [file]           full screen png, prints the path
-#   tools/ui.sh shotwin [file]        active window only
-#   tools/ui.sh crop <f> <x> <y> <w> <h> [out]
-#   tools/ui.sh move <x> <y>          absolute pointer position
-#   tools/ui.sh click <x> <y>         left click at an absolute position
-#   tools/ui.sh rclick <x> <y>        right click
-#   tools/ui.sh drag <x1> <y1> <x2> <y2>
-#   tools/ui.sh scroll <x> <y> <amount>   negative scrolls up
-#   tools/ui.sh type <text>           type text (see the layout warning below)
-#   tools/ui.sh paste <text>          put text on the clipboard and press ctrl+v
-#   tools/ui.sh key <name...>         e.g. esc, enter, tab, ctrl+c
-#   tools/ui.sh windows               list open windows
+#   dev/ui.sh setup                 start ydotoold and make pointer motion 1:1
+#   dev/ui.sh shot [file]           full screen png, prints the path
+#   dev/ui.sh shotwin [file]        active window only
+#   dev/ui.sh crop <f> <x> <y> <w> <h> [out]
+#   dev/ui.sh move <x> <y>          absolute pointer position
+#   dev/ui.sh click <x> <y>         left click at an absolute position
+#   dev/ui.sh rclick <x> <y>        right click
+#   dev/ui.sh drag <x1> <y1> <x2> <y2>
+#   dev/ui.sh scroll <x> <y> <amount>   negative scrolls up
+#   dev/ui.sh type <text>           type text (see the layout warning below)
+#   dev/ui.sh paste <text>          put text on the clipboard and press ctrl+v
+#   dev/ui.sh key <name...>         e.g. esc, enter, tab, ctrl+c
+#   dev/ui.sh windows               list open windows
 #
 # Layout warning: ydotool injects raw evdev keycodes, and this machine's compositor
 # layout is German (QWERTZ). "type" therefore mangles y/z and most symbols. Use
@@ -53,7 +53,7 @@ require_sudo() {
 }
 
 need_daemon() {
-  [ -S "$SOCKET" ] || die "ydotoold is not running, run: tools/ui.sh setup"
+  [ -S "$SOCKET" ] || die "ydotoold is not running, run: dev/ui.sh setup"
 }
 
 # ydotool's --absolute is unreliable here, so absolute positioning is done by slamming

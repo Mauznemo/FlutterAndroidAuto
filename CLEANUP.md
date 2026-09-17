@@ -14,10 +14,10 @@ was. Sections are being worked in order.
 |---|---|---|---|
 | A. Things that are actually broken | 6 | **high** | done, 2026-09-17 |
 | B. Privileged commands with no error path | 4 | **high** | done, 2026-09-17 |
-| C. Tied to this machine or this phone | 9 | medium | not started |
+| C. Tied to this machine or this phone | 9 | medium | done, 2026-09-17 |
 | D. Milestone references | 3 | medium | not started |
 | E. Documentation that is stale or wrong | 12 | **high** | not started |
-| F. Packaging and structure | 9 | medium | not started |
+| F. Packaging and structure | 9 | medium | F9 half done in C |
 | G. Debug surface compiled into release | 4 | medium | not started |
 | H. CLAUDE.md | 8 | low | not started |
 
@@ -234,6 +234,15 @@ architecture, and prints a distribution-specific hint for each missing piece
 
 ## C. Tied to this machine, this phone or this agent
 
+**Resolved 2026-09-17.** A new top-level `dev/` holds everything that drives the author's
+own machine: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`,
+`fake-wireless-phone.py`, `audio-graph.sh` and `dev-environment.md`, with a
+`dev/README.md` saying plainly that none of it ships and that deleting the directory
+leaves the plugin building and running as before. `tools/` keeps what anyone cloning the
+repository needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`,
+`install-echo-cancel.sh`, `wireless-ap.sh` and `config/`. That also settles the first
+half of F9, which asked for exactly this split.
+
 ### C1. `docs/dev-environment.md` should not ship
 
 The entire file is one machine on one date, plus how a coding agent drives it. It opens
@@ -244,9 +253,12 @@ display's refresh rate, and a "Verified agent capabilities" matrix.
 It is also stale: "Still to confirm" lists an Android phone and VA-API zero copy, both
 of which have been working for milestones.
 
-- [ ] Delete it, or move it out of `docs/` into something clearly marked as the
-      maintainer's own notes. `README.md:45` links to it as if it were project
-      documentation.
+- [x] Delete it, or move it out of `docs/` into something clearly marked as the
+      maintainer's own notes. Moved to `dev/dev-environment.md`, with an opening
+      paragraph saying it is one laptop rather than a requirement. Its stale "Still to
+      confirm" section is now "Confirmed since", recording that both questions (a test
+      phone, VA-API zero copy) were answered milestones ago. `README.md` no longer lists
+      it under `docs/`.
 
 ### C2. `tools/ui.sh` is KDE plus Wayland plus a German keyboard
 
@@ -257,9 +269,10 @@ and warns that `type` mangles y and z because the compositor layout is QWERTZ
 
 This is agent tooling for one desktop. It has nothing to do with the plugin.
 
-- [ ] Move out of the repository, or into a clearly separate directory that the README
+- [x] Move out of the repository, or into a clearly separate directory that the README
       and CLAUDE.md both describe as "for driving the author's own machine, not part of
-      the project".
+      the project". Now `dev/ui.sh`. `README.md` and `CLAUDE.md` both carry the line, and
+      CLAUDE.md adds the rule that nothing in `tools/` may call into `dev/`.
 
 ### C3. `wireless-capture.sh` is missing from every index
 
@@ -267,7 +280,8 @@ It exists, it is referenced from `CLAUDE.md` in the wireless section and from
 `docs/wireless.md:237`, but it is absent from the `tools/` row of the CLAUDE.md layout
 table, which lists the other ten.
 
-- [ ] Add it, or decide it goes with `ui.sh`.
+- [x] Add it, or decide it goes with `ui.sh`. It went with `ui.sh`, and the `dev/` row
+      of the CLAUDE.md layout table lists it along with the rest of that directory.
 
 ### C4. `--agent-tools` installs desktop software
 
@@ -280,28 +294,41 @@ AGENT_TOOLS=(ydotool kde-spectacle wl-clipboard python3-pil)
 `kde-spectacle` pulls KDE onto a machine that may not have it. This flag exists purely
 to support `ui.sh`.
 
-- [ ] Remove along with C2, or at minimum stop advertising it in the script's own
-      usage block.
+- [x] Remove along with C2, or at minimum stop advertising it in the script's own
+      usage block. Kept, since `dev/ui.sh` was kept, but demoted: it is listed last, its
+      line reads "KDE desktop software, only for dev/", and the paragraph under the usage
+      block says building and running the project needs the other two and that this one
+      pulls KDE onto a machine that may not have it. `--all` now says "all three, KDE
+      included" rather than quietly doing it.
 
 ### C5. "This Pixel" as a statement of fact
 
 Six places treat one test phone's behaviour as the protocol:
 
-- [ ] `linux/src/session/metadata_channels.cc:337` "This Pixel never opens the notification or the media browser"
-- [ ] `linux/src/bluetooth/bluez_client.h:45` "this Pixel advertises no ..."
-- [ ] `linux/src/session/microphone_channel.h:132` "the Pixel tested against asks for two"
-- [ ] `linux/src/aa_core.h:611` "Measured on a Pixel 8 Pro: a query every 5.1 seconds"
-- [ ] `linux/src/wireless/aaw_handshake.h:55` "Measured on a Pixel 8 Pro"
-- [ ] `docs/architecture.md:76` "measured against a Pixel 8 Pro at 1280x720"
+- [x] `linux/src/session/metadata_channels.cc:337` "This Pixel never opens the notification or the media browser"
+- [x] `linux/src/bluetooth/bluez_client.h:45` "this Pixel advertises no ..."
+- [x] `linux/src/session/microphone_channel.h:132` "the Pixel tested against asks for two"
+- [x] `linux/src/aa_core.h:611` "Measured on a Pixel 8 Pro: a query every 5.1 seconds"
+- [x] `linux/src/wireless/aaw_handshake.h:55` "Measured on a Pixel 8 Pro"
+- [x] `docs/architecture.md:76` "measured against a Pixel 8 Pro at 1280x720"
 
 The measurements are worth keeping, the framing is not. "One phone tested" reads very
 differently from "this Pixel", and a reader whose phone behaves otherwise needs to know
 which they are looking at. Rephrase as "observed on one Android 15 phone" or similar.
 
+All six now read "the one phone tested, a Pixel 8 Pro". The phone's Android version is
+not recorded anywhere in the repository, so the model is kept and the framing changed
+rather than inventing a version. A seventh the audit did not list,
+`linux/src/session/usb_connector.cc:12` "Measured on a Pixel", got the same treatment.
+The remaining "this Pixel" lines are in `PLAN.md` and `CLAUDE.md`, which are D and H.
+
 ### C6. Laptop as the reference acoustic environment
 
-- [ ] `docs/echo-cancellation.md:25` "Measured on the reference machine, laptop speakers
-      at 85% with the built-in microphone roughly 30 cm away"
+- [x] `docs/echo-cancellation.md:25` "Measured on the reference machine, laptop speakers
+      at 85% with the built-in microphone roughly 30 cm away". The table now opens with a
+      paragraph saying it is one measurement on one machine, that a car's speakers, cabin
+      and microphone placement will give different numbers, and that what carries over is
+      the shape rather than the figures.
 
 The document already handles this well in its "Verifying it on other hardware" section,
 which says to repeat the measurement. The table just needs a one line preamble making
@@ -316,25 +343,36 @@ clear the numbers are an example rather than a specification.
 /tmp-shots/
 ```
 
-- [ ] Remove.
+- [x] Remove. Gone. The `custom_headunit.crt`/`.key` patterns are left in place: they
+      are a safety net rather than a machine-specific entry, even though A1 removed the
+      feature that named them.
 
 ### C8. `--bg` is described in terms of the agent
 
 `tools/run-example.sh:6` "run detached, so the agent can screenshot it"
 
-- [ ] Reword to what it does: run detached and log to a file.
+- [x] Reword to what it does: run detached and log to a file. The line the script prints
+      afterwards said "then screenshot with ui.sh shot" and now says to wait for the
+      window.
 
 ### C9. "On this machine" in shipped build and source comments
 
 Harmless in API docs where "this machine" means the head unit, but wrong in three places
 where it means the author's laptop:
 
-- [ ] `linux/CMakeLists.txt:106` "On this machine that is PipeWire answering to
+- [x] `linux/CMakeLists.txt:106` "On this machine that is PipeWire answering to
       PulseAudio's API" (the following sentence already makes the general point, so the
-      clause can just go)
-- [ ] `linux/src/aa_core.cc:142` "on this machine the USB port is the flaky part"
-- [ ] `linux/src/audio/pcm_sink.h:5` and `linux/src/audio/pulse_sink.cc:3`, same clause
-- [ ] `example/pubspec.yaml:2` "Runs a head unit on this machine"
+      clause can just go). Gone, as suggested.
+- [x] `linux/src/aa_core.cc:142` "on this machine the USB port is the flaky part". Now
+      "a marginal USB port is its own source of confusion".
+- [x] `linux/src/audio/pcm_sink.h:5` and `linux/src/audio/pulse_sink.cc:3`, same clause.
+      Now "on a PipeWire host" and "on most current Linux systems". `pulse_source.cc:3`
+      carried the same clause and was not listed; it got the same fix.
+- [x] `example/pubspec.yaml:2` "Runs a head unit on this machine". Clause dropped.
+
+Left alone: `linux/src/wireless/wifi_network.h:35` "a configuration problem on this
+machine", where "this machine" means the head unit, which is the reading the audit
+itself calls harmless.
 
 ---
 
@@ -653,10 +691,12 @@ Worse, `build-aasdk.sh` does much more than patch: it configures and builds a wh
 separate smoke target before the plugin can build at all. That is a poor first run for
 somebody who just wants to depend on the package.
 
-- [ ] Decide which tools are shipped infrastructure (`build-aasdk.sh`, `port-aasdk.sh`,
+- [x] Decide which tools are shipped infrastructure (`build-aasdk.sh`, `port-aasdk.sh`,
       `install-echo-cancel.sh`, `wireless-ap.sh`) and which are the author's own
       (`ui.sh`, `run-example.sh`, `wireless-capture.sh`, `wireless-test.sh`,
-      `fake-wireless-phone.py`, `audio-graph.sh`), and separate them.
+      `fake-wireless-phone.py`, `audio-graph.sh`), and separate them. **Done in C**, as
+      `tools/` and `dev/`. `setup-dev-machine.sh` counts as shipped: `README.md` tells a
+      new user to run it. The second bullet below is still open.
 - [ ] Better: apply the patch from CMake directly, so a clean clone builds with no
       manual step. Then `build-aasdk.sh` is genuinely optional.
 

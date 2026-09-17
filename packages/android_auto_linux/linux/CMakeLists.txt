@@ -103,9 +103,9 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBAV)
 # === audio in and out ===
 #
 # libpulse-simple plays the phone's PCM and reads the microphone, and libpulse enumerates
-# the outputs and the inputs. On this machine that is PipeWire answering to PulseAudio's
-# API, which is the point: the same code runs on a PipeWire desktop, a PulseAudio one,
-# and the compatibility layer most infotainment images ship. See src/audio/pcm_sink.h and
+# the outputs and the inputs. That is the point of choosing this API: the same code runs
+# on a PipeWire desktop, a PulseAudio one, and the compatibility layer most infotainment
+# images ship. See src/audio/pcm_sink.h and
 # src/audio/pcm_source.h for where a second backend would go.
 pkg_check_modules(LIBPULSE REQUIRED IMPORTED_TARGET libpulse libpulse-simple)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBPULSE)

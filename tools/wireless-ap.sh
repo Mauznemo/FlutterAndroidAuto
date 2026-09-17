@@ -135,9 +135,9 @@ case "$ACTION" in
       echo
       echo "Projection will work and the video will be worse than it has to be, because"
       echo "2.4 GHz has neither the bandwidth nor the quiet for a 720p stream. The way"
-      echo "to a good picture is then the other arrangement: wire this machine to the"
-      echo "network, leave the phone on the house Wi-Fi, and use"
-      echo "  tools/wireless-test.sh join <passphrase> [ssid]"
+      echo "to a good picture is then the other arrangement: do not host at all. Put"
+      echo "this machine on the network over Ethernet, leave the phone on the same"
+      echo "Wi-Fi, and give the plugin that passphrase."
       echo
     fi
 

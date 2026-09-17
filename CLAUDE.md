@@ -16,7 +16,7 @@ verified on this machine, not when it merely compiles. Also update the status ta
 the top of `PLAN.md` when a milestone changes state.
 
 Background reading, only when relevant: `docs/research.md` (protocol and library
-evaluation), `docs/architecture.md` (how the pieces fit), `docs/dev-environment.md`
+evaluation), `docs/architecture.md` (how the pieces fit), `dev/dev-environment.md`
 (machine specifics), `docs/echo-cancellation.md` (phone calls, which are not in this
 code), `docs/wireless.md` (Android Auto without a cable).
 
@@ -28,10 +28,16 @@ code), `docs/wireless.md` (Android Auto without a cable).
 | `packages/android_auto_platform_interface` | the contract, pure Dart, no GPL code |
 | `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
 | `example/` | test bench app, run this to verify anything visually |
-| `tools/` | `ui.sh`, `run-example.sh`, `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `audio-graph.sh`, `wireless-ap.sh`, `wireless-test.sh`, `fake-wireless-phone.py`, and `config/` for the PipeWire drop-in the first of those installs |
+| `tools/` | what a stranger needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `wireless-ap.sh`, and `config/` for the PipeWire drop-in the fourth of those installs |
+| `dev/` | this machine's own tooling, not part of the plugin: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`, `fake-wireless-phone.py`, `audio-graph.sh`, and `dev-environment.md` |
 
 Keep aasdk code out of the two pure Dart packages. That split is what keeps a future
 permissive implementation possible.
+
+The `tools/` and `dev/` split is the same kind of line. `tools/` is for anyone who clones
+this: provisioning, the aasdk build, the echo canceller, the access point. `dev/` is for
+driving this particular machine, and assumes KDE on Wayland, a German keyboard and a
+paired Pixel. Nothing in `tools/` may call into `dev/`.
 
 ## You can drive this machine yourself
 
@@ -39,36 +45,37 @@ KDE Plasma on **Wayland**, 1920x1080 at scale 1, so screenshot pixels equal scre
 coordinates. X11 tools (xdotool, scrot, wmctrl) do not work. sudo is passwordless.
 
 ```bash
-tools/ui.sh setup              # once per boot: starts ydotoold, flattens pointer accel
-tools/ui.sh shot               # full screen png, prints the path, then Read it
-tools/ui.sh crop <f> <x> <y> <w> <h>
-tools/ui.sh click <x> <y>      # also: move, rclick, drag, scroll
-tools/ui.sh key ctrl+s         # also: esc, enter, tab, f1..f12
-tools/ui.sh paste "text"       # use this, not `type`, see below
-tools/run-example.sh --bg      # build and launch the test bench detached
-tools/run-example.sh --bundle  # run the built binary directly, line buffered logs
+dev/ui.sh setup              # once per boot: starts ydotoold, flattens pointer accel
+dev/ui.sh shot               # full screen png, prints the path, then Read it
+dev/ui.sh crop <f> <x> <y> <w> <h>
+dev/ui.sh click <x> <y>      # also: move, rclick, drag, scroll
+dev/ui.sh key ctrl+s         # also: esc, enter, tab, f1..f12
+dev/ui.sh paste "text"       # use this, not `type`, see below
+dev/run-example.sh --bg      # build and launch the test bench detached
+dev/run-example.sh --bundle  # run the built binary directly, line buffered logs
 ```
 
 Three things that will bite otherwise:
 
-- **`tools/ui.sh setup` is required after every reboot.** Without the flat pointer
+- **`dev/ui.sh setup` is required after every reboot.** Without the flat pointer
   acceleration it sets on the ydotool virtual device, clicks land in the wrong place.
 - **The keyboard layout is German (QWERTZ)** and ydotool sends raw keycodes, so
-  `ui.sh type` mangles y/z and symbols. Use `ui.sh paste` for exact text.
+  `ui.sh type` mangles y/z and symbols. Use `ui.sh paste` for exact text. Everything in
+  `dev/` assumes this desktop; none of it is part of what the plugin ships.
 - **Never run `pkill -f <pattern>`**, it matches the agent's own shell command line and
   kills the session. Resolve the pid first with `pgrep` into a variable built by
   concatenation, then `kill` it. `pgrep -x android_auto_example` never matches either:
   the name is over 15 characters. Match on `bundle/android_auto_ex""ample` instead.
 - **Never leave two copies of the example app running.** They fight over the phone and
   the result looks exactly like a protocol bug: handshakes that half complete, reads that
-  time out, a phone that goes silent. `tools/run-example.sh` kills the old one first, so
+  time out, a phone that goes silent. `dev/run-example.sh` kills the old one first, so
   use it rather than launching the bundle by hand.
 
 ## Build and run
 
 ```bash
 cd example && flutter pub get && flutter build linux --debug
-tools/run-example.sh --bg
+dev/run-example.sh --bg
 ```
 
 `--bg` runs through `flutter run`, which block buffers the app's stdout: native logging
@@ -86,7 +93,7 @@ Environment knobs, all off unless set:
 | `AA_FAULT_TRANSFER_AFTER=400` | turns the Nth completed bulk IN into a transaction error whose resubmit is refused as a halted endpoint, to exercise the retry |
 | `AA_FAULT_SLOW_START=3000` | stalls N ms inside `ProtocolSession::Start`, between the messenger existing and the channels being handed it, so a stop pressed during it lands in the window that used to crash |
 | `AA_TRANSPORTS=wireless` | narrows or widens the transports without a rebuild, `usb`, `wireless` or both. Wireless cannot be tested while the cable is in, because a wireless connection is never allowed to displace a connected session |
-| `AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock` | listens on a Unix socket and treats a connection to it as the RFCOMM socket BlueZ would have handed over, so the whole wireless path can run with no phone. Drive it with `tools/fake-wireless-phone.py` |
+| `AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock` | listens on a Unix socket and treats a connection to it as the RFCOMM socket BlueZ would have handed over, so the whole wireless path can run with no phone. Drive it with `dev/fake-wireless-phone.py` |
 | `AA_WIRELESS_SSID`, `AA_WIRELESS_PASSPHRASE` | what to tell the phone to join, for a test that cannot stop to type into a text field. A real head unit gets these from its host app |
 | `AA_AUTOSTART=1` | the example app presses its own Start button. Example app only, not the plugin |
 
@@ -387,7 +394,7 @@ LC3-SWB codec. Do not go looking for a telephony channel to implement.
   must not be able to become the car's speakers or the car's microphone. See
   `DefaultHeadUnitDevice` in `pulse_sink.cc`. On this machine WirePlumber never actually
   moved the default, so that rule is defensive rather than a fix for an observed fault.
-- `tools/audio-graph.sh` dumps the audio graph, and `--watch` records it over time. The
+- `dev/audio-graph.sh` dumps the audio graph, and `--watch` records it over time. The
   Bluetooth nodes only exist while a call is up, so a snapshot taken between calls shows
   nothing and proves nothing.
 
@@ -629,8 +636,8 @@ code ends at producing an `aasdk::transport::ITransport` and hands it to the sam
   later report down with it, video statistics included.
 - **A phone hosting a hotspot cannot join the head unit**, so wireless and a
   development machine whose only internet is that hotspot are mutually exclusive.
-- **`tools/wireless-test.sh` drives a real attempt and names the stage it reached;
-  `tools/wireless-capture.sh` records Bluetooth and Wi-Fi while it happens.** The
+- **`dev/wireless-test.sh` drives a real attempt and names the stage it reached;
+  `dev/wireless-capture.sh` records Bluetooth and Wi-Fi while it happens.** The
   second earns its place because nothing above the transport can tell a phone that
   never asked from one that asked and walked away.
 

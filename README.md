@@ -40,20 +40,33 @@ example/                              test bench app
 docs/
   research.md                         protocol notes and library evaluation
   architecture.md                     how the pieces fit together
-  dev-environment.md                  the dev machine and its quirks
-tools/
+  aasdk-port-notes.md                 what the vendored aasdk needed and why
+  echo-cancellation.md                calls over Bluetooth, and the config they need
+  wireless.md                         Android Auto without a cable
+tools/                                what anyone cloning this needs
   setup-dev-machine.sh                host provisioning
-  run-example.sh                      build and launch the test bench
-  ui.sh                               screenshot and synthetic input
+  build-aasdk.sh                      vendored aasdk: patch, build, smoke test
+  port-aasdk.sh                       regenerate that patch
+  install-echo-cancel.sh              the echo canceller a hands free call needs
+  wireless-ap.sh                      bring this machine up as the access point
+dev/                                  the author's own machine tooling, not shipped
 PLAN.md                               milestones with checkboxes
 ```
+
+`dev/` is not part of the plugin: it drives one KDE-on-Wayland laptop with one paired
+phone, and the project builds and runs without it. See [`dev/README.md`](dev/README.md).
 
 ## Getting started
 
 ```bash
+git submodule update --init --recursive
 tools/setup-dev-machine.sh --build-deps --udev
-tools/run-example.sh
+tools/build-aasdk.sh
+cd example && flutter run -d linux
 ```
+
+`build-aasdk.sh` is not optional: the vendored aasdk does not compile unpatched against
+a current Boost, and the plugin's CMake refuses to build until it has been run.
 
 ## Licence
 

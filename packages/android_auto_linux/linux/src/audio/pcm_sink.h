@@ -2,7 +2,7 @@
 //
 // The API agnostic seam for audio, the same idea as frame_ring.h is for video: nothing
 // above this line names PulseAudio, and nothing below it knows what a channel is. One
-// backend exists today, libpulse-simple, which on this machine is PipeWire wearing
+// backend exists today, libpulse-simple, which on a PipeWire host is PipeWire wearing
 // PulseAudio's API. ALSA or a direct PipeWire backend would be another file and no
 // change anywhere else.
 //

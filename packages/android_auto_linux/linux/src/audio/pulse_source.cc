@@ -1,8 +1,9 @@
 // The PcmSource backend built on libpulse-simple, plus input enumeration on libpulse.
 //
-// The capture half of pulse_sink.cc, and the same reasoning: on this machine PulseAudio
-// is PipeWire answering to PulseAudio's API, so one piece of code covers a PipeWire
-// desktop, a PulseAudio one, and the compatibility layer infotainment images ship.
+// The capture half of pulse_sink.cc, and the same reasoning: on most current Linux
+// systems PulseAudio is PipeWire answering to PulseAudio's API, so one piece of code
+// covers a PipeWire desktop, a PulseAudio one, and the compatibility layer infotainment
+// images ship.
 //
 // pa_simple is blocking by design and that is the point again, in the other direction:
 // pa_simple_read returns when the microphone has actually produced the samples, so the

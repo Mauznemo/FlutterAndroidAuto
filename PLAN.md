@@ -41,8 +41,8 @@ implementation can be added later without touching the app-facing API.
 - [x] Confirm Flutter Linux external texture support is viable (see `docs/architecture.md`)
 - [x] `git init` and create the repository layout
 - [x] Scaffold the federated packages and the example app
-- [x] Write `PLAN.md`, `docs/research.md`, `docs/architecture.md`, `docs/dev-environment.md`
-- [x] Write `tools/ui.sh` (screenshot and synthetic input helper for the agent)
+- [x] Write `PLAN.md`, `docs/research.md`, `docs/architecture.md`, `dev/dev-environment.md`
+- [x] Write `dev/ui.sh` (screenshot and synthetic input helper for the agent)
 - [x] Write `tools/setup-dev-machine.sh` (one shot host provisioning)
 - [x] Extend `CLAUDE.md` with the facts every later session needs
 - [x] **Decide the project licence**: GPL-3.0-or-later, confirmed 2026-09-12
@@ -351,9 +351,9 @@ off unless asked for.
 | `AA_LOG_LEVEL=DEBUG` | aasdk's own protocol log, plus the service discovery exchange in full and libavcodec's diagnostics |
 | `AA_SERVICES=video,input,sensor` | narrows or widens the advertised channel set without a rebuild, which is the only way to bisect a response the phone will not comment on |
 | `AA_VIDEO_DECODER=software` | forces the fallback, which is how a driver problem gets told apart from a decoder problem |
-| `tools/run-example.sh --bundle` | runs the built binary directly, line buffered. `flutter run` block buffers the app's stdout, so protocol logs arrive in 8 KB lumps minutes late |
+| `dev/run-example.sh --bundle` | runs the built binary directly, line buffered. `flutter run` block buffers the app's stdout, so protocol logs arrive in 8 KB lumps minutes late |
 
-`tools/run-example.sh` now also kills any instance already running. Two head units
+`dev/run-example.sh` now also kills any instance already running. Two head units
 fighting over one phone produce symptoms indistinguishable from a protocol bug: handshakes
 that half complete, reads that time out, a phone that goes quiet. An hour went into that
 one, and the second instance was only noticed because a human looked at the taskbar.
@@ -754,7 +754,7 @@ the default source     ->  bluez_output.<addr>.1 (microphone to the phone)
 
 Because they follow the defaults, nothing has to be told a device name, on any machine.
 Both nodes exist only while SCO is up, so a snapshot taken between calls shows nothing and
-proves nothing. `tools/audio-graph.sh --watch` records across a call.
+proves nothing. `dev/audio-graph.sh --watch` records across a call.
 
 ### Echo cancellation is the whole of the work
 

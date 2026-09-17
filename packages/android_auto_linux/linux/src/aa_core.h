@@ -609,8 +609,9 @@ AA_EXPORT int32_t aa_session_start_wireless(AaSession* session);
 // for the service every five seconds for as long as it is connected over Bluetooth,
 // and withdrawing the service does not stop it asking, it only stops it being
 // answered: the driver is left with a permanent notification saying the phone is
-// connecting while nothing is. Measured on a Pixel 8 Pro: a query every 5.1 seconds
-// indefinitely against silence, one query and then nothing when refused.
+// connecting while nothing is. Measured on the one phone tested, a Pixel 8 Pro: a
+// query every 5.1 seconds indefinitely against silence, one query and then nothing when
+// refused.
 //
 // The service is withdrawn for good by aa_session_destroy, and never published at all
 // when AaConfig::transports leaves AA_TRANSPORT_WIRELESS out. A phone paired while it

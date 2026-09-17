@@ -114,7 +114,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
     _controller.addListener(_onControllerChanged);
     // Pressing Start is one click too many when the machine running this has no
     // network for anything else and the test is being driven from a script. See
-    // tools/wireless-test.sh.
+    // dev/wireless-test.sh.
     if (Platform.environment['AA_AUTOSTART'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _controller.start());
     }

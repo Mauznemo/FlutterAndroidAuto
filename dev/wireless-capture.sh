@@ -2,9 +2,9 @@
 # Record what the phone actually does over Bluetooth during a wireless Android Auto
 # attempt, so a failed attempt leaves evidence instead of a shrug.
 #
-#   tools/wireless-capture.sh start [ssid] [passphrase]
-#   tools/wireless-capture.sh stop
-#   tools/wireless-capture.sh report
+#   dev/wireless-capture.sh start [ssid] [passphrase]
+#   dev/wireless-capture.sh stop
+#   dev/wireless-capture.sh report
 #
 # The head unit's own log can only show what reached it. When nothing does, the
 # question is whether the phone asked at all, what it asked for, and who said no, and
@@ -84,20 +84,20 @@ case "${1:-report}" in
       say "  sudo apt install tcpdump"
     fi
 
-    "$REPO/tools/wireless-test.sh" up "${2:-HeadUnit}" "${3:-headunit1234}" || exit 1
+    "$REPO/dev/wireless-test.sh" up "${2:-HeadUnit}" "${3:-headunit1234}" || exit 1
 
     say ""
     step "Now, in this order"
     say "  1. Turn the phone's hotspot OFF."
-    say "  2. tools/wireless-test.sh nudge"
+    say "  2. dev/wireless-test.sh nudge"
     say "  3. Wait a full minute, watching the phone for any Android Auto notice."
-    say "  4. If nothing, re-pair: tools/wireless-test.sh pair"
+    say "  4. If nothing, re-pair: dev/wireless-test.sh pair"
     say "  5. Wait another minute."
-    say "  6. tools/wireless-capture.sh stop"
+    say "  6. dev/wireless-capture.sh stop"
     say ""
     say "Then put the network back and the capture can be read at leisure:"
-    say "  tools/wireless-test.sh down"
-    say "  tools/wireless-capture.sh report"
+    say "  dev/wireless-test.sh down"
+    say "  dev/wireless-capture.sh report"
     ;;
 
   stop)
@@ -119,11 +119,11 @@ case "${1:-report}" in
     rm -f "$PCAPPID"
     sleep 1
     say "Captured $(wc -l < "$TEXT" 2>/dev/null || echo 0) lines into $TEXT"
-    say "Read it with: tools/wireless-capture.sh report"
+    say "Read it with: dev/wireless-capture.sh report"
     ;;
 
   report)
-    [ -s "$TEXT" ] || { say "No capture at $TEXT. Run: tools/wireless-capture.sh start"; exit 1; }
+    [ -s "$TEXT" ] || { say "No capture at $TEXT. Run: dev/wireless-capture.sh start"; exit 1; }
     step "What the phone asked for"
     say ""
     say "-- SDP: did the phone go looking for services at all --"

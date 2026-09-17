@@ -231,8 +231,8 @@ both. The two workable arrangements are:
 
 ## Testing it
 
-`tools/wireless-test.sh` brings an access point up, starts the head unit and reports how
-far a real phone gets, in named stages. `tools/wireless-capture.sh` records Bluetooth
+`dev/wireless-test.sh` brings an access point up, starts the head unit and reports how
+far a real phone gets, in named stages. `dev/wireless-capture.sh` records Bluetooth
 and the Wi-Fi side while it happens, which is the only way to tell a phone that never
 asked from one that asked and walked away: nothing above the transport can see the
 difference.
@@ -241,8 +241,8 @@ Everything except the phone can be exercised on one machine. The head unit will 
 RFCOMM socket from anywhere, so a script can play the phone's Bluetooth part:
 
 ```bash
-AA_TRANSPORTS=wireless AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock tools/run-example.sh --bundle
-tools/fake-wireless-phone.py /tmp/aaw.sock
+AA_TRANSPORTS=wireless AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock dev/run-example.sh --bundle
+dev/fake-wireless-phone.py /tmp/aaw.sock
 ```
 
 It stops at the TCP connection: only a phone has what it takes to get through the SSL

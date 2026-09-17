@@ -52,9 +52,10 @@ struct WirelessOffer {
 // introduced to this machine as a wireless car asks for the Android Auto service over
 // SDP every five seconds for as long as it is connected over Bluetooth, and an empty
 // answer does not discourage it in the slightest: it keeps asking, and keeps showing
-// the driver a notification saying it is connecting. Measured on a Pixel 8 Pro: a
-// query every 5.1 seconds indefinitely with nothing advertised, against two attempts
-// and then eighty seconds of silence when the service exists and refuses.
+// the driver a notification saying it is connecting. Measured on the one phone tested,
+// a Pixel 8 Pro: a query every 5.1 seconds indefinitely with nothing advertised,
+// against two attempts and then eighty seconds of silence when the service exists and
+// refuses.
 //
 // So a head unit that supports wireless but is not currently offering it should
 // publish the service and decline, rather than withdraw the service and say nothing.

@@ -128,11 +128,12 @@ class MicrophoneChannel : public std::enable_shared_from_this<MicrophoneChannel>
   // How many buffers may be outstanding right now.
   //
   // The phone's `max_unacked` is its receive window, and honouring it is only meaningful
-  // against a phone that actually acknowledges: the Pixel tested against asks for two
-  // and then never sends a single Ack, so taking it literally would cap this head unit
-  // at 64 ms of speech in flight for no reason anyone could observe. So the phone's
-  // number is used once it has proved it acknowledges, and kQueueBound until then. Right
-  // under both readings, and the measurement that motivated it is in PLAN.md under M7.
+  // against a phone that actually acknowledges. The one phone tested, a Pixel 8 Pro,
+  // asked for two and then never sent a single Ack across five sessions and seven
+  // hundred buffers, so taking it literally would cap this head unit at 64 ms of speech
+  // in flight for no reason anyone could observe. So the phone's number is used once it
+  // has proved it acknowledges, and kQueueBound until then. Right under both readings,
+  // and the measurement that motivated it is in PLAN.md under M7.
   int32_t Window() const;
   // Capture thread. Copies the buffer and posts the send onto the strand.
   void Publish(const uint8_t* data, size_t size);

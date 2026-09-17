@@ -9,8 +9,8 @@ namespace {
 
 // Reconnecting can find the USB interface still claimed, either by the session that
 // just ended or by the phone's side of the accessory session, which takes its own time
-// to wind down. Measured on a Pixel, a clean handover is quick but an ungraceful one
-// can take upwards of ten seconds.
+// to wind down. Measured on the one phone tested, a clean handover is quick but an
+// ungraceful one can take upwards of ten seconds.
 //
 // Giving up early is the wrong behaviour for a head unit: a car keeps trying until the
 // phone is ready or the driver unplugs it. So the budget is generous, with the interval
