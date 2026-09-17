@@ -40,10 +40,19 @@ for arg in "$@"; do
   esac
 done
 
+# flutter build linux writes to build/linux/<arch>/<mode>/bundle, so both halves have to
+# follow the arguments. Hardcoding them meant --bundle --release launched a stale debug
+# binary, and nothing worked on ARM64 at all.
+case "$(uname -m)" in
+  x86_64)          ARCH=x64 ;;
+  aarch64|arm64)   ARCH=arm64 ;;
+  *)               echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+BINARY="$REPO/example/build/linux/$ARCH/${MODE#--}/bundle/android_auto_example"
+
 # Kill anything already running. Matched on the built binary's path rather than its
 # name: pgrep -x cannot match a name this long, and a bare -f pattern would match this
 # script's own command line and take the shell down with it.
-BINARY="$REPO/example/build/linux/x64/debug/bundle/android_auto_example"
 for pid in $(pgrep -f "bundle/android_auto_ex""ample" || true); do
   [ "$pid" = "$$" ] && continue
   kill "$pid" 2>/dev/null || true

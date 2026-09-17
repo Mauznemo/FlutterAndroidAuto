@@ -18,17 +18,59 @@ BUILD_DEPS=(
   libva-dev libva-drm2 vainfo
   libpulse-dev
   libgtk-3-dev libegl1-mesa-dev libgles2-mesa-dev
-  # Flutter's Linux build uses clang, and clang on this distro targets the newest
-  # installed GCC. Without that GCC's libstdc++ headers, every C++ compile fails with
-  # "'limits' file not found", which looks like a project problem and is not.
-  libstdc++-16-dev
 )
 
 AGENT_TOOLS=(ydotool kde-spectacle wl-clipboard python3-pil)
 
+# Flutter's Linux build uses clang, and clang on this distro targets the newest installed
+# GCC, which is not necessarily the one `gcc` runs. Without that GCC's libstdc++ headers,
+# every C++ compile fails with "'limits' file not found", which looks like a project
+# problem and is not. Which version that is depends on the machine, so ask it.
+newest_gcc_major() {
+  # Clang's own answer, which is the one that decides this. It prints a line like
+  # "Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/16".
+  local selected
+  selected="$(clang++ -v -x c++ -E /dev/null 2>&1 |
+    sed -n 's|.*Selected GCC installation: .*/\([0-9][0-9]*\)$|\1|p' | tail -n1)"
+  if [ -n "$selected" ]; then
+    echo "$selected"
+    return
+  fi
+  # No clang yet: the newest of the same directories it would have read.
+  local newest
+  newest="$(ls -1 /usr/lib/gcc/*/ 2>/dev/null | grep -E '^[0-9]+$' | sort -V | tail -n1)"
+  if [ -n "$newest" ]; then
+    echo "$newest"
+    return
+  fi
+  gcc -dumpversion 2>/dev/null | cut -d. -f1
+}
+
+libstdcxx_dev_package() {
+  local major
+  major="$(newest_gcc_major)"
+  if [ -n "$major" ] && apt-cache show "libstdc++-$major-dev" >/dev/null 2>&1; then
+    echo "libstdc++-$major-dev"
+    return
+  fi
+  # Nothing detected, or no package matching what was: the newest the archive offers.
+  apt-cache --names-only search '^libstdc\+\+-[0-9]+-dev$' 2>/dev/null |
+    cut -d' ' -f1 | sort -V | tail -n1
+}
+
 do_build_deps() {
   sudo apt-get update
   sudo apt-get install -y "${BUILD_DEPS[@]}"
+
+  # After the rest, so whatever GCC they pulled in is there to be detected.
+  local libstdcxx
+  libstdcxx="$(libstdcxx_dev_package)"
+  if [ -n "$libstdcxx" ]; then
+    sudo apt-get install -y "$libstdcxx"
+  else
+    echo "warning: found no libstdc++-N-dev package. If C++ compiles fail with" >&2
+    echo "'limits' file not found, install the one matching your GCC by hand." >&2
+  fi
 }
 
 do_agent_tools() {

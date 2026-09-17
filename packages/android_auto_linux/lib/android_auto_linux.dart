@@ -181,7 +181,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     final headUnitName = config.headUnitName.toNativeUtf8();
     final carModel = config.carModel.toNativeUtf8();
     final carYear = config.carYear.toNativeUtf8();
-    final certificatePath = config.certificatePath?.toNativeUtf8();
     try {
       native.ref
         ..width = config.width
@@ -191,7 +190,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..head_unit_name = headUnitName.cast()
         ..car_model = carModel.cast()
         ..car_year = carYear.cast()
-        ..certificate_path = certificatePath?.cast() ?? nullptr
         ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit)
         ..metadata = config.metadata.fold(0, (mask, kind) => mask | kind.bit)
         ..transports = config.transports.fold(0, (mask, one) => mask | one.bit);
@@ -213,9 +211,6 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..free(headUnitName)
         ..free(carModel)
         ..free(carYear);
-      if (certificatePath != null) {
-        calloc.free(certificatePath);
-      }
     }
   }
 

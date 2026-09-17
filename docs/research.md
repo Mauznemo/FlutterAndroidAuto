@@ -159,8 +159,9 @@ An app that depends on `android_auto` and therefore pulls in `android_auto_linux
 subject to GPL-3.0. The README says so plainly.
 
 The head unit certificate is publicly known and shipped by every implementation, but it
-is issued to a third party. The plugin loads it from a configurable path so integrators
-can substitute their own.
+is issued to a third party. aasdk compiles it in as a pair of string literals in
+`Messenger/Cryptor.cpp`, so substituting one means rebuilding aasdk rather than
+configuring the plugin.
 
 ## Flutter side
 

@@ -67,8 +67,9 @@ is deliberate: if a permissively licensed protocol implementation ever appears, 
 packages can be relicensed without untangling anything.
 
 The bundled head unit certificate is the publicly known Google Automotive Link
-certificate that every open source Android Auto implementation uses. It is loaded from a
-configurable path so integrators can supply their own.
+certificate that every open source Android Auto implementation uses. aasdk compiles it
+into the library (`Messenger/Cryptor.cpp`), so there is no runtime override: an
+integrator with their own certificate has to rebuild aasdk carrying it.
 
 ## Credits
 

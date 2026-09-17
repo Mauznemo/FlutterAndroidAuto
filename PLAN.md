@@ -145,8 +145,10 @@ and announced its services.
 - [x] USB enumeration and hotplug via aasdk's `USBHub` and `ConnectedAccessoriesEnumerator`
 - [x] AOAP accessory mode switch, verified: the phone re-enumerated `18d1:4ee7` to `18d1:2d01`
 - [x] Open the AOAP bulk endpoints, wrap in aasdk `USBTransport`
-- [x] SSL handshake with the head unit certificate
-  - [ ] Certificate path override (`AaConfig.certificate_path` is accepted but ignored: aasdk hardcodes the certificate in `Cryptor.cpp`, so honouring it needs another patch)
+- [x] SSL handshake with the head unit certificate. There is no path override: aasdk
+      compiles the certificate and key in as string literals in `Cryptor.cpp`, so
+      supplying another one means rebuilding aasdk. `AaConfig.certificate_path` used to
+      be accepted and silently ignored, and was removed on 2026-09-17.
 - [x] Version request/response, then `ServiceDiscoveryRequest`
 - [x] Build the `ServiceDiscoveryResponse` describing our head unit
 - [x] Log the negotiated channel list to Dart as a structured event

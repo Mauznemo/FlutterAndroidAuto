@@ -36,10 +36,15 @@ enum AndroidAutoConnectionState {
 /// The values matter: the phone picks its layout and video encoding from them, and
 /// some of them show up in the phone's own UI.
 class AndroidAutoConfig {
-  /// Projected surface width in pixels. One of 800, 1280 or 1920 in practice.
+  /// Projected surface width in pixels.
+  ///
+  /// The protocol only has names for five sizes, so [width] and [height] together must
+  /// be 800x480, 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is
+  /// advertised to the phone as 1280x720, with a warning in the log, and the phone then
+  /// projects at that size rather than the one asked for.
   final int width;
 
-  /// Projected surface height in pixels. One of 480, 720 or 1080 in practice.
+  /// Projected surface height in pixels. See [width] for the sizes the protocol names.
   final int height;
 
   /// Target frame rate the head unit advertises. 30 or 60.
@@ -56,10 +61,6 @@ class AndroidAutoConfig {
 
   /// Vehicle model year, reported during service discovery.
   final String carYear;
-
-  /// Overrides the bundled head unit certificate and key. Point this at a directory
-  /// holding `headunit.crt` and `headunit.key`.
-  final String? certificatePath;
 
   /// Which sensors this head unit tells the phone the car has.
   ///
@@ -119,7 +120,6 @@ class AndroidAutoConfig {
     this.headUnitName = 'Flutter Head Unit',
     this.carModel = 'Universal',
     this.carYear = '2026',
-    this.certificatePath,
     this.sensors = const {
       AndroidAutoSensor.nightMode,
       AndroidAutoSensor.drivingStatus,

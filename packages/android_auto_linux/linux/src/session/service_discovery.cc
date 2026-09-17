@@ -54,8 +54,17 @@ sink::message::VideoCodecResolutionType ResolutionFor(int32_t width, int32_t hei
   if (width == 3840 && height == 2160) {
     return sink::message::VIDEO_3840x2160;
   }
-  // 1280x720 is the safe default: every phone supports it, and an unusual size here
-  // fails in ways that are hard to attribute later.
+  if (width == 1280 && height == 720) {
+    return sink::message::VIDEO_1280x720;
+  }
+  // 1280x720 is the safe fallback: every phone supports it, and an unusual size here
+  // fails in ways that are hard to attribute later. Say so, because the configured
+  // size is still what the touch mapping uses until the first frame arrives, so a
+  // substitution that goes unmentioned looks like taps landing in the wrong place.
+  AASDK_LOG(warning) << "[Video] " << width << "x" << height
+                     << " is not one of the resolutions the protocol has a name for, "
+                        "advertising 1280x720 instead. The named sizes are 800x480, "
+                        "1280x720, 1920x1080, 2560x1440 and 3840x2160";
   return sink::message::VIDEO_1280x720;
 }
 

@@ -242,12 +242,23 @@ void WirelessConnector::ListenForFakePhone() {
     return;
   }
   ::remove(path);
+  // Opened, bound and listened in three steps taking an error code, the same way the
+  // projection acceptor above is. The one argument constructor that does all three
+  // throws instead, and a bind failure here would leave an io thread by exception.
   boost::system::error_code ec;
-  fake_phone_ = std::make_unique<boost::asio::local::stream_protocol::acceptor>(
-      io_context_, boost::asio::local::stream_protocol::endpoint(path));
+  const boost::asio::local::stream_protocol::endpoint endpoint(path);
+  fake_phone_ =
+      std::make_unique<boost::asio::local::stream_protocol::acceptor>(io_context_);
+  fake_phone_->open(endpoint.protocol(), ec);
+  if (!ec) {
+    fake_phone_->bind(endpoint, ec);
+  }
+  if (!ec) {
+    fake_phone_->listen(boost::asio::socket_base::max_listen_connections, ec);
+  }
   if (ec) {
-    AASDK_LOG(warning) << "[Wireless] could not open the fake phone socket: "
-                       << ec.message();
+    AASDK_LOG(warning) << "[Wireless] could not open the fake phone socket at " << path
+                       << ": " << ec.message();
     fake_phone_.reset();
     return;
   }

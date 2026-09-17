@@ -1272,6 +1272,9 @@ final class AaLocation extends ffi.Struct {
 
 /// How the head unit describes itself to the phone during service discovery.
 final class AaConfig extends ffi.Struct {
+  /// The protocol only names five sizes, so width and height together must be 800x480,
+  /// 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is advertised as
+  /// 1280x720, with a warning in the log.
   @ffi.Int32()
   external int width;
 
@@ -1289,9 +1292,6 @@ final class AaConfig extends ffi.Struct {
   external ffi.Pointer<ffi.Char> car_model;
 
   external ffi.Pointer<ffi.Char> car_year;
-
-  /// Directory holding headunit.crt and headunit.key. NULL uses the bundled pair.
-  external ffi.Pointer<ffi.Char> certificate_path;
 
   /// Which sensors to advertise, an OR of AaSensor bits. Zero is read as the two that
   /// are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit

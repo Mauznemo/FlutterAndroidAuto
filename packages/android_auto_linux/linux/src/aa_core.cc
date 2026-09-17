@@ -223,7 +223,6 @@ struct AaSession {
     std::string head_unit_name;
     std::string car_model;
     std::string car_year;
-    std::string certificate_path;
     aa::SensorMask sensors = aa::kRequiredSensors;
     aa::MetadataMask metadata = aa::kDefaultMetadata;
     // A cable only, until the host app asks for more. Wireless costs a Bluetooth
@@ -618,7 +617,6 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
     session->config.head_unit_name = CopyOrEmpty(config->head_unit_name);
     session->config.car_model = CopyOrEmpty(config->car_model);
     session->config.car_year = CopyOrEmpty(config->car_year);
-    session->config.certificate_path = CopyOrEmpty(config->certificate_path);
     // Zero is a host app that did not ask, not one that wants no sensors at all. A head
     // unit with no sensor channel is one Android Auto will not finish opening its
     // interface for, so the two that are not optional are the floor.

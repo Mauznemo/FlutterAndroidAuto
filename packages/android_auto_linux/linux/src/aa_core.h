@@ -167,6 +167,9 @@ typedef struct {
 
 // How the head unit describes itself to the phone during service discovery.
 typedef struct {
+  // The protocol only names five sizes, so width and height together must be 800x480,
+  // 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is advertised as
+  // 1280x720, with a warning in the log.
   int32_t width;
   int32_t height;
   int32_t fps;
@@ -174,8 +177,6 @@ typedef struct {
   const char* head_unit_name;
   const char* car_model;
   const char* car_year;
-  // Directory holding headunit.crt and headunit.key. NULL uses the bundled pair.
-  const char* certificate_path;
   // Which sensors to advertise, an OR of AaSensor bits. Zero is read as the two that
   // are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit
   // that answers neither leaves the phone with most of its interface locked.

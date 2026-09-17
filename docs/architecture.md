@@ -145,7 +145,6 @@ typedef struct {
   const char* head_unit_name;
   const char* car_model;
   const char* car_year;
-  const char* cert_path;      // NULL = bundled certificate
   uint32_t enabled_services;  // bitmask
 } AaConfig;
 
