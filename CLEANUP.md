@@ -18,7 +18,7 @@ was. Sections are being worked in order.
 | D. Milestone references | 3 | medium | done, 2026-09-17 |
 | E. Documentation that is stale or wrong | 12 | **high** | done, 2026-09-17 |
 | F. Packaging and structure | 9 | medium | done, 2026-09-17 |
-| G. Debug surface compiled into release | 4 | medium | not started |
+| G. Debug surface compiled into release | 4 | medium | done, 2026-09-17 |
 | H. CLAUDE.md | 8 | low | not started |
 
 ---
@@ -868,6 +868,12 @@ and the example's is removed.
 
 ## G. Debug surface compiled into release builds
 
+**Resolved 2026-09-17.** One CMake option, `AA_ENABLE_FAULT_INJECTION`, defining
+`AA_FAULT_INJECTION`. It defaults to ON for a Debug build and OFF for anything else,
+rather than the flat OFF the audit suggested: a debug build is the test bench, and
+needing an extra `-D` to reproduce a crash is how a reproduction stops being used. A
+release build has them out whatever else is passed.
+
 ### G1. Fault injection ships to end users
 
 Three knobs read straight from the environment with no compile time guard:
@@ -885,8 +891,28 @@ app", which is true of the *host app* and not of anybody with environment access
 They are well documented and were clearly valuable. They should not be in a shipped
 head unit.
 
-- [ ] Guard all three behind `#ifndef NDEBUG` or a dedicated CMake option
-      (`AA_ENABLE_FAULT_INJECTION`, default off).
+- [x] Guard all three behind `#ifndef NDEBUG` or a dedicated CMake option
+      (`AA_ENABLE_FAULT_INJECTION`, default off). **There is a fourth**, which this list
+      missed because it lives in the patched submodule rather than in plugin source:
+      `AA_FAULT_TRANSFER_AFTER` in `USBEndpoint::injectFault`. Guarding only the plugin
+      target left it shipping in release while the other three did not, found by reading
+      the built library rather than by trusting the `#ifdef`. The define now goes on the
+      `aasdk` target too and the port patch is regenerated.
+
+Verified by inspecting the built libraries in both configurations:
+
+| knob | debug | release |
+|---|---|---|
+| `AA_FAULT_SLOW_START` | in | out |
+| `AA_FAULT_TRANSPORT_AFTER` | in | out |
+| `AA_FAULT_TRANSFER_AFTER` | in | out |
+| `AA_WIRELESS_FAKE_PHONE` | in | out |
+| `AA_WIRELESS_PASSPHRASE`, `AA_WIRELESS_SSID` | in | out |
+| `AA_LOG_LEVEL`, `AA_SERVICES`, `AA_TRANSPORTS` | in | in |
+
+The last row is deliberate: those three configure and diagnose a head unit rather than
+break one, and a field engineer wanting `AA_LOG_LEVEL=DEBUG` on a shipped unit is a
+reasonable thing to want.
 
 ### G2. A Wi-Fi passphrase can be overridden from the environment
 
@@ -895,7 +921,9 @@ a test bench convenience and nothing more. A real head unit gets it from its hos
 
 It still silently overrides what the host app configured, in release.
 
-- [ ] Same guard as G1.
+- [x] Same guard as G1. `ApplyWirelessOverride` compiles to a no-op in release, so a
+      shipped head unit cannot have the passphrase its host app configured replaced from
+      the environment.
 
 ### G3. `headunit1234` as a default in three tracked files
 
@@ -906,8 +934,17 @@ It still silently overrides what the host app configured, in release.
 
 Not a secret, but it is the string an integrator copies out of the example.
 
-- [ ] In the example, read it from an environment variable or a text field with an
-      obvious placeholder, so nothing invites copying it verbatim.
+- [x] In the example, read it from an environment variable or a text field with an
+      obvious placeholder, so nothing invites copying it verbatim. It reads
+      `AA_WIRELESS_PASSPHRASE` and falls back to the string `set-AA_WIRELESS_PASSPHRASE`,
+      which is a reminder rather than a plausible passphrase. That meant dropping `const`
+      from the example's `AndroidAutoConfig`, since the lookup happens at startup; the
+      collection literals inside it keep theirs.
+
+`tools/wireless-ap.sh` was not in the actionable bullet but had the same shape of
+problem, printing `AndroidAutoWirelessConfig(passphrase: '...')` as a line to copy. It
+now says where a head unit should get the passphrase from, and says explicitly when the
+access point is running on the built in test bench default.
 
 ### G4. Shipped source comments quote dev tool command lines
 
@@ -915,15 +952,18 @@ Not a secret, but it is the string an integrator copies out of the example.
 in the source with invocations like `AA_LOG_LEVEL=DEBUG tools/run-example.sh` and
 `tools/run-example.sh --bundle`. If those scripts move or go, the comments dangle.
 
-- [ ] Document the variable, not the script. `aa_core.cc:198`,
-      `protocol_session.cc:37,336`, `wireless_connector.cc:233`.
+- [x] Document the variable, not the script. `aa_core.cc:198`,
+      `protocol_session.cc:37,336`, `wireless_connector.cc:233`. Done, and the same
+      citation inside the aasdk port's `USBEndpoint.cpp` went with them.
 
 Related: `example/lib/main.dart:117` cites `tools/wireless-test.sh` in a comment
-explaining `AA_AUTOSTART`.
+explaining `AA_AUTOSTART`. Now says it is an example app knob and not a plugin one,
+without naming a script.
 
 Minor, same area: `ApplyTransportOverride` (`aa_core.cc:158-162`) uses a plain substring
 `find` where `ApplyServiceOverride` carefully matches whole comma separated entries.
-Harmless as the two names do not overlap, but inconsistent.
+Harmless as the two names do not overlap, but inconsistent. Fixed: it matches whole
+entries the same way now.
 
 ---
 

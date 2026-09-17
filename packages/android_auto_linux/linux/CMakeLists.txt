@@ -70,6 +70,32 @@ set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 
+# === test bench surface ===
+#
+# Some of the environment knobs are for provoking faults rather than for configuring a
+# head unit: stalling Start(), killing a live transport on a timer, standing in for a
+# paired phone on a Unix socket, and overriding the Wi-Fi passphrase the host app set.
+# Every one of them is valuable while the protocol is being worked on and none of them
+# belongs in a head unit sitting in a car, where the environment is not a trust boundary
+# the way a host app's configuration is.
+#
+# So they are compiled out unless asked for. The default follows the build type rather
+# than being a flat OFF, because a debug build is the test bench, and needing an extra
+# -D to reproduce a crash is how a reproduction stops being used. A release build has
+# them out whatever else is passed, unless somebody explicitly says otherwise.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(AA_FAULT_INJECTION_DEFAULT ON)
+else()
+  set(AA_FAULT_INJECTION_DEFAULT OFF)
+endif()
+option(AA_ENABLE_FAULT_INJECTION
+  "Compile in the AA_FAULT_* knobs, the fake wireless phone and the Wi-Fi passphrase override"
+  ${AA_FAULT_INJECTION_DEFAULT})
+if(AA_ENABLE_FAULT_INJECTION)
+  message(STATUS "android_auto: fault injection compiled in (AA_ENABLE_FAULT_INJECTION=ON)")
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE AA_FAULT_INJECTION)
+endif()
+
 # Source include directories and library dependencies. Add any plugin-specific
 # dependencies here.
 target_include_directories(${PLUGIN_NAME} INTERFACE
@@ -195,6 +221,13 @@ set(AASDK_BENCHMARK     OFF CACHE BOOL "" FORCE)
 add_subdirectory("${AASDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/aasdk" EXCLUDE_FROM_ALL)
 
 target_link_libraries(${PLUGIN_NAME} PRIVATE aasdk aap_protobuf)
+
+# The port adds one fault knob of its own, AA_FAULT_TRANSFER_AFTER in USBEndpoint.cpp,
+# so aasdk needs the same define as the plugin or that one ships while the other three
+# do not. Set after add_subdirectory, where the target exists.
+if(AA_ENABLE_FAULT_INJECTION)
+  target_compile_definitions(aasdk PRIVATE AA_FAULT_INJECTION)
+endif()
 
 # List of absolute paths to libraries that should be bundled with the plugin.
 # aasdk and its generated protobuf are shared libraries, so they have to travel with

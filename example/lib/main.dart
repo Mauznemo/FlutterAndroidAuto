@@ -35,8 +35,9 @@ class TestBenchPage extends StatefulWidget {
 }
 
 class _TestBenchPageState extends State<TestBenchPage> {
+  // Not const: the Wi-Fi passphrase below is read from the environment at startup.
   final AndroidAutoController _controller = AndroidAutoController(
-    config: const AndroidAutoConfig(
+    config: AndroidAutoConfig(
       width: 1280,
       height: 720,
       fps: 30,
@@ -45,7 +46,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
       // obligation attached: the phone stops using its own receiver the moment it sees
       // this, so _gpsTimer below feeds a fix every second from the moment the session
       // starts. Take location out of this set in a real head unit that has no receiver.
-      sensors: {
+      sensors: const {
         AndroidAutoSensor.nightMode,
         AndroidAutoSensor.drivingStatus,
         AndroidAutoSensor.location,
@@ -53,7 +54,7 @@ class _TestBenchPageState extends State<TestBenchPage> {
       // All five, which is more than the default. A test bench that cannot exercise the
       // media browser or the notifications cannot tell whether they work, and unlike a
       // sensor none of these is a promise: the phone pushes what it has.
-      metadata: {
+      metadata: const {
         AndroidAutoMetadata.navigation,
         AndroidAutoMetadata.media,
         AndroidAutoMetadata.phone,
@@ -67,10 +68,19 @@ class _TestBenchPageState extends State<TestBenchPage> {
       // A real head unit picks its own set. Leaving wireless out means the Bluetooth
       // service is never published, and a phone paired while it is out never learns
       // this machine can project, so it never asks.
-      transports: {AndroidAutoTransport.usb, AndroidAutoTransport.wireless},
+      transports: const {AndroidAutoTransport.usb, AndroidAutoTransport.wireless},
       // The one thing that cannot be read off the machine. Everything else, the SSID,
       // the access point's MAC and the address to dial, comes from the interface.
-      wireless: AndroidAutoWirelessConfig(passphrase: 'headunit1234'),
+      //
+      // Read from the environment rather than written here, and the fallback is not a
+      // passphrase but a reminder. A real head unit gets this from whatever brought its
+      // network up; a plausible looking literal in an example is a literal that ends up
+      // in somebody's product.
+      wireless: AndroidAutoWirelessConfig(
+        passphrase:
+            Platform.environment['AA_WIRELESS_PASSPHRASE'] ??
+            'set-AA_WIRELESS_PASSPHRASE',
+      ),
     ),
   );
 
@@ -114,8 +124,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
     super.initState();
     _controller.addListener(_onControllerChanged);
     // Pressing Start is one click too many when the machine running this has no
-    // network for anything else and the test is being driven from a script. See
-    // dev/wireless-test.sh.
+    // network for anything else and the test is being driven from a script. An example
+    // app knob, not a plugin one.
     if (Platform.environment['AA_AUTOSTART'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _controller.start());
     }

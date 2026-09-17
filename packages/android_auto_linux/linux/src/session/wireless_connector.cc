@@ -235,9 +235,17 @@ void WirelessConnector::OnBluetoothConnection(int fd, const std::string& address
 // socket. Whatever connects then speaks the message framing in wireless/aaw_handshake
 // and dials the address it is given.
 //
-// Unset, this costs one getenv per start. It cannot be reached from Dart and there is
-// deliberately no way to turn it on from the host app.
+// This accepts anything that connects as though BlueZ had handed over a paired phone,
+// and unlinks the path it is given before binding it. Neither is acceptable in a head
+// unit sitting in a car, so it is compiled in only when AA_ENABLE_FAULT_INJECTION is on:
+// a debug build by default, a release build never. It cannot be reached from Dart and
+// there is deliberately no way to turn it on from the host app either.
+//
+// Unset, and compiled in, this costs one getenv per start.
 void WirelessConnector::ListenForFakePhone() {
+#ifndef AA_FAULT_INJECTION
+  return;
+#else
   const char* path = std::getenv("AA_WIRELESS_FAKE_PHONE");
   if (path == nullptr || *path == '\0') {
     return;
@@ -265,6 +273,7 @@ void WirelessConnector::ListenForFakePhone() {
   }
   AASDK_LOG(info) << "[Wireless] standing in for BlueZ on " << path;
   AcceptFakePhone();
+#endif
 }
 
 void WirelessConnector::AcceptFakePhone() {

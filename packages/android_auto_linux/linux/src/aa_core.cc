@@ -152,11 +152,24 @@ int32_t ApplyTransportOverride(int32_t transports) {
     return transports;
   }
   const std::string list(value);
+  // Whole comma separated entries, the same way ApplyServiceOverride matches. A plain
+  // substring search happens to work for these two names and would stop working the
+  // moment a third one contained another.
+  auto enabled = [&list](const char* name) {
+    const size_t at = list.find(name);
+    if (at == std::string::npos) {
+      return false;
+    }
+    const bool starts = at == 0 || list[at - 1] == ',';
+    const size_t end = at + std::strlen(name);
+    const bool ends = end == list.size() || list[end] == ',';
+    return starts && ends;
+  };
   int32_t mask = 0;
-  if (list.find("usb") != std::string::npos) {
+  if (enabled("usb")) {
     mask |= AA_TRANSPORT_USB;
   }
-  if (list.find("wireless") != std::string::npos) {
+  if (enabled("wireless")) {
     mask |= AA_TRANSPORT_WIRELESS;
   }
   return mask == 0 ? transports : mask;
@@ -168,11 +181,18 @@ int32_t ApplyTransportOverride(int32_t transports) {
 // to have its passphrase typed into a text field, and the moment that is needed is
 // the moment the machine has given up its network to host the one being tested.
 //
-//   AA_WIRELESS_SSID=HeadUnit AA_WIRELESS_PASSPHRASE=headunit1234
+//   AA_WIRELESS_SSID=<ssid> AA_WIRELESS_PASSPHRASE=<passphrase>
 //
-// A passphrase in an environment variable is a test bench convenience and nothing
-// more. A real head unit gets it from its host app.
+// A passphrase in an environment variable is a test bench convenience and nothing more.
+// A real head unit gets it from its host app, and silently overriding what the host app
+// configured is not something a shipped build should be able to do at all, so this is
+// compiled in only when AA_ENABLE_FAULT_INJECTION is on: a debug build by default, a
+// release build never.
 void ApplyWirelessOverride(aa::WirelessSettings* settings) {
+#ifndef AA_FAULT_INJECTION
+  (void)settings;
+  return;
+#else
   if (const char* ssid = std::getenv("AA_WIRELESS_SSID")) {
     if (*ssid != '\0') {
       settings->ssid = ssid;
@@ -183,6 +203,7 @@ void ApplyWirelessOverride(aa::WirelessSettings* settings) {
       settings->passphrase = passphrase;
     }
   }
+#endif
 }
 
 // Turns aasdk's own logging up, from AA_LOG_LEVEL in the environment.
@@ -192,7 +213,7 @@ void ApplyWirelessOverride(aa::WirelessSettings* settings) {
 // message arrived on which channel, is at DEBUG. That is far too loud to leave on once
 // video is flowing, so it is opt in:
 //
-//   AA_LOG_LEVEL=DEBUG dev/run-example.sh
+//   AA_LOG_LEVEL=DEBUG
 //
 // Accepted values are TRACE, DEBUG, INFO, WARN, ERROR and FATAL.
 void ApplyAasdkLogLevel() {

@@ -41,7 +41,10 @@ set -uo pipefail
 
 ACTION="${1:-status}"
 SSID="${2:-HeadUnit}"
-PASSPHRASE="${3:-headunit1234}"
+# A test bench default so `up` works with no arguments. It is printed back as such
+# rather than as something to copy into a head unit.
+DEFAULT_PASSPHRASE=headunit1234
+PASSPHRASE="${3:-$DEFAULT_PASSPHRASE}"
 CONNECTION="android-auto-ap"
 
 command -v nmcli >/dev/null || {
@@ -191,8 +194,14 @@ case "$ACTION" in
 802-11-wireless-security.pmf connection show "$CONNECTION" 2>/dev/null \
       | sed 's/^/  /' || true
     echo
-    echo "Give the plugin this passphrase and nothing else:"
-    echo "  AndroidAutoWirelessConfig(passphrase: '$PASSPHRASE')"
+    echo "The plugin needs this network's passphrase and nothing else. Pass it to"
+    echo "AndroidAutoWirelessConfig from wherever your head unit keeps its"
+    echo "configuration, rather than writing it into the source."
+    if [ "$PASSPHRASE" = "$DEFAULT_PASSPHRASE" ]; then
+      echo
+      echo "This access point is using the built in test bench passphrase. Give 'up' a"
+      echo "third argument to set your own."
+    fi
     ;;
 
   check)
