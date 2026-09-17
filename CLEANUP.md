@@ -19,7 +19,7 @@ was. Sections are being worked in order.
 | E. Documentation that is stale or wrong | 12 | **high** | done, 2026-09-17 |
 | F. Packaging and structure | 9 | medium | done, 2026-09-17 |
 | G. Debug surface compiled into release | 4 | medium | done, 2026-09-17 |
-| H. CLAUDE.md | 8 | low | not started |
+| H. CLAUDE.md | 8 | low | done, 2026-09-17 |
 
 ---
 
@@ -975,19 +975,39 @@ large enough that the important rules compete with the narrative around them.
 The technical content is excellent and mostly earns its place. The problems are what it
 depends on and what it duplicates.
 
+**Resolved 2026-09-17.** 680 lines to 674, which is not the point: what changed is that
+the machine specific material is now labelled as such, the measurement recipes live in
+the document that already teaches the method, and nothing in the file is load bearing on
+a milestone number. One thing was added rather than removed, because G made it necessary:
+the knob table now marks the five knobs that are compiled out of a release build, which a
+later session would otherwise waste an hour on.
+
 ### H1. It depends on `PLAN.md`, which is being deleted
 
-- [ ] Line 13 "**Read `PLAN.md` first in every session.**" is the second instruction in
-      the file.
-- [ ] Line 16 "update the status table at the top of `PLAN.md`"
-- [ ] Line 396 "`PLAN.md` under M3 has the full reasoning" (the stop and resume
-      ordering, which is genuinely important and needs inlining rather than dropping)
-- [ ] Line 493 "listed in `PLAN.md` under M3"
+**The premise changed.** `PLAN.md` is being kept, and `CLAUDE.md` is the one file allowed
+to depend on it, which is what it is for. So the first two stand as they are and the two
+milestone citations were the real finding.
+
+- [x] Line 13 "**Read `PLAN.md` first in every session.**" is the second instruction in
+      the file. Left alone, deliberately.
+- [x] Line 16 "update the status table at the top of `PLAN.md`". Left alone, same
+      reason.
+- [x] Line 396 "`PLAN.md` under M3 has the full reasoning" (the stop and resume
+      ordering, which is genuinely important and needs inlining rather than dropping).
+      Nothing needed inlining: the section under it already is the full reasoning, step
+      by step with the consequence of skipping each. The sentence was pointing at a
+      second copy of what followed it, and went.
+- [x] Line 493 "listed in `PLAN.md` under M3". Now "every one of them a variation on
+      the same theme", which is what the rules under it then set out.
 
 ### H2. Milestone numbering throughout
 
 Lines 83, 126, 149, 166, 170, 182, 375, 437, 468, 471. Same treatment as D1: most read
 fine with the reference removed.
+
+- [x] Eleven of them, and they did. "Native layout (M2 onward)" is just "Native layout";
+      "the five M9 decoders" are "the five metadata decoders"; "learned the hard way in
+      M4" is "learned the hard way".
 
 ### H3. The "You can drive this machine yourself" section
 
@@ -995,24 +1015,37 @@ Lines 36 to 62. KDE Plasma, Wayland, 1920x1080, ydotool, German QWERTZ, password
 sudo. This is agent environment, it duplicates `docs/dev-environment.md`, and it will be
 wrong for anybody else.
 
-- [ ] Move to a separate local file that is not checked in, or gate it clearly as
-      "the author's machine only".
+- [x] Move to a separate local file that is not checked in, or gate it clearly as
+      "the author's machine only". **Gated, not moved.** A file that is not checked in
+      is a file the next session does not have, and the four rules in that section
+      (`ui.sh setup` after every reboot, the QWERTZ trap, never `pkill -f`, never two
+      copies of the app) are ones an agent needs and cannot derive. The heading is now
+      "Driving the author's machine, which is not every machine", it opens by saying the
+      whole section is one laptop, and the machine description is a pointer to
+      `dev/dev-environment.md` rather than a second copy of it.
 
 ### H4. Hardware specific claims stated as project facts
 
-- [ ] Line 93 "Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`"
-- [ ] Line 359 "This Pixel subscribes to eight of the twelve"
-- [ ] Line 534 "This Pixel opens three of the five"
-- [ ] Line 314 "through the laptop's own speakers and microphone"
+- [x] Line 93 "Flutter 3.47.4 stable via snap at `~/snap/flutter/common/flutter`". Now
+      says nothing requires the snap, that is just where it is here.
+- [x] Line 359 "This Pixel subscribes to eight of the twelve". Now "the one phone
+      tested, a Pixel 8 Pro", with a line saying another phone may choose differently.
+- [x] Line 534 "This Pixel opens three of the five". Same, and the two unopened channels
+      are now "unverified against any phone" rather than just "unverified".
+- [x] Line 314 "through the laptop's own speakers and microphone". Now says that is what
+      this machine has, and what makes it a fair shape of test is the room, not the
+      laptop.
 
 ### H5. Factual error
 
-- [ ] Line 132 "Boost 1.90 removed `io_service`". See E12.
+- [x] Line 132 "Boost 1.90 removed `io_service`". See E12. **Done in E.**
 
 ### H6. Incomplete index
 
-- [ ] The `tools/` row (line 33) lists ten of the eleven scripts; `wireless-capture.sh`
-      is missing, and the wireless section later tells you to use it.
+- [x] The `tools/` row (line 33) lists ten of the eleven scripts; `wireless-capture.sh`
+      is missing, and the wireless section later tells you to use it. **Done in C**, when
+      the `dev/` split replaced that one row with two. Checked mechanically afterwards:
+      all eleven scripts are named in the file.
 
 ### H7. Verification recipes that belong in `docs/`
 
@@ -1020,25 +1053,45 @@ The `parecord` command and per-100 ms RMS method (lines 320 to 330), the `spd-sa
 recipe (line 314), the "-2.2 dB for a -12 dB volume change" anecdote. All useful, none
 of it a rule for writing code.
 
-- [ ] Move the measurement methods into `docs/echo-cancellation.md`, which already has a
-      "Verifying it on other hardware" section they would fit inside.
+- [x] Move the measurement methods into `docs/echo-cancellation.md`, which already has a
+      "Verifying it on other hardware" section they would fit inside. Moved, into a new
+      subsection of it: the `parecord` recipe, the per-100 ms RMS method, the -2.2 dB
+      anecdote as the reason comparisons must be back to back, the `spd-say` recipe, and
+      the `module-null-sink` trap. `CLAUDE.md` keeps the two rules ("measure by
+      recording, not listening" and "do not fake a microphone with `module-null-sink`")
+      and points at the document for the how.
 
 ### H8. Typo
 
-- [ ] Line 124 "Do NOT git commit unless you are **toled** to do so!" → "told".
+- [x] Line 124 "Do NOT git commit unless you are **toled** to do so!" → "told". Fixed.
 
 ---
 
 ## What I did not check
 
 - **Nothing was run against a phone.** Every functional claim above was established by
-  reading, except the analyzer runs and the file inventory. A1 in particular is worth
-  confirming on hardware: point `certificatePath` at a directory with a deliberately
-  invalid certificate and confirm the session still connects, which is what the code
-  says will happen.
+  reading, except the analyzer runs and the file inventory. A1 was to be confirmed on
+  hardware by pointing `certificatePath` at a deliberately invalid certificate; that no
+  longer applies, because the field was removed rather than implemented.
 - **The aasdk submodule and its patch** were treated as vendored and out of scope,
   beyond confirming that the certificate is compiled in (`third_party/aasdk/CMakeLists.txt:396`).
 - **Generated files** (`lib/src/bindings/`, `example/linux/flutter/ephemeral/`) were
   checked for freshness but not reviewed for content.
 - **Runtime behaviour of the tools.** None of the shell scripts were executed; the sudo
   findings in section B come from reading the invocations and their redirections.
+
+**What the work itself verified, 2026-09-17.** Still no phone, so nothing about
+projection was re-tested. What was: both build configurations compile and the example
+runs; `flutter analyze` is clean from the repository root and in each package; the four
+`require_sudo` refusal paths, driven with a stub `sudo` that always fails, with and
+without a terminal; the aasdk patch applying from a submodule reset to its pinned commit;
+the fault injection knobs present in a debug library and absent from a release one, read
+out of the built `.so` rather than inferred; and an outside application path-depending on
+`packages/android_auto` still resolving after the workspace change.
+
+**Two things this audit got wrong**, both found by checking rather than reading. G1 lists
+three fault knobs; there is a fourth, `AA_FAULT_TRANSFER_AFTER`, which lives in the
+patched submodule and shipped in release until the define was put on the `aasdk` target
+too. And A5's suggested fix, `gcc -dumpversion`, is the wrong probe on this machine: it
+answers 15 while clang selects 16, which is exactly the case the package is needed for.
+
