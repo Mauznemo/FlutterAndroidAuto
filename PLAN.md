@@ -1175,8 +1175,9 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 - [x] Dart API docs on every public member
 - [ ] Example app polished enough to serve as the reference integration
 
-The remaining boxes are ARM64, which needs the device, and the example app, which is
-one 1375 line `main.dart`: a good test bench, not yet a reference integration.
+The remaining boxes are ARM64, which needs the device and a Flutter installed from a
+git clone rather than from the x64 only prebuilt archives, and the example app, which
+is one 1375 line `main.dart`: a good test bench, not yet a reference integration.
 
 ### The bundle did not work anywhere but here
 
@@ -1280,12 +1281,52 @@ Two doc references in the platform interface pointed at `AndroidAutoView` and
 `AndroidAutoController`, which live in the package that depends on it rather than the
 other way round, so they could never resolve. Now code spans.
 
-### What ARM64 still owes
+### ARM64 needs Flutter installed from a git clone, and that is all
 
-CI builds `aarch64` on every push, so a compile or link regression is caught. That is
-not the same as having run it. The real check is a phone, a cable and the video, audio,
-input and sensor paths exercised on the device, and the VA-API path is the most likely
-thing to need work, being a different driver stack there.
+The `aarch64` CI job failed in nine seconds, before compiling anything:
+
+```
+Unable to determine Flutter version for channel: stable version: 3.47.4 architecture: arm64
+```
+
+Read straight off `releases_linux.json`, which lists `x64` and nothing else, that looks
+like Flutter not supporting Linux ARM64 at all. It was written up here as exactly that,
+and it was wrong. **Only the prebuilt archives are x64 only.** Installing Flutter by
+cloning its repository works on ARM64: the engine artifacts exist for `linux-arm64` in
+debug, profile and release, the arm64 Dart SDK is published beside them, and
+`flutter precache --linux` fetches them. Confirmed by hand on an ARM64 machine, and
+then against the artifact URLs.
+
+So the CI job now installs Flutter with the action on x64 and with a clone on arm64,
+and the milestone is not blocked on anything but running it. What is still owed is the
+device check: a phone, a cable, and the video, audio, input and sensor paths exercised
+there. VA-API is a different driver stack on ARM and is the most likely thing to need
+work, with the software decoder as the fallback if it does.
+
+### The first release shipped a build that did not compile on Ubuntu 24.04
+
+Found by CI, minutes after 0.1.0 went to pub.dev, which is the wrong order and the
+subject of the entry below.
+
+`metadata_channels.cc` suppresses `-Wdeprecated-declarations-switch-case` around the
+navigation decoder. That warning arrived in clang 19. Ubuntu 24.04 ships clang 18,
+where the name is an unknown warning group, and Flutter's `apply_standard_settings`
+compiles with `-Werror`, so it is a hard error rather than a warning:
+
+```
+error: unknown warning group '-Wdeprecated-declarations-switch-case', ignored
+       [-Werror,-Wunknown-warning-option]
+```
+
+The code already guarded against exactly this with `#pragma GCC diagnostic ignored
+"-Wpragmas"`, and that guard is correct for GCC and useless for clang, which calls the
+same thing `-Wunknown-warning-option`. Both names are now suppressed. It went unnoticed
+because this laptop is on clang 21, where the warning exists and nothing fires.
+
+**The lesson is about the gate, not the pragma.** The native build moved to
+release-only, so it now runs *after* publishing and cannot block it, and the local build
+check in `dev/release.sh` uses whatever compiler this machine has. One machine, one
+compiler, is not a portability test.
 
 ---
 

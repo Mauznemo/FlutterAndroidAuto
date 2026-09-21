@@ -166,10 +166,30 @@ The target is a mini PC, and the package layout, the build and the tooling are a
 architecture agnostic: `dev/run-example.sh` resolves `x64` or `arm64` from `uname -m`,
 and nothing in the native code assumes a word size or an endianness.
 
-**It has not been run on ARM64 yet, and nothing here should be read as saying it has.**
-CI builds the plugin and the example for `aarch64` on every push, so a compile or link
-regression is caught, but a build that links is not a head unit that projects. What is
-still owed is the real check: a phone, a cable, and the video, audio, input and sensor
-paths exercised on the device itself. In particular the VA-API path is a different
-driver stack on ARM and is the most likely thing to need work.
+**It has not been run on ARM64 yet, but nothing structural is in the way.**
 
+One thing about installing Flutter there is worth knowing, because it looks like a
+blocker and is not. Flutter publishes prebuilt SDK archives for **x64 only**:
+`releases_linux.json` has no arm64 entry, so anything that downloads from it, including
+`subosito/flutter-action`, fails on an ARM64 machine with
+
+```
+Unable to determine Flutter version for channel: stable version: 3.47.4 architecture: arm64
+```
+
+That is a gap in the prebuilt archives, not in Flutter. **Installing from a git clone
+works**: the engine artifacts exist for `linux-arm64` in all three build modes, along
+with the arm64 Dart SDK, and `flutter precache --linux` fetches them.
+
+```bash
+git clone --depth 1 --branch 3.47.4 https://github.com/flutter/flutter.git ~/flutter
+export PATH="$HOME/flutter/bin:$PATH"
+flutter config --enable-linux-desktop
+flutter precache --linux
+```
+
+CI builds `aarch64` this way on every release. A build that links is still not a head
+unit that projects, so what remains owed is the real check on the device: a phone, a
+cable, and the video, audio, input and sensor paths exercised there. The VA-API path is
+a different driver stack on ARM and is the most likely thing to need work; there is a
+software fallback if it does.
