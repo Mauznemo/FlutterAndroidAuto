@@ -29,7 +29,7 @@ implementation can be added later without touching the app-facing API.
 | M8 | Sensors (night mode, GPS, driving status) | **done** |
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
 | M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
-| M11 | Packaging, ARM64, CI, docs | **next** |
+| M11 | Packaging, ARM64, CI, docs | **in progress**, bar running it on an ARM64 device |
 | M12 | Android implementation package | not started |
 
 ---
@@ -1167,13 +1167,125 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 ## M11. Packaging, ARM64, CI, docs
 
 - [ ] Cross build and test on ARM64 (the target mini PC)
-- [ ] Cache the aasdk build so a clean `flutter build linux` is not a 10 minute wait
-- [ ] Decide static versus shared linking of aasdk into `libandroid_auto_linux_plugin.so`
-- [ ] Document the runtime dependencies an end user has to install
-- [ ] GitHub Actions: build x86_64 and ARM64, run unit tests
-- [ ] `README.md` with a real screenshot, quick start, and the licence situation spelled out
-- [ ] Dart API docs on every public member
+- [x] Cache the aasdk build so a clean `flutter build linux` is not a 10 minute wait
+- [x] Decide static versus shared linking of aasdk into `libandroid_auto_linux_plugin.so`
+- [x] Document the runtime dependencies an end user has to install
+- [x] GitHub Actions: build x86_64 and ARM64, run unit tests
+- [x] `README.md` with a real screenshot, quick start, and the licence situation spelled out
+- [x] Dart API docs on every public member
 - [ ] Example app polished enough to serve as the reference integration
+
+The remaining boxes are ARM64, which needs the device, and the example app, which is
+one 1375 line `main.dart`: a good test bench, not yet a reference integration.
+
+### The bundle did not work anywhere but here
+
+Found by copying `build/linux/x64/release/bundle` somewhere else and running `ldd` on
+the plugin, which is the whole test and takes ten seconds:
+
+```
+libaasdk.so.2026       => not found
+libaap_protobuf.so.2026 => not found
+```
+
+aasdk versions itself by the day it was built, so a shared build is
+`libaasdk.so.2026.09.17+git.9bf6adf` with a `libaasdk.so.2026` SONAME symlink beside it.
+`android_auto_linux_bundled_libraries` had been pointed at the SONAME, on the reasoning
+that the SONAME is what `DT_NEEDED` records, so the SONAME is what has to be in the
+bundle. Flutter's install step then copied the symlink and not its target, and the
+result kept working on this machine anyway, because the plugin's `RUNPATH` is an
+absolute path into the build tree. The first machine that would have noticed is one
+that did not have the build tree, which is to say every machine it would ever ship to.
+
+**Linking aasdk statically is the fix and the answer to the checkbox above.** Nothing
+else on a head unit links aasdk, so a shared copy is shared with nobody, and the licence
+position is identical either way. The bundle is now three libraries, all real files, and
+the relocation test passes.
+
+Two things had to follow it:
+
+| | |
+|---|---|
+| Position independent code | A static archive going into a shared object needs it. Set on the directory, since the targets belong to aasdk |
+| A linker version script | `CXX_VISIBILITY_PRESET hidden` only reaches the plugin's own objects, so the plugin was exporting **6159** dynamic symbols where 65 are the interface. All of protobuf and Boost.Log, in a process where Flutter loads every plugin into one address space and the first definition of a symbol wins |
+
+### Three things found while packaging, each worth its own line
+
+- **The plugin shipped 23 MB of DWARF.** aasdk overrides `CMAKE_CXX_FLAGS_RELEASE` with
+  `-g -O3 -DNDEBUG`. The release plugin was 26 MB; it is 3.3 MB now. CMake has
+  `RelWithDebInfo` for anyone who wants the symbols.
+- **Every consumer of aasdk linked Boost.Test.** `find_package` asks for
+  `unit_test_framework` unconditionally and `${Boost_LIBRARIES}` carries it into aasdk's
+  PUBLIC link interface, so `libboost_unit_test_framework` was in the plugin's
+  `DT_NEEDED` with no test in sight.
+- **`tools/port-aasdk.sh apply` did not reproduce the patch.** The USBEndpoint transfer
+  retry, the halt clearing and `AA_FAULT_TRANSFER_AFTER` are hand written and live in no
+  function in the script, so regenerating the patch from `apply` silently deleted about
+  130 lines of the port. Caught by a patch that came out *smaller* after adding to it.
+  `apply` now applies the committed patch, the script's transforms moved to `regen`, and
+  both the script and `docs/aasdk-port-notes.md` say which does what and why it matters.
+
+### ccache, because `flutter clean` is the expensive part
+
+aasdk and its generated protobuf are 346 of the build's translation units. `flutter
+clean` throws all of it away, which is what made a clean rebuild feel like a punishment.
+ccache keys on preprocessed source and lives in `~/.cache`, so it survives.
+
+| | Wall clock |
+|---|---|
+| `flutter clean`, then build, cold cache: 346 compiles, 0 hits | 196 s |
+| `flutter clean`, then build, warm cache: 346 compiles, 346 hits | 20 s |
+
+CMake finds it if it is installed and says at configure time which case it is in.
+Nothing requires it, `-DAA_USE_CCACHE=OFF` turns it off, and CI restores the same cache
+between runs.
+
+### The first tests in the repository
+
+There were none, and `flutter test` from the root does not work in a workspace whose
+root is not a package: it looks for `./test` and stops. Both `CONTRIBUTING.md` and
+`AGENTS.md` told contributors to run exactly that. The command is `flutter test
+packages/*/test`, and all three files now say so.
+
+45 tests, over the layers that have no native dependency and are worth holding still:
+
+- **Metadata decoding**, 18 tests. This is a seam between `metadata/json.cc` writing
+  JSON and Dart reading it, and a mismatch there is completely silent: nothing throws,
+  a turn card just never fills in. Covers the flattened distance keys, an empty string
+  being an absent field rather than an empty one, a maneuver name from a newer schema
+  landing on `unknown` rather than null, and values of the wrong type.
+- **Touch mapping and MotionEvent rules**, 14 tests. Letterboxing undone so the centre
+  of the box is the centre of the video, a tap on the bars dropped but a drag onto them
+  clamped, the phone's own video size winning over the requested one, and the
+  down/pointerDown/pointerUp/up sequence with `action_index` naming the finger that
+  changed. Slots stay small and get reused.
+- **Controller lifecycle**, 13 tests, against a fake platform.
+
+One real bug fell out of writing them: `AndroidAutoManeuver.turnsLeft` and `turnsRight`
+matched the roundabout direction at the end of the name, and two of the maneuvers carry
+an exit angle and so end in `WithAngle`. Those two were the only maneuvers that were
+neither left nor right, which for a head unit drawing two arrows means drawing neither.
+
+### CI
+
+`.github/workflows/ci.yml`, two jobs. `analyze and test` is pure Dart and answers in
+under a minute: analyze, the 45 tests, and a dartdoc run whose warnings are read rather
+than its exit code trusted, since dartdoc does not fail on an unresolved reference.
+`build` is a matrix over `ubuntu-latest` and `ubuntu-24.04-arm`: the aasdk smoke test,
+a debug and a release build of the example, and then the relocation check that would
+have caught the bundle bug, as a step that fails the build rather than as a paragraph in
+a document.
+
+Two doc references in the platform interface pointed at `AndroidAutoView` and
+`AndroidAutoController`, which live in the package that depends on it rather than the
+other way round, so they could never resolve. Now code spans.
+
+### What ARM64 still owes
+
+CI builds `aarch64` on every push, so a compile or link regression is caught. That is
+not the same as having run it. The real check is a phone, a cable and the video, audio,
+input and sensor paths exercised on the device, and the VA-API path is the most likely
+thing to need work, being a different driver stack there.
 
 ---
 

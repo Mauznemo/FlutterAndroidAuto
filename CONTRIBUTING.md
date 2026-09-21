@@ -188,7 +188,7 @@ accidentally deleted line more reliably than a reviewer will.
 Then make sure the project still builds and its checks still pass. For this repository:
 
 ```bash
-flutter pub get && flutter analyze && flutter test
+flutter pub get && flutter analyze && flutter test packages/*/test
 ```
 
 and, for anything touching the native or plugin code, build and run the example app:

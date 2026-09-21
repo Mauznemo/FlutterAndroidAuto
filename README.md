@@ -7,14 +7,23 @@ composite its own widgets on top of it. No separate window, no Desktop Head Unit
 executable, no window manager tricks.
 
 Built for custom car infotainment systems written in Flutter. Linux first, built and
-tested on x86_64 with ARM64 intended and not yet verified, and the package layout is
-federated so an Android implementation can be added without touching the app facing API.
+tested on x86_64 with ARM64 built in CI and not yet run on a device, and the package
+layout is federated so an Android implementation can be added without touching the app
+facing API.
+
+![A Pixel projecting Google Maps into a Flutter texture, with the example app's own
+status line and controls drawn over it](docs/images/example-projecting.png)
+
+*A phone projecting over USB, decoded on VA-API into a Flutter `Texture`. Everything
+over the map, the status line at the top, the transport controls and the buttons, is
+ordinary Flutter drawn on top of it. The position is the example app's fixed test fix,
+not a real one.*
 
 > **Status: working, not yet released.** A phone projects over USB and over Wi-Fi,
 > with video, touch and key input, three audio streams, the microphone, car sensors,
 > and the metadata channels that let the head unit draw its own turn card and now
-> playing bar. Nothing is published to pub.dev yet, packaging and ARM64 are the
-> remaining work, and only one phone model has been tested. See
+> playing bar. Nothing is published to pub.dev yet, ARM64 has been built but never run
+> on a device, and only one phone model has been tested. See
 > [What works](#what-works) for the detail.
 
 ## Usage
@@ -57,9 +66,10 @@ the repository.
 | Transports | USB (AOAP), and Wi-Fi with Bluetooth for the handshake |
 | Phone calls | over Bluetooth HFP, which is configuration rather than code, see [`docs/echo-cancellation.md`](docs/echo-cancellation.md) |
 
-Not there yet: no published packages, no ARM64 build verified, no Android
-implementation, and the notification and media browser channels are implemented against
-the schema but unverified, because the one phone tested never opens them.
+Not there yet: no published packages, no ARM64 device tested (CI builds it, which is
+not the same thing), no Android implementation, and the notification and media browser
+channels are implemented against the schema but unverified, because the one phone tested
+never opens them.
 
 ## Repository layout
 
@@ -75,6 +85,7 @@ docs/
   aasdk-port-notes.md                 what the vendored aasdk needed and why
   echo-cancellation.md                calls over Bluetooth, and the config they need
   wireless.md                         Android Auto without a cable
+  packaging.md                        shipping a build, and what a machine needs to run it
 tools/                                what anyone cloning this needs
   setup-dev-machine.sh                host provisioning
   build-aasdk.sh                      vendored aasdk: patch, build, smoke test
@@ -86,9 +97,13 @@ pubspec.yaml                          workspace root, not a package
 PLAN.md                               how it was built, milestone by milestone
 ```
 
-The three packages and the example are one Dart workspace, so `flutter pub get`,
-`flutter analyze` and `flutter test` all work from the repository root and there is a
-single `pubspec.lock`.
+The three packages and the example are one Dart workspace, so `flutter pub get` and
+`flutter analyze` run from the repository root and there is a single `pubspec.lock`.
+Tests are named by package, because the root is not one:
+
+```bash
+flutter test packages/*/test
+```
 
 `dev/` is not part of the plugin: it drives one KDE-on-Wayland laptop with one paired
 phone, and the project builds and runs without it. See [`dev/README.md`](dev/README.md).
@@ -128,6 +143,11 @@ question and unnecessary otherwise.
 
 `--udev` installs the rule that lets a normal user open a phone in accessory mode,
 without which projection needs root.
+
+`--build-deps` also installs ccache, which is not required but turns a clean rebuild
+from three minutes into twenty seconds: `flutter clean` deletes the object tree and
+aasdk is almost all of it. The plugin's CMake picks ccache up on its own when it is
+there and says so at configure time when it is not.
 
 ## Licence
 

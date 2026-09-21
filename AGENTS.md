@@ -18,7 +18,8 @@ the top of `PLAN.md` when a milestone changes state.
 Background reading, only when relevant: `docs/architecture.md` (how the pieces fit),
 `docs/echo-cancellation.md` (phone calls, which are not in this code), `docs/wireless.md`
 (Android Auto without a cable), `docs/aasdk-port-notes.md` (what the vendored aasdk
-needed), `dev/dev-environment.md` (this machine). `docs/research.md` is a dated record of
+needed), `docs/packaging.md` (how a build is linked and what a machine needs to run it),
+`dev/dev-environment.md` (this machine). `docs/research.md` is a dated record of
 what was known before the work started, not current guidance; read it for why a decision
 was taken, never for what the code does now.
 
@@ -80,14 +81,27 @@ Four things that will bite otherwise, and these are rules rather than descriptio
 
 ## Build and run
 
-The three packages and the example are one Dart workspace, so `flutter pub get`,
-`flutter analyze` and `flutter test` are run from the repository root and there is one
-`pubspec.lock`, at the root, which is committed.
+The three packages and the example are one Dart workspace, so `flutter pub get` and
+`flutter analyze` are run from the repository root and there is one `pubspec.lock`, at
+the root, which is committed.
+
+**`flutter test` on its own does not work from the root** and says "Test directory
+"test" not found": the workspace root is not a package and has no tests of its own.
+Name the members instead, which is what CI does:
+
+```bash
+flutter test packages/*/test
+```
 
 ```bash
 flutter pub get && cd example && flutter build linux --debug
 dev/run-example.sh --bg
 ```
+
+A clean rebuild is about twenty seconds with ccache installed and about three minutes
+without, because `flutter clean` deletes the object tree and aasdk's 346 translation
+units are almost all of it. CMake finds ccache on its own and says at configure time
+which case it is in. `-DAA_USE_CCACHE=OFF` turns it off.
 
 **Wipe a build with `flutter clean`, never `rm -rf example/build`.** The second leaves
 `build/native_assets/linux` missing and the next build dies at the install step with
@@ -130,9 +144,19 @@ video pipeline hands Flutter a **dmabuf**, never a raw GL texture. See
 ```bash
 tools/build-aasdk.sh           # build aasdk alone and smoke test it. Must print OK.
 tools/port-aasdk.sh reset      # throw away local aasdk edits
-tools/port-aasdk.sh apply      # redo the port in the working tree
+tools/port-aasdk.sh apply      # redo the port in the working tree, from the patch
+tools/port-aasdk.sh regen      # redo it from the script's transforms, for a new pin
 tools/port-aasdk.sh patch      # regenerate linux/patches/ from the working tree
 ```
+
+**`apply` and `regen` are not the same thing and the difference has already cost work
+once.** Part of the port is hand written rather than scripted: the USBEndpoint transfer
+retry, the halt clearing and `AA_FAULT_TRANSFER_AFTER` live in the patch and in no
+function in the script. So `regen` produces *less* than the patch holds, and `patch` run
+straight after it silently deletes the difference. `apply` applies the committed patch,
+which is what "redo the port" means in every ordinary case. Reach for `regen` only when
+the submodule pin has moved somewhere the patch will not apply, and expect to put the
+hand written parts back by hand.
 
 aasdk is vendored as a submodule at
 `packages/android_auto_linux/linux/third_party/aasdk`, pinned to `9bf6adf`. **It does not
@@ -146,6 +170,13 @@ and `tools/build-aasdk.sh` is for proving the port on its own rather than for ma
 build work. If you change the port, regenerate the patch, then `tools/port-aasdk.sh
 reset` and rebuild to check CMake still applies it cleanly. Full write up in
 `docs/aasdk-port-notes.md`.
+
+Three things in the port are about packaging rather than about compiling, and undoing
+any of them puts back a bug: the library type is taken from the parent project so the
+plugin can link aasdk statically, Boost.Test is only asked for when aasdk's own tests
+are being built (it was in every consumer's `DT_NEEDED` otherwise), and
+`CMAKE_CXX_FLAGS_RELEASE` no longer forces `-g`, which was 23 MB of DWARF in a shipped
+library. See `docs/packaging.md`.
 
 The key piece: `aasdk::Strand` subclasses `boost::asio::strand<io_context::executor_type>`
 to restore the old one argument `dispatch`/`post`, `get_io_service()` and an
@@ -185,6 +216,7 @@ Once toled to, for commit message and PR style: read CONTRIBUTING.md before writ
 | `linux/src/wireless/aaw_handshake.*` | the Bluetooth conversation that precedes wireless projection, **the only file that names the `aaw` protobufs** |
 | `linux/src/session/wireless_connector.*` | Bluetooth, then the handshake, then the acceptor on 5288, ending at a transport |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
+| `linux/android_auto_linux_plugin.map` | the linker version script: the `aa_*` ABI and the GTK registrar are exported, everything aasdk and protobuf drag in is not |
 
 After changing `aa_core.h`, regenerate the Dart bindings:
 

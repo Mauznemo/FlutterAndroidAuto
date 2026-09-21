@@ -206,7 +206,8 @@ enum AndroidAutoTouchAction {
 /// normalised. The head unit tells the phone it has a touchscreen exactly the size of
 /// the video it asked for, and the phone reads these against that, so a widget local
 /// position has to be mapped through however the projection is fitted on screen first.
-/// [AndroidAutoView] does that; an app sending its own touches has to do it itself.
+/// `AndroidAutoView` in the `android_auto` package does that; an app sending its own
+/// touches has to do it itself.
 class AndroidAutoTouchPoint {
   /// Identifies this finger for as long as it stays down. Small indices, the way
   /// Android numbers pointers, rather than an ever growing counter.
@@ -790,8 +791,8 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// that does not want it pays nothing and a phone paired in that state never learns
   /// the machine can project at all.
   ///
-  /// Called for you by [AndroidAutoController]'s constructor. Calling [start] without
-  /// it works exactly as before.
+  /// Called for you by `AndroidAutoController`'s constructor, in the `android_auto`
+  /// package. Calling [start] without it works exactly as before.
   Future<void> initialize(AndroidAutoConfig config) async {}
 
   /// Starts looking for a phone. Completes once the session is running, not once a
