@@ -1,0 +1,57 @@
+name: Publish to pub.dev
+
+# Off until switched on. The trigger below matches exactly the tags dev/release.sh
+# pushes, so without the guard this would fire on every release and fail, because
+# pub.dev does not trust this repository to publish anything yet. The guard is a
+# repository variable rather than a comment, so turning it on is one setting and needs
+# no commit:
+#
+#   Settings, Secrets and variables, Actions, Variables:  PUBLISH_FROM_CI = true
+#
+# Before setting it, each of the three packages needs this on its own pub.dev admin
+# page, under Automated publishing:
+#
+#   Repository:   Mauznemo/FlutterAndroidAuto
+#   Tag pattern:  v{{version}}
+#
+# pub.dev then verifies over OIDC that the request came from this repository at that
+# tag, and that the tag agrees with the version in pubspec.yaml. No secret is stored
+# here or on the machine.
+#
+# The first release cannot use any of this: a package has no admin page until it has
+# been published once. So v0.1.0 goes up from dev/release.sh, and this takes over
+# afterwards, at which point set PUBLISH_FROM_CI=1 in the script too so it stops
+# publishing directly and only tags. Full walkthrough in docs/releasing.md.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+# What the reusable workflow needs to mint an OIDC token. Nothing else is granted.
+permissions:
+  id-token: write
+
+jobs:
+  # In dependency order, serialised with `needs`, because pub.dev will not accept a
+  # package whose dependencies it has never heard of. The versions are in lockstep, so
+  # android_auto's constraint on android_auto_linux is satisfied only once the latter
+  # is actually up.
+  platform_interface:
+    if: vars.PUBLISH_FROM_CI == 'true'
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@main
+    with:
+      working-directory: packages/android_auto_platform_interface
+
+  linux:
+    needs: platform_interface
+    if: vars.PUBLISH_FROM_CI == 'true'
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@main
+    with:
+      working-directory: packages/android_auto_linux
+
+  app:
+    needs: linux
+    if: vars.PUBLISH_FROM_CI == 'true'
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@main
+    with:
+      working-directory: packages/android_auto

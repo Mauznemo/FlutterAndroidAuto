@@ -30,3 +30,7 @@ compile_commands.json
 
 # OS
 .DS_Store
+
+# dev/release_support.py is imported by nothing, but running it leaves this behind.
+__pycache__/
+*.pyc

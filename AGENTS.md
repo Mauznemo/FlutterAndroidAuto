@@ -19,6 +19,7 @@ Background reading, only when relevant: `docs/architecture.md` (how the pieces f
 `docs/echo-cancellation.md` (phone calls, which are not in this code), `docs/wireless.md`
 (Android Auto without a cable), `docs/aasdk-port-notes.md` (what the vendored aasdk
 needed), `docs/packaging.md` (how a build is linked and what a machine needs to run it),
+`docs/releasing.md` (cutting a release and publishing to pub.dev),
 `dev/dev-environment.md` (this machine). `docs/research.md` is a dated record of
 what was known before the work started, not current guidance; read it for why a decision
 was taken, never for what the code does now.
@@ -32,7 +33,7 @@ was taken, never for what the code does now.
 | `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
 | `example/` | test bench app, run this to verify anything visually |
 | `tools/` | what a stranger needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `wireless-ap.sh`, and `config/` for the PipeWire drop-in the fourth of those installs |
-| `dev/` | this machine's own tooling, not part of the plugin: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`, `fake-wireless-phone.py`, `audio-graph.sh`, and `dev-environment.md` |
+| `dev/` | this machine's own tooling, not part of the plugin: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`, `fake-wireless-phone.py`, `audio-graph.sh`, `release.sh` with `release_support.py`, and `dev-environment.md` |
 | `pubspec.yaml` | the workspace root, not a package. Its only content is the member list |
 
 Keep aasdk code out of the two pure Dart packages. That split is what keeps a future
@@ -182,6 +183,20 @@ The key piece: `aasdk::Strand` subclasses `boost::asio::strand<io_context::execu
 to restore the old one argument `dispatch`/`post`, `get_io_service()` and an
 `io_context&` flavoured `context()`. That is what keeps the port a type substitution
 instead of a rewrite, so prefer extending it over touching call sites.
+
+## Releasing
+
+`dev/release.sh` cuts a release: it bumps the three packages in lockstep, generates a
+changelog per package from the `feat`, `fix` and `refactor` commits that touched it,
+publishes to pub.dev in dependency order and opens a GitHub release. Never run it
+unless asked to. `--dry-run` does every check and pushes nothing.
+
+The one rule worth carrying into any work on the pubspecs: **the cross package
+dependencies are caret constraints, not paths**, because pub will not publish a path
+dependency. They resolve to the sibling directories anyway, because a Dart workspace
+prefers its own members, but only while the local version satisfies the constraint. So
+versions and constraints move together or `flutter pub get` silently starts resolving
+against pub.dev. Full write up in `docs/releasing.md`.
 
 ## Committing and pull requests
 Do NOT git commit unless you are told to do so!

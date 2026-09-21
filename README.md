@@ -86,6 +86,7 @@ docs/
   echo-cancellation.md                calls over Bluetooth, and the config they need
   wireless.md                         Android Auto without a cable
   packaging.md                        shipping a build, and what a machine needs to run it
+  releasing.md                        cutting a release, for the maintainer
 tools/                                what anyone cloning this needs
   setup-dev-machine.sh                host provisioning
   build-aasdk.sh                      vendored aasdk: patch, build, smoke test

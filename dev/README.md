@@ -25,7 +25,14 @@ What it assumes, all of which is one machine rather than a requirement:
 | `wireless-capture.sh` | record Bluetooth and Wi-Fi while that happens, because nothing above the transport can tell a phone that never asked from one that asked and walked away |
 | `fake-wireless-phone.py` | stand in for a phone on the `AA_WIRELESS_FAKE_PHONE` socket |
 | `audio-graph.sh` | dump the PipeWire graph, `--watch` to record it over time |
+| `release.sh` | cut a release: bump, changelog, publish to pub.dev, tag, GitHub release. `--dry-run` checks everything and pushes nothing |
+| `release_support.py` | the fiddly half of that: versions, pubspecs and changelogs |
 | `dev-environment.md` | the machine, and what it can and cannot be driven to do |
+
+`release.sh` is the odd one out here. It assumes nothing about this laptop and would
+work on any machine, but it publishes this project's packages and pushes to this
+project's repository, so it is the maintainer's tool rather than a contributor's. That
+is the line `dev/` draws. See [`docs/releasing.md`](../docs/releasing.md).
 
 The counterpart is `tools/`, which is for anyone who clones this repository:
 provisioning, the aasdk build and its patch, the echo canceller, and the access point.
