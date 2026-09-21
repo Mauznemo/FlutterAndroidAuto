@@ -18,15 +18,27 @@
 # AOAPDevice, unguarded promise dereferences in the message streams, and bulk endpoints
 # left halted by a previous session.
 #
+# It also lets the parent project choose the library type, because a shared aasdk names
+# itself after the day it was built and cannot be redistributed without carrying that
+# symlink, and stops Boost.Test from reaching every consumer's DT_NEEDED.
+#
 # Note on reading aasdk's USB_TRANSFER errors: "Native Code" is a libusb_transfer_status,
 # so 2 is TIMED_OUT and 4 is STALL. It is not a libusb_error.
 #
-#   tools/port-aasdk.sh apply     transform the submodule working tree in place
+#   tools/port-aasdk.sh apply     redo the port in the working tree, from the patch
+#   tools/port-aasdk.sh regen     redo it from the transforms below, for a new aasdk pin
 #   tools/port-aasdk.sh patch     regenerate linux/patches/ from the working tree
 #   tools/port-aasdk.sh reset     throw the working tree away, back to the pinned commit
 #
-# The patch under linux/patches/ is the committed source of truth. The submodule itself
-# is never committed dirty.
+# The patch under linux/patches/ is the committed source of truth, and the submodule is
+# never committed dirty.
+#
+# `apply` and `regen` are not the same thing, and the difference matters. Parts of the
+# port are hand written rather than scripted: the USBEndpoint transfer retry, the halt
+# clearing and the fault injection knob are in the patch and in no function below. So
+# `regen` produces less than the patch holds, and `patch` run straight after it would
+# throw the hand written work away. Use `regen` only when the submodule has been moved
+# to a commit the patch no longer applies to, and expect to put the rest back by hand.
 
 set -euo pipefail
 
@@ -297,10 +309,137 @@ port_cmake_minimum() {
   done
 }
 
+# aasdk hardcodes a shared library on everything but macOS, and a shared aasdk is the
+# reason a built bundle cannot be moved off the machine that built it. Its SONAME is
+# date based (libaasdk.so.2026), so what the plugin records in DT_NEEDED is a symlink
+# whose target is named after the day of the build, and Flutter's install step copies
+# the symlink rather than the file behind it.
+#
+# Rather than teach the bundling step about versioned symlinks, let the library type be
+# chosen by the parent project. The plugin asks for STATIC and ships one .so.
+port_library_type() {
+  python3 - "$AASDK" <<'PYEOF'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+
+option = (
+    "# The parent project decides. aasdk linked into another shared library wants\n"
+    "# STATIC: the date based SONAME below makes a shared aasdk awkward to redistribute.\n"
+    'set(AASDK_LIBRARY_TYPE "SHARED" CACHE STRING "aasdk library type: SHARED or STATIC")\n'
+    "\n")
+
+main = root / "CMakeLists.txt"
+text = main.read_text()
+if "AASDK_LIBRARY_TYPE" not in text:
+    needle = (
+        'if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")  # macOS\n'
+        '    message(NOTICE "Configuring STATIC Library for MacOS")\n'
+        "    add_library(aasdk STATIC\n"
+        "            ${source_files}\n"
+        "            ${include_files})\n"
+        "else()\n"
+        '    message(NOTICE "Configuring SHARED Library")\n'
+        "    add_library(aasdk SHARED\n"
+        "            ${source_files}\n"
+        "            ${include_files})\n"
+        "endif()")
+    if needle not in text:
+        raise SystemExit("aasdk add_library block not found, the port needs updating")
+    replacement = option + needle.replace(
+        'message(NOTICE "Configuring SHARED Library")',
+        'message(NOTICE "Configuring ${AASDK_LIBRARY_TYPE} Library")').replace(
+        "add_library(aasdk SHARED", "add_library(aasdk ${AASDK_LIBRARY_TYPE}")
+    main.write_text(text.replace(needle, replacement, 1))
+
+proto = root / "protobuf/CMakeLists.txt"
+text = proto.read_text()
+if "AASDK_LIBRARY_TYPE" not in text:
+    needle = (
+        'if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")  # macOS\n'
+        '    message(NOTICE "Configuring STATIC Library for MacOS")\n'
+        "    add_library(aap_protobuf STATIC ${PROTO_SRCS} ${PROTO_HDRS})\n"
+        "else()\n"
+        '    message(NOTICE "Configuring SHARED Library")\n'
+        "    add_library(aap_protobuf SHARED ${PROTO_SRCS} ${PROTO_HDRS})\n"
+        "endif()")
+    if needle not in text:
+        raise SystemExit("aap_protobuf add_library block not found, the port needs updating")
+    replacement = (
+        "# Inherited from the parent project when there is one, SHARED standalone.\n"
+        'set(AASDK_LIBRARY_TYPE "SHARED" CACHE STRING "aasdk library type: SHARED or STATIC")\n'
+        "\n") + needle.replace(
+        'message(NOTICE "Configuring SHARED Library")',
+        'message(NOTICE "Configuring ${AASDK_LIBRARY_TYPE} Library")').replace(
+        "add_library(aap_protobuf SHARED", "add_library(aap_protobuf ${AASDK_LIBRARY_TYPE}")
+    proto.write_text(text.replace(needle, replacement, 1))
+PYEOF
+}
+
+# Boost.Test is asked for unconditionally and lands in Boost_LIBRARIES, which aasdk then
+# puts in its PUBLIC link interface. So every consumer of aasdk carries a DT_NEEDED on
+# libboost_unit_test_framework whether the tests were built or not. Ask for it only when
+# they are.
+port_boost_test_component() {
+  python3 - "$AASDK" <<'PYEOF'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CMakeLists.txt"
+text = path.read_text()
+needle = ("find_package(Boost REQUIRED COMPONENTS log_setup log "
+          "OPTIONAL_COMPONENTS unit_test_framework)")
+if needle not in text:
+    sys.exit(0)
+replacement = (
+    "if(AASDK_TEST)\n"
+    "    " + needle + "\n"
+    "else()\n"
+    "    # Boost.Test is a test only dependency, and asking for it here would put it in\n"
+    "    # aasdk's PUBLIC link interface and so in every consumer's DT_NEEDED.\n"
+    "    find_package(Boost REQUIRED COMPONENTS log_setup log)\n"
+    "endif()")
+path.write_text(text.replace(needle, replacement, 1))
+PYEOF
+}
+
+# Redo the port in the working tree the way a fresh clone gets it: by applying the
+# committed patch. This is what CMake does at configure time too.
+# aasdk overrides CMAKE_CXX_FLAGS_RELEASE with "-g -O3 -DNDEBUG", so a release build
+# carries full DWARF. Linked into the plugin that was 23 MB of the 26 MB the shipped
+# .so weighed, for a configuration nothing asked for: CMake already has RelWithDebInfo
+# for anyone who wants an optimised build with symbols.
+port_release_debug_info() {
+  sed -i 's/^set(CMAKE_CXX_FLAGS_RELEASE "-g -O3 -DNDEBUG")$/set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")/' \
+    "$AASDK/CMakeLists.txt"
+}
+
 cmd_apply() {
+  local patch="$PATCHES/0001-port-to-boost-asio-io_context.patch"
+  [ -f "$patch" ] || {
+    echo "$patch is missing. Use 'regen' to rebuild the port from the transforms." >&2
+    exit 1
+  }
+  if ! git -C "$AASDK" apply --check "$patch" 2>/dev/null; then
+    echo "The committed patch does not apply to the submodule as it stands." >&2
+    echo "Reset it first (tools/port-aasdk.sh reset), or, if the pin has moved," >&2
+    echo "rebuild the port with 'regen' and put the hand written parts back." >&2
+    exit 1
+  fi
+  git -C "$AASDK" apply "$patch"
+  echo "applied $patch"
+}
+
+# Rebuild the scripted half of the port from source. See the warning in the header:
+# this does not reproduce the hand written USBEndpoint work.
+cmd_regen() {
   write_strand_header
   port_cmake_minimum
   port_boost_components
+  port_boost_test_component
+  port_library_type
+  port_release_debug_info
   port_target_includes
   port_input_source_includes
   port_io_context_wrapper
@@ -344,6 +483,10 @@ cmd_apply() {
 
   echo "ported $(echo "$files" | wc -l) files"
   echo "remaining io_service references: $(grep -rc 'io_service' "$AASDK/include" "$AASDK/src" 2>/dev/null | grep -v ':0$' | wc -l) files"
+  echo
+  echo "This is the scripted half of the port only. The USBEndpoint transfer retry, the"
+  echo "halt clearing and the AA_FAULT_TRANSFER_AFTER knob are hand written and are not"
+  echo "reproduced here. Put them back before running 'patch', or they are lost."
 }
 
 cmd_patch() {
@@ -363,7 +506,8 @@ cmd_reset() {
 
 case "${1:-}" in
   apply) cmd_apply ;;
+  regen) cmd_regen ;;
   patch) cmd_patch ;;
   reset) cmd_reset ;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

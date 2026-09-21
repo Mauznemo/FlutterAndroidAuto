@@ -1,17 +1,51 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1b1eb74..ffe6dfb 100644
+index 1b1eb74..13038fe 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -248,7 +248,7 @@ else()
+@@ -153,7 +153,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+ string(APPEND CMAKE_CXX_FLAGS " -fPIC -Wall -pedantic")
+ set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+-set(CMAKE_CXX_FLAGS_RELEASE "-g -O3 -DNDEBUG")
++set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+ 
+ # Default to Release mode unless overridden with -DCMAKE_BUILD_TYPE=Debug on cmake command
+ if(NOT CMAKE_BUILD_TYPE)
+@@ -248,7 +248,13 @@ else()
      message(STATUS "Skipping Abseil requirement - using system protobuf")
  endif()
  
 -find_package(Boost REQUIRED COMPONENTS system log_setup log OPTIONAL_COMPONENTS unit_test_framework)
-+find_package(Boost REQUIRED COMPONENTS log_setup log OPTIONAL_COMPONENTS unit_test_framework)
++if(AASDK_TEST)
++    find_package(Boost REQUIRED COMPONENTS log_setup log OPTIONAL_COMPONENTS unit_test_framework)
++else()
++    # Boost.Test is a test only dependency, and asking for it here would put it in
++    # aasdk's PUBLIC link interface and so in every consumer's DT_NEEDED.
++    find_package(Boost REQUIRED COMPONENTS log_setup log)
++endif()
  
  # Capture Boost version for packaging
  if(Boost_VERSION)
-@@ -296,12 +296,16 @@ else()
+@@ -283,25 +289,33 @@ file(GLOB_RECURSE tests_include_files ${include_ut_directory}/*.hpp)
+ 
+ list(REMOVE_ITEM source_files ${tests_source_files})
+ 
++# The parent project decides. aasdk linked into another shared library wants
++# STATIC: the date based SONAME below makes a shared aasdk awkward to redistribute.
++set(AASDK_LIBRARY_TYPE "SHARED" CACHE STRING "aasdk library type: SHARED or STATIC")
++
+ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")  # macOS
+     message(NOTICE "Configuring STATIC Library for MacOS")
+     add_library(aasdk STATIC
+             ${source_files}
+             ${include_files})
+ else()
+-    message(NOTICE "Configuring SHARED Library")
+-    add_library(aasdk SHARED
++    message(NOTICE "Configuring ${AASDK_LIBRARY_TYPE} Library")
++    add_library(aasdk ${AASDK_LIBRARY_TYPE}
+             ${source_files}
+             ${include_files})
  endif()
  if(SKIP_BUILD_PROTOBUF)
      target_include_directories(aasdk PUBLIC
@@ -1200,6 +1234,28 @@ index 1608aa2..1313713 100644
        IAccessoryModeQueryChainFactory &queryChainFactory_;
        Promise::Pointer hotplugPromise_;
        Pointer self_;
+diff --git a/protobuf/CMakeLists.txt b/protobuf/CMakeLists.txt
+index 1a32d31..e8c86a2 100644
+--- a/protobuf/CMakeLists.txt
++++ b/protobuf/CMakeLists.txt
+@@ -71,12 +71,15 @@ file(GLOB_RECURSE source_proto_files ${CMAKE_CURRENT_SOURCE_DIR}/*.proto)
+ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${source_proto_files})
+ 
+ # Generate Library
++# Inherited from the parent project when there is one, SHARED standalone.
++set(AASDK_LIBRARY_TYPE "SHARED" CACHE STRING "aasdk library type: SHARED or STATIC")
++
+ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")  # macOS
+     message(NOTICE "Configuring STATIC Library for MacOS")
+     add_library(aap_protobuf STATIC ${PROTO_SRCS} ${PROTO_HDRS})
+ else()
+-    message(NOTICE "Configuring SHARED Library")
+-    add_library(aap_protobuf SHARED ${PROTO_SRCS} ${PROTO_HDRS})
++    message(NOTICE "Configuring ${AASDK_LIBRARY_TYPE} Library")
++    add_library(aap_protobuf ${AASDK_LIBRARY_TYPE} ${PROTO_SRCS} ${PROTO_HDRS})
+ endif()
+ 
+ target_link_libraries(aap_protobuf PUBLIC ${PROTOBUF_LIBRARIES})
 diff --git a/src/Channel/Bluetooth/BluetoothService.cpp b/src/Channel/Bluetooth/BluetoothService.cpp
 index ace5fcb..ffcc6b3 100644
 --- a/src/Channel/Bluetooth/BluetoothService.cpp

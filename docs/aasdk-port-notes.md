@@ -114,9 +114,57 @@ not reach a parent project's targets. Anything consuming aasdk through
 `aasdk/...` headers at all. The patch adds the include directory to the `aasdk` target
 itself, where it belongs.
 
+## Three changes that are about shipping rather than compiling
+
+These came later, out of packaging the plugin rather than out of getting it to build.
+All three are in the same patch, and undoing any of them puts a real bug back.
+
+### The library type comes from the parent project
+
+aasdk hardcodes `add_library(aasdk SHARED ...)` on everything but macOS, and the same
+for `aap_protobuf`. A shared aasdk is awkward to redistribute, because its version is
+the date it was built: `libaasdk.so.2026.09.17+git.9bf6adf` with a `libaasdk.so.2026`
+SONAME symlink beside it, and the SONAME is what ends up in a consumer's `DT_NEEDED`.
+Shipping that through a bundling step that copies files and knows nothing about
+versioned symlinks goes wrong in both of the obvious ways. Full account in
+[`packaging.md`](packaging.md).
+
+So both `add_library` calls now take `${AASDK_LIBRARY_TYPE}`, a cache variable that
+still defaults to `SHARED`. A standalone `tools/build-aasdk.sh` build is unchanged; the
+plugin sets it to `STATIC`.
+
+### Boost.Test is only asked for when the tests are built
+
+`find_package(Boost REQUIRED COMPONENTS log_setup log OPTIONAL_COMPONENTS
+unit_test_framework)` runs unconditionally, and `${Boost_LIBRARIES}` then carries
+Boost.Test into `target_link_libraries(aasdk PUBLIC ...)`. Every consumer of aasdk
+therefore linked `libboost_unit_test_framework`, tests built or not. The call is now
+inside `if(AASDK_TEST)`.
+
+### Release builds no longer force `-g`
+
+aasdk overrides `CMAKE_CXX_FLAGS_RELEASE` with `-g -O3 -DNDEBUG`. Linked into the
+plugin that was 23 MB of DWARF in a shipped library, for a configuration nobody asked
+for: CMake already has `RelWithDebInfo` for an optimised build with symbols. The `-g` is
+dropped and the standard `-O3 -DNDEBUG` left.
+
+## What the script does and does not reproduce
+
+`tools/port-aasdk.sh` has three verbs and two of them look interchangeable and are not.
+
+`apply` applies the committed patch, which is what CMake does at configure time and what
+"redo the port" means in every ordinary case. `regen` runs the script's own source
+transforms, and it produces **less than the patch holds**: the USBEndpoint transfer
+retry, the endpoint halt clearing and the `AA_FAULT_TRANSFER_AFTER` knob are hand
+written and live in no function in the script. Running `regen` and then `patch` deletes
+them. Use `regen` only when the submodule pin has moved somewhere the patch no longer
+applies, and expect to restore the hand written parts yourself.
+
 ## Worth sending upstream
 
 Items 1, 2 and the include directory fix are plain portability bugs that would help
-`opencardev/aasdk` on any modern distro. Items 3 to 5 are the real port and are more
-opinionated, since upstream may prefer rewriting the call sites over the `aasdk::Strand`
-shim. Offer 1, 2 and the includes as a small PR first.
+`opencardev/aasdk` on any modern distro, and so are all three of the packaging changes
+above: nothing in them costs a standalone build anything, and the Boost.Test one is a
+bug against every consumer. Items 3 to 5 are the real port and are more opinionated,
+since upstream may prefer rewriting the call sites over the `aasdk::Strand` shim. Offer
+1, 2, the includes and the packaging three as a small PR first.

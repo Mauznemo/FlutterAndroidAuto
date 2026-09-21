@@ -1,0 +1,24 @@
+# What libandroid_auto_linux_plugin.so exports, and nothing else.
+#
+# aasdk, its generated protobuf and everything they pull in are linked in statically, so
+# without this the plugin exports them too: 6159 dynamic symbols where 65 are the
+# interface. That is not only noise. A Flutter application loads every plugin into one
+# address space, and the first definition of a symbol wins for all of them, so a second
+# plugin linking its own copy of protobuf or Boost.Log would silently bind to this one's.
+#
+# Two things are public and they are both entry points somebody outside calls:
+#
+#   aa_*    the flat C ABI in src/aa_core.h, which Dart resolves with dlsym
+#   android_auto_linux_plugin_register_with_registrar
+#           the GTK entry point Flutter calls to hand over the FlTextureRegistrar
+#
+# CXX_VISIBILITY_PRESET hidden in CMakeLists.txt covers the plugin's own objects. It
+# cannot cover the static archives, because their objects were compiled by aasdk's own
+# target with aasdk's own flags. This covers both.
+{
+  global:
+    aa_*;
+    android_auto_linux_plugin_register_with_registrar;
+  local:
+    *;
+};

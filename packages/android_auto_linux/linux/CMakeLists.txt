@@ -96,6 +96,22 @@ set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 
+# CXX_VISIBILITY_PRESET only reaches this target's own objects. aasdk and its generated
+# protobuf come in as static archives compiled by their own target, so their symbols
+# arrive with default visibility and are exported from the plugin: 6159 of them against
+# the 65 that are the interface. A Flutter app loads all its plugins into one address
+# space and the first definition of a symbol wins, so that is a real hazard for any
+# other plugin carrying its own protobuf or Boost. The version script says what is
+# public; see the file itself for the list.
+#
+# LINK_FLAGS rather than target_link_options, which needs CMake 3.13 and this file is
+# pinned at 3.10 on purpose, see the note at the top.
+set(PLUGIN_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/android_auto_linux_plugin.map")
+set_property(TARGET ${PLUGIN_NAME} APPEND_STRING PROPERTY
+  LINK_FLAGS " -Wl,--version-script=${PLUGIN_VERSION_SCRIPT}")
+set_property(TARGET ${PLUGIN_NAME} APPEND PROPERTY
+  LINK_DEPENDS "${PLUGIN_VERSION_SCRIPT}")
+
 # === test bench surface ===
 #
 # Some of the environment knobs are for provoking faults rather than for configuring a
@@ -244,6 +260,20 @@ set(SKIP_BUILD_PROTOBUF ON  CACHE BOOL "" FORCE)
 set(SKIP_BUILD_ABSL     ON  CACHE BOOL "" FORCE)
 set(AASDK_TEST          OFF CACHE BOOL "" FORCE)
 set(AASDK_BENCHMARK     OFF CACHE BOOL "" FORCE)
+
+# aasdk and its protobuf go in statically, so the plugin is one self contained .so and
+# there is nothing beside it to bundle. The reason is aasdk's versioning: it names
+# itself after the day it was built, libaasdk.so.2026 pointing at
+# libaasdk.so.2026.09.17+git.9bf6adf. A shared build means shipping that symlink and
+# its target, keeping the two in step, and getting the SONAME rather than the real file
+# into the bundle, which is a class of mistake with no symptom until the bundle is moved
+# to another machine. None of that buys anything back: nothing else on the system links
+# aasdk, and the plugin is GPL-3.0-or-later either way. Written up in docs/packaging.md.
+#
+# Static libraries are linked into a shared object, so they need position independent
+# code. Set on the directory rather than on the targets, because they belong to aasdk.
+set(AASDK_LIBRARY_TYPE "STATIC" CACHE STRING "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory("${AASDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/aasdk" EXCLUDE_FROM_ALL)
 
 target_link_libraries(${PLUGIN_NAME} PRIVATE aasdk aap_protobuf)
@@ -256,16 +286,19 @@ if(AA_ENABLE_FAULT_INJECTION)
 endif()
 
 # List of absolute paths to libraries that should be bundled with the plugin.
-# aasdk and its generated protobuf are shared libraries, so they have to travel with
-# the app rather than being resolved from the system.
 #
-# TARGET_SONAME_FILE, not TARGET_FILE: the plugin's DT_NEEDED records the SONAME
-# (libaasdk.so.2026), while TARGET_FILE is the fully versioned real file
-# (libaasdk.so.2026.09.13+git...). Bundling the latter puts a file in the bundle that
-# the loader will never look for, and the app only keeps working because its RPATH
-# still points back into the build tree. Move the bundle elsewhere and it breaks.
+# Empty, and that is the point of linking aasdk statically above: everything the plugin
+# needs beyond the system libraries is inside libandroid_auto_linux_plugin.so. Flutter
+# still requires the variable to exist.
+#
+# It was not always empty, and the way it failed is worth keeping. aasdk was shared, so
+# the plugin's DT_NEEDED held its SONAME, libaasdk.so.2026, while the real file carried
+# the full date and git hash. Bundling TARGET_FILE put a file in the bundle that the
+# loader never looks for; bundling TARGET_SONAME_FILE put a symlink there pointing at a
+# file that was not. Neither showed a symptom on the machine that built it, because the
+# plugin's RUNPATH still reached into the build tree. The failure only appeared once the
+# bundle was copied somewhere else, which is to say, once it was shipped.
 set(android_auto_linux_bundled_libraries
-  "$<TARGET_SONAME_FILE:aasdk>"
-  "$<TARGET_SONAME_FILE:aap_protobuf>"
+  ""
   PARENT_SCOPE
 )
