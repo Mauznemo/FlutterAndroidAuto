@@ -1,11 +1,8 @@
 name: android_auto_linux
 description: "Linux implementation of the android_auto plugin. Wraps the native head unit core (aasdk based) behind a C ABI and renders video into a Flutter texture."
-version: 0.0.1
+version: 0.1.0
 repository: https://github.com/mauznemo/FlutterAndroidAuto
 license: GPL-3.0-or-later
-# publish_to stays until publishing is actually decided: the metadata below is ready,
-# but an accidental `dart pub publish` should not be able to fire.
-publish_to: none
 
 # Resolved as part of the workspace rooted at the repository root, so `flutter pub get`
 # there covers this package too.
@@ -18,8 +15,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  android_auto_platform_interface:
-    path: ../android_auto_platform_interface
+  android_auto_platform_interface: ^0.1.0
   ffi: ^2.1.3
 
 dev_dependencies:
@@ -35,3 +31,11 @@ flutter:
       linux:
         pluginClass: AndroidAutoLinuxPlugin
         dartPluginClass: AndroidAutoLinux
+
+# aasdk carries the publicly known Google Automotive Link head unit certificate and its
+# key, the same pair every open source Android Auto implementation uses, and its CMake
+# reads both to compile them in. So the key cannot be left out of the package, and
+# pub.dev's leak detection has to be told that it was never a secret. See the Licence
+# section of the README.
+false_secrets:
+  - /linux/third_party/aasdk/cert/headunit.key
