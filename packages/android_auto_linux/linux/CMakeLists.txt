@@ -11,6 +11,32 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # not be changed.
 set(PLUGIN_NAME "android_auto_linux_plugin")
 
+# === build caching ===
+#
+# aasdk and its generated protobuf are the overwhelming majority of this build, and
+# `flutter clean` throws the whole object tree away, so a clean rebuild pays for all of
+# it again. ccache keys on preprocessed source rather than on timestamps, and its cache
+# lives in the user's home directory, so it survives the clean that the build directory
+# does not.
+#
+# Set here rather than in the app's CMakeLists so it covers this plugin and the aasdk
+# subproject below, which is where the time actually goes, and leaves the host
+# application's own build alone.
+#
+# CMAKE_<LANG>_COMPILER_LAUNCHER initialises a target property when the target is
+# created, so this has to come before add_library and before add_subdirectory.
+option(AA_USE_CCACHE "Compile through ccache when it is installed" ON)
+if(AA_USE_CCACHE AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+  find_program(AA_CCACHE_EXECUTABLE NAMES ccache)
+  if(AA_CCACHE_EXECUTABLE)
+    set(CMAKE_C_COMPILER_LAUNCHER "${AA_CCACHE_EXECUTABLE}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${AA_CCACHE_EXECUTABLE}")
+    message(STATUS "android_auto: compiling through ${AA_CCACHE_EXECUTABLE}")
+  else()
+    message(STATUS "android_auto: ccache not installed, a clean rebuild will be slow")
+  endif()
+endif()
+
 # Any new source files that you add to the plugin should be added here.
 list(APPEND PLUGIN_SOURCES
   "android_auto_linux_plugin.cc"

@@ -19,7 +19,10 @@
 set -euo pipefail
 
 BUILD_DEPS=(
-  build-essential cmake ninja-build pkg-config git
+  # ccache is not needed to build, but `flutter clean` throws the whole object tree away
+  # and aasdk is most of it. With ccache a clean rebuild is twenty seconds instead of
+  # three minutes. The plugin's CMake picks it up on its own if it is installed.
+  build-essential cmake ninja-build pkg-config git ccache
   libboost-all-dev libusb-1.0-0-dev libssl-dev
   libprotobuf-dev protobuf-compiler
   libavcodec-dev libavutil-dev libswscale-dev
