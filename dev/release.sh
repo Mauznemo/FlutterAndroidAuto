@@ -419,7 +419,14 @@ if [ "$RESUME" = "0" ]; then
   echo "  pushed $(git rev-parse --short HEAD)"
 fi
 
-if [ "$SKIP_CI" = "1" ]; then
+# Not on a resume. The build already passed for the commit this version was released
+# from; a resume is finishing a publish of that same version, and the only thing that
+# has moved since is whatever was fixed to get the publish working. Re-gating would
+# mean a fresh fifteen minute build to finish uploading one package.
+if [ "$RESUME" = "1" ]; then
+  echo
+  echo "  --resume: the build gate already passed for this release, not rebuilding"
+elif [ "$SKIP_CI" = "1" ]; then
   warn "skipping the native build on CI (--skip-ci). Publishing is permanent, and this
        is the only check that compiles the code on a machine other than this one."
 else
@@ -427,22 +434,31 @@ else
   ci_gate "$(git rev-parse HEAD)"
 fi
 
-# pub.dev can take a moment to make a just published version resolvable, and the next
-# package in the order depends on it. Publishing straight into that gap fails with a
+# pub.dev can take a while to make a just published version resolvable, and the next
+# package in the order depends on it. Publishing straight into that gap can fail with a
 # dependency that cannot be resolved, which looks like a broken constraint and is not.
+#
+# Two things learned the hard way releasing 0.1.1. pub.dev's own upload response says
+# "it may take up-to 10 minutes", so the first version of this waited 90 seconds and
+# gave up well inside the normal case. And giving up must not be fatal: the package is
+# published by this point, and failing the release because a cache is slow throws away
+# a step that cannot be repeated. So this waits far longer and then shrugs.
 wait_visible() {
-  local package="$1" waited=0
-  while [ "$waited" -lt 90 ]; do
+  local package="$1" waited=0 limit=600
+  while [ "$waited" -lt "$limit" ]; do
     if python3 "$SUPPORT" published "$NEW" 2>/dev/null \
          | grep -q "^$package has $NEW\$"; then
       [ "$waited" -gt 0 ] && echo "  $package became resolvable after ${waited}s"
       return 0
     fi
-    sleep 3
-    waited=$((waited + 3))
+    sleep 5
+    waited=$((waited + 5))
+    [ $((waited % 60)) -eq 0 ] && echo "  still waiting for pub.dev to list $package ($((waited / 60))m)"
   done
-  die "$package was published but pub.dev still does not list $NEW after ${waited}s.
-       Nothing is lost. Wait a minute and run: dev/release.sh --resume"
+  warn "$package is published but pub.dev has not listed $NEW after $((limit / 60)) minutes.
+       Carrying on. If the next package fails to resolve it, wait and run:
+         dev/release.sh --resume"
+  return 0
 }
 
 publish_one() {
@@ -451,7 +467,27 @@ publish_one() {
     *" $package "*) echo "  $package is already on pub.dev at $NEW, skipping"; return 0 ;;
   esac
   step "Publishing $package"
-  (cd "packages/$package" && "$DART" pub publish --force) || {
+  local log status=0
+  log="$(mktemp)"
+  set +e
+  (cd "packages/$package" && "$DART" pub publish --force) 2>&1 | tee "$log"
+  status=${PIPESTATUS[0]}
+  set -e
+
+  # pub.dev's API can lag its own uploads by minutes, so a package this script just
+  # published can still read as missing when the run is resumed, and publishing it
+  # again then fails with "already exists". That is the state we wanted, not an error.
+  # Treating it as success is what makes the whole loop safe to run twice.
+  if [ "$status" -ne 0 ] \
+     && grep -qiF "Version $NEW of package $package already exists" "$log"; then
+    rm -f "$log"
+    echo "  $package is already on pub.dev at $NEW, nothing to do"
+    PUBLISHED="$PUBLISHED $package"
+    return 0
+  fi
+  rm -f "$log"
+
+  if [ "$status" -ne 0 ]; then
     printf '\n'
     die "publishing $package failed.
 
@@ -463,7 +499,8 @@ publish_one() {
          dev/release.sh --resume
 
        which publishes only the packages still missing from pub.dev at $NEW."
-  }
+  fi
+
   PUBLISHED="$PUBLISHED $package"
   wait_visible "$package"
 }

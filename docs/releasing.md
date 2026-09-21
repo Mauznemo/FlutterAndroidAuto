@@ -159,6 +159,26 @@ bump anything again.
 as retracted so pub stops resolving to it by default, but it stays on pub.dev forever.
 A wrong version number is not a mistake you fix.
 
+`--resume` does **not** re-run the build on CI. The build already passed for the commit
+the version was released from, and a resume is finishing the upload of that same
+version, so re-gating would mean a fresh fifteen minute build to publish one package.
+
+### pub.dev lags its own uploads
+
+Releasing 0.1.1 ran into this twice in a row and both were this script's fault.
+
+pub.dev answers an upload with "it may take up-to 10 minutes before the new version is
+available", and it means it. The wait for a published version to become resolvable used
+to give up after 90 seconds and treat that as fatal, which stopped a release over a
+slow cache after the package was already up. It now waits ten minutes and, if that is
+not enough, warns and carries on.
+
+The same lag then makes a resumed run read a package as missing when it is not, so the
+script publishes it again and pub answers `Version 0.1.1 of package android_auto_linux
+already exists`. That is the state the release wanted, so it is now treated as success
+rather than as an error. Between them, the publish loop is safe to run as many times as
+it takes.
+
 ## Moving the publish into CI
 
 Today `dev/release.sh` publishes from the maintainer's machine, which needs a pub.dev
