@@ -345,11 +345,16 @@ enum AndroidAutoManeuver {
 
   /// Whether this maneuver goes to the left, for a head unit that draws two arrows
   /// rather than forty three.
-  bool get turnsLeft => name.endsWith('Left') || name.endsWith('Ccw');
+  ///
+  /// The roundabout direction is matched anywhere in the name rather than at the end,
+  /// because two of them carry an exit angle and so end in `WithAngle`. Matching the
+  /// end alone made those two the only maneuvers that were neither left nor right,
+  /// which for a head unit drawing two arrows means drawing neither.
+  bool get turnsLeft => name.endsWith('Left') || name.contains('Ccw');
 
   /// Whether this maneuver goes to the right.
   bool get turnsRight =>
-      name.endsWith('Right') || (name.endsWith('Cw') && !name.endsWith('Ccw'));
+      name.endsWith('Right') || (name.contains('Cw') && !name.contains('Ccw'));
 
   /// Whether this maneuver is about a roundabout.
   bool get isRoundabout => name.startsWith('roundabout');
