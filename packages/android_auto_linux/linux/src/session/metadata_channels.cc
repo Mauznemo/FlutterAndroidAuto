@@ -368,11 +368,22 @@ void MetadataChannels::OnOpen(Metadata which) {
 // Two of the message ids below are marked deprecated in the schema, and decoding them
 // is the point: a phone on an older build sends those and nothing else, so refusing to
 // name them would mean no turn card at all on the phones most likely to be in an
-// aftermarket head unit. Deprecated is not the same as gone. The -Wpragmas line first,
-// so the compiler that does not know the second warning's name does not object to being
-// told to ignore it.
+// aftermarket head unit. Deprecated is not the same as gone.
+//
+// The first two lines are what lets a compiler that has never heard of the fourth one
+// read past it, and it takes both because the two compilers spell that differently:
+// GCC calls it -Wpragmas, clang calls it -Wunknown-warning-option. Suppressing only
+// GCC's name is what broke the first release. This file builds with clang, and
+// -Wdeprecated-declarations-switch-case arrived in clang 19, so on the clang 18 that
+// Ubuntu 24.04 ships the fourth line was an unknown warning group, which under the
+// -Werror that Flutter's apply_standard_settings adds is a hard error. It went
+// unnoticed here because this machine is on clang 21, where the name is known.
+//
+// Neither line may be removed, and a version check is not a substitute: the point is
+// to name a warning that some compilers do not have.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations-switch-case"
 void MetadataChannels::OnNavigation(uint16_t id,
