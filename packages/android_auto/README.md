@@ -62,4 +62,4 @@ GPL-3.0-or-later, see `LICENSE`. This package contains no aasdk derived code, wh
 keeps the option of relicensing it open, but it is GPL-3.0-or-later as it stands.
 
 Source, issues and the full documentation:
-<https://github.com/mauznemo/FlutterAndroidAuto>
+<https://github.com/Mauznemo/FlutterAndroidAuto>

@@ -3,7 +3,7 @@
 ///
 /// The projected phone screen is rendered into a Flutter [Texture], so ordinary
 /// widgets can be composited on top of it. How the pieces fit together is written up in
-/// [docs/architecture.md](https://github.com/mauznemo/FlutterAndroidAuto/blob/main/docs/architecture.md).
+/// [docs/architecture.md](https://github.com/Mauznemo/FlutterAndroidAuto/blob/main/docs/architecture.md).
 library;
 
 export 'package:android_auto_platform_interface/android_auto_platform_interface.dart'

@@ -791,7 +791,7 @@ class AndroidAutoCall {
 /// over Bluetooth hands free, with this machine as the hands free unit, and answering or
 /// hanging up belongs there rather than here. A head unit carrying calls also has to
 /// cancel its own echo, or it sends the far end back to itself: see
-/// [docs/echo-cancellation.md](https://github.com/mauznemo/FlutterAndroidAuto/blob/main/docs/echo-cancellation.md).
+/// [docs/echo-cancellation.md](https://github.com/Mauznemo/FlutterAndroidAuto/blob/main/docs/echo-cancellation.md).
 class AndroidAutoPhoneStatus {
   /// Every call the phone has. Usually none or one; two while one is on hold.
   final List<AndroidAutoCall> calls;

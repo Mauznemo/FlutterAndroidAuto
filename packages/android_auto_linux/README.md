@@ -47,4 +47,4 @@ Talking to a phone over USB as a normal user needs a udev rule, installed by
 GPL-3.0-or-later, see `LICENSE`.
 
 Source, issues and the full documentation:
-<https://github.com/mauznemo/FlutterAndroidAuto>
+<https://github.com/Mauznemo/FlutterAndroidAuto>

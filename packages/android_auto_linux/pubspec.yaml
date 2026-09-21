@@ -1,7 +1,7 @@
 name: android_auto_linux
 description: "Linux implementation of the android_auto plugin. Wraps the native head unit core (aasdk based) behind a C ABI and renders video into a Flutter texture."
 version: 0.1.0
-repository: https://github.com/mauznemo/FlutterAndroidAuto
+repository: https://github.com/Mauznemo/FlutterAndroidAuto
 license: GPL-3.0-or-later
 
 # Resolved as part of the workspace rooted at the repository root, so `flutter pub get`
