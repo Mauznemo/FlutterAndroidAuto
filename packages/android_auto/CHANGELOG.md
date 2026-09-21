@@ -1,3 +1,9 @@
+## 0.1.1
+
+### Fixed
+
+- lowercase username in the repository url
+
 ## 0.1.0
 
 ### Added

@@ -1,3 +1,10 @@
+## 0.1.1
+
+### Fixed
+
+- plugin does not compile on clang 18
+- lowercase username in the repository url
+
 ## 0.1.0
 
 ### Added

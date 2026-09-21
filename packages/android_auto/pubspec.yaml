@@ -1,6 +1,6 @@
 name: android_auto
 description: "Embed an Android Auto head unit inside a Flutter app. Renders the projected screen into a Flutter Texture so the app can draw its own UI on top."
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/Mauznemo/FlutterAndroidAuto
 license: GPL-3.0-or-later
 
@@ -15,8 +15,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  android_auto_platform_interface: ^0.1.0
-  android_auto_linux: ^0.1.0
+  android_auto_platform_interface: ^0.1.1
+  android_auto_linux: ^0.1.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
