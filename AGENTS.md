@@ -188,8 +188,15 @@ instead of a rewrite, so prefer extending it over touching call sites.
 
 `dev/release.sh` cuts a release: it bumps the three packages in lockstep, generates a
 changelog per package from the `feat`, `fix` and `refactor` commits that touched it,
-publishes to pub.dev in dependency order and opens a GitHub release. Never run it
-unless asked to. `--dry-run` does every check and pushes nothing.
+builds both architectures on CI, and only then publishes to pub.dev in dependency order
+and opens a GitHub release. Never run it unless asked to. `--dry-run` does every check
+and pushes nothing.
+
+`release.yml` runs on `workflow_dispatch` only. It used to run on `release: published`,
+which was backwards: the release is created after publishing, so the build could only
+report on a release that had already gone out. That is how 0.1.0 shipped unbuildable on
+clang 18. The script dispatches it between pushing and publishing instead, and accepts
+a run that has already passed for that commit without rebuilding.
 
 The one rule worth carrying into any work on the pubspecs: **the cross package
 dependencies are caret constraints, not paths**, because pub will not publish a path

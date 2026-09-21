@@ -4,7 +4,8 @@
 #
 #   dev/release.sh                 the real thing, with every gate
 #   dev/release.sh --dry-run       do everything except commit, push, publish, release
-#   dev/release.sh --skip-build    skip the native build check, for a docs only release
+#   dev/release.sh --skip-build    skip the local native build check
+#   dev/release.sh --skip-ci       skip the build on CI. Only if CI itself is down
 #   dev/release.sh --resume        a publish died partway: finish the ones still missing
 #
 # The three packages are versioned in lockstep, so there is one version number, one tag
@@ -38,6 +39,7 @@ cd "$REPO"
 
 DRY_RUN=0
 SKIP_BUILD=0
+SKIP_CI=0
 RESUME=0
 # Flip to 1 once all three packages exist on pub.dev and automated publishing is
 # configured for each of them. The script then tags and pushes and lets
@@ -49,6 +51,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run)    DRY_RUN=1 ;;
     --skip-build) SKIP_BUILD=1 ;;
+    --skip-ci)    SKIP_CI=1 ;;
     --resume)     RESUME=1 ;;
     -h|--help)    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            echo "unknown argument $arg" >&2; exit 1 ;;
@@ -310,14 +313,16 @@ cat <<SUMMARY
 SUMMARY
 if [ "$PUBLISH_FROM_CI" = "1" ]; then
   cat <<SUMMARY
-    2. tag     $TAG and push it
-    3. release on GitHub, which triggers the publish workflow over OIDC
+    2. build   on CI, both architectures, and stop here if it fails
+    3. tag     $TAG and push it
+    4. release on GitHub, which triggers the publish workflow over OIDC
 SUMMARY
 else
   cat <<SUMMARY
-    2. publish all three to pub.dev, in dependency order    <-- CANNOT BE UNDONE
-    3. tag     $TAG and push it
-    4. release on GitHub
+    2. build   on CI, both architectures, and stop here if it fails
+    3. publish all three to pub.dev, in dependency order    <-- CANNOT BE UNDONE
+    4. tag     $TAG and push it
+    5. release on GitHub
 SUMMARY
 fi
 
@@ -343,10 +348,83 @@ fi
 # the remote too, rather than the other way round.
 # --------------------------------------------------------------------------------
 
+# The native build, on a machine that is not this one, before anything is published.
+#
+# This is the gate 0.1.0 did not have. The build used to be triggered *by* the GitHub
+# release, which this script creates after publishing, so it could only ever report on
+# a release that had already happened. 0.1.0 went to pub.dev unbuildable on Ubuntu
+# 24.04 and CI said so eight minutes later.
+#
+# The fast path matters as much as the gate. A run that has already passed for this
+# exact commit is accepted at once, so `gh workflow run release.yml --ref main` while
+# you do something else makes the release itself instant. Only when there is no such
+# run does this start one and wait.
+ci_run_for() {
+  # Newest run of release.yml for $1 matching the jq filter in $2, or empty.
+  gh run list --workflow=release.yml --limit 50 \
+    --json databaseId,headSha,status,conclusion \
+    --jq "[.[] | select(.headSha == \"$1\" and $2)] | first | .databaseId // empty" \
+    2>/dev/null || true
+}
+
+ci_gate() {
+  local sha="$1" run=""
+
+  run="$(ci_run_for "$sha" '.conclusion == "success"')"
+  if [ -n "$run" ]; then
+    echo "  already green for ${sha:0:8} (run $run), not rebuilding"
+    return 0
+  fi
+
+  # A run already going for this commit is joined rather than duplicated.
+  run="$(ci_run_for "$sha" '.status != "completed"')"
+  if [ -n "$run" ]; then
+    echo "  joining the build already running for this commit"
+  else
+    echo "  no build has passed for this commit, starting one"
+    gh workflow run release.yml --ref main
+    local waited=0
+    # The run does not exist the instant the dispatch returns.
+    while [ -z "$run" ] && [ "$waited" -lt 90 ]; do
+      sleep 5
+      waited=$((waited + 5))
+      run="$(ci_run_for "$sha" '.status != "completed"')"
+    done
+    [ -n "$run" ] || die "the build was dispatched but no run appeared for ${sha:0:8}
+       after ${waited}s. Nothing has been published. Check the Actions tab, then:
+         dev/release.sh --resume"
+  fi
+
+  echo "  watching run $run. x86_64 takes about eight minutes, aarch64 longer."
+  echo "  https://github.com/Mauznemo/FlutterAndroidAuto/actions/runs/$run"
+  # --exit-status fails the shell when the run failed, and a run succeeds only when
+  # every matrix leg did, which is what "both architectures" means here.
+  if ! gh run watch "$run" --exit-status; then
+    die "the native build failed. NOTHING has been published, there is no tag and no
+       GitHub release, so there is nothing to clean up.
+
+       The version bump is committed and pushed, which is harmless. Fix what broke,
+       commit and push it, then run:
+
+         dev/release.sh --resume
+
+       which releases the same version once the build is green."
+  fi
+  echo "  build passed on both architectures"
+}
+
 if [ "$RESUME" = "0" ]; then
   step "Pushing"
   git push -q origin main
   echo "  pushed $(git rev-parse --short HEAD)"
+fi
+
+if [ "$SKIP_CI" = "1" ]; then
+  warn "skipping the native build on CI (--skip-ci). Publishing is permanent, and this
+       is the only check that compiles the code on a machine other than this one."
+else
+  step "Native build on a clean machine"
+  ci_gate "$(git rev-parse HEAD)"
 fi
 
 # pub.dev can take a moment to make a just published version resolvable, and the next

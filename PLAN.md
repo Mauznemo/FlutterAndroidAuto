@@ -1323,10 +1323,17 @@ The code already guarded against exactly this with `#pragma GCC diagnostic ignor
 same thing `-Wunknown-warning-option`. Both names are now suppressed. It went unnoticed
 because this laptop is on clang 21, where the warning exists and nothing fires.
 
-**The lesson is about the gate, not the pragma.** The native build moved to
-release-only, so it now runs *after* publishing and cannot block it, and the local build
-check in `dev/release.sh` uses whatever compiler this machine has. One machine, one
-compiler, is not a portability test.
+**The lesson was about the gate, not the pragma.** The native build had been moved to
+release-only, and it was triggered *by* the GitHub release, which `dev/release.sh`
+creates after publishing. So it could only ever report on a release that had already
+gone out. The local build check cannot cover for it either: it uses whatever compiler
+this machine has, and one machine is not a portability test.
+
+Fixed by inverting the order. `release.yml` now runs on `workflow_dispatch` only, and
+`dev/release.sh` dispatches it between pushing and publishing and stops if it fails, so
+a broken build leaves nothing published, no tag and no release. A run that has already
+passed for that exact commit is accepted without rebuilding, so running the workflow by
+hand beforehand keeps the release instant.
 
 ---
 

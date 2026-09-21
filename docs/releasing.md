@@ -6,7 +6,8 @@ the two decisions behind it, and the one part that has to be set up by hand.
 ```bash
 dev/release.sh                 # cut a release
 dev/release.sh --dry-run       # every check, nothing pushed or published
-dev/release.sh --skip-build    # skip the native build check
+dev/release.sh --skip-build    # skip the local native build check
+dev/release.sh --skip-ci       # skip the build on CI. Only if CI itself is down
 dev/release.sh --resume        # a publish died partway: finish the rest
 ```
 
@@ -67,8 +68,36 @@ Nothing before step 8 touches the network except to read.
    The commit comes first because pub warns about a modified tree and treats its own
    warnings as a reason to stop, and this script has just rewritten six files. A
    failure here undoes the commit.
-9. **Asks you to type the version**, then pushes, publishes in dependency order, tags,
-   pushes the tag, and opens the GitHub release.
+9. **Asks you to type the version**, then pushes.
+10. **Builds on CI**, both architectures, and stops if it fails. See below.
+11. **Publishes** in dependency order, tags, pushes the tag, opens the GitHub release.
+
+## The build gate, and its fast path
+
+Step 10 is the one that 0.1.0 did not have, and the reason it shipped unbuildable on
+Ubuntu 24.04. The build used to be triggered *by* the GitHub release, which the script
+creates after publishing, so it could only ever report on a release that had already
+happened. It now runs between the push and the publish, and a failure stops everything.
+
+**What a failure leaves behind:** nothing published, no tag, no GitHub release. Just
+the version bump commit on `main`, which is harmless. Fix what broke, commit, push, and
+run `dev/release.sh --resume` to release the same version once the build is green.
+
+**The fast path.** A run that has already passed for the exact commit being released is
+accepted immediately, without rebuilding. So this makes the release itself instant:
+
+```bash
+gh workflow run release.yml --ref main    # go and do something else
+```
+
+If there is no such run, the script dispatches one and waits, which is about eight
+minutes for x86_64 and longer for aarch64. A run already in progress for that commit is
+joined rather than duplicated.
+
+`--skip-ci` exists and should be used only when CI itself is down. It is the only check
+that compiles this code on a machine other than yours, which is precisely the class of
+bug it caught: the release script's local build uses whatever compiler is installed
+here, and one machine is not a portability test.
 
 ## The thing most likely to bite
 

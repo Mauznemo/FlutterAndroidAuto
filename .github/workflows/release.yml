@@ -4,14 +4,20 @@ name: Release
 # architectures, so it is the expensive half of CI and it runs when it is worth paying
 # for: cutting a release, or asking for it by hand.
 #
-# What that trades away is real and worth saying out loud. The relocation check below
-# is the thing that catches a bundle which only loads on the machine that built it, and
-# it now runs at release time rather than on the commit that broke it. Run this
-# workflow by hand after anything that touches linux/CMakeLists.txt, the port patch or
-# the submodule pin.
+# `workflow_dispatch` and nothing else, which is deliberate. This used to also run on
+# `release: published`, and that is exactly backwards: dev/release.sh creates the
+# GitHub release *after* publishing to pub.dev, so a build triggered by the release
+# could only ever report on a release that had already happened. 0.1.0 shipped
+# unbuildable on Ubuntu 24.04 and this workflow said so eight minutes too late.
+#
+# Now dev/release.sh dispatches this itself, between pushing and publishing, and stops
+# if it fails. Triggering it on the release as well would only add a second, redundant
+# run after the decision had been made.
+#
+# Run it by hand on main after anything touching linux/CMakeLists.txt, the port patch
+# or the submodule pin. A green run on a commit is remembered: releasing that same
+# commit later skips the wait.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 concurrency:
