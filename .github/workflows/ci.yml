@@ -1,0 +1,77 @@
+name: CI
+
+# Analyze and test on everything. The native build is in release.yml, because it needs
+# a submodule, a C++ toolchain and two architectures, and none of that has to happen
+# before a change to a Dart file is known to be sound.
+#
+# `push` is unfiltered, so a branch with no pull request still gets checked. A branch
+# that does have one is therefore checked twice, once for the push and once for the
+# pull request. That is deliberate: the job is about a minute, and narrowing `push` to
+# `branches: [main]` would leave work in progress unchecked, which is the more
+# expensive of the two mistakes.
+on:
+  push:
+  pull_request:
+
+# A second push to the same branch makes the first one's run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.4
+
+jobs:
+  # Pure Dart. No native toolchain, no submodule, so it answers in under a minute and
+  # is what tells a contributor their Dart change is wrong before the long jobs finish.
+  analyze:
+    name: analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # No `dart format` gate. The tree is written to about 90 columns and dart
+      # format's default is 80, so turning one on would mean reflowing every file in
+      # the repository, which is the unreviewable diff CONTRIBUTING.md asks people not
+      # to send. Worth revisiting as a deliberate one off, not as a side effect of
+      # adding CI.
+      - name: Analyze
+        run: flutter analyze
+
+      # Not `flutter test`: the workspace root is not a package and has no test
+      # directory of its own, so it would fail before running anything.
+      - name: Test
+        run: flutter test packages/*/test
+
+      # public_member_api_docs in analysis_options.yaml already requires a doc comment
+      # on every public member, so analyze catches a missing one. This catches the
+      # other half: a doc reference to something that has been renamed or that lives in
+      # a package this one does not depend on. dartdoc only warns about those, so the
+      # output has to be read rather than the exit code trusted.
+      - name: Check the API docs resolve
+        run: |
+          set -euo pipefail
+          failed=0
+          for package in packages/*/; do
+            echo "::group::dart doc $package"
+            log=$(mktemp)
+            (cd "$package" && dart doc --output "$(mktemp -d)") 2>&1 | tee "$log"
+            echo "::endgroup::"
+            if grep -qE '^ *(warning|error):' "$log"; then
+              echo "::error::dartdoc reported problems in $package"
+              failed=1
+            fi
+          done
+          exit $failed

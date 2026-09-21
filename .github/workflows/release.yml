@@ -1,0 +1,139 @@
+name: Release
+
+# The native build only. It needs the aasdk submodule, a C++ toolchain and two
+# architectures, so it is the expensive half of CI and it runs when it is worth paying
+# for: cutting a release, or asking for it by hand.
+#
+# What that trades away is real and worth saying out loud. The relocation check below
+# is the thing that catches a bundle which only loads on the machine that built it, and
+# it now runs at release time rather than on the commit that broke it. Run this
+# workflow by hand after anything that touches linux/CMakeLists.txt, the port patch or
+# the submodule pin.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.4
+
+jobs:
+  # The real thing: aasdk, the plugin and the example app. Both architectures build the
+  # same way, so this is one job with a matrix rather than two that drift apart.
+  build:
+    name: build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build cmake pkg-config clang ccache \
+            libgtk-3-dev libegl1-mesa-dev libgles2-mesa-dev \
+            libboost-all-dev libusb-1.0-0-dev libssl-dev \
+            libprotobuf-dev protobuf-compiler \
+            libavcodec-dev libavutil-dev libswscale-dev \
+            libva-dev libpulse-dev
+
+      # aasdk is 346 translation units and almost all of the build. Keyed on the pinned
+      # submodule commit and the port patch, so a change to either misses rather than
+      # serving stale objects.
+      #
+      # Expect it to miss more often than it hits now that this only runs on a release:
+      # GitHub evicts a cache after seven days without a read, and releases are further
+      # apart than that. It still earns its place for repeated workflow_dispatch runs,
+      # which is when somebody is actually iterating on the native build.
+      - name: Restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_linux/linux/patches/*.patch') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_linux/linux/patches/*.patch') }}-
+            ccache-${{ matrix.arch }}-
+
+      - name: Configure ccache
+        run: |
+          ccache --max-size=2G
+          ccache --zero-stats
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Proves the port applies to the pinned submodule and that aasdk builds on its
+      # own. The plugin's CMake applies the same patch itself, so this is about
+      # catching a patch that has drifted from the pin, which otherwise shows up as a
+      # confusing failure in the middle of a Flutter build.
+      - name: Build and smoke test aasdk
+        run: tools/build-aasdk.sh
+
+      - name: Build the example, debug
+        working-directory: example
+        run: flutter build linux --debug
+
+      - name: Build the example, release
+        working-directory: example
+        run: flutter build linux --release
+
+      # The bundle has to work somewhere other than where it was built. aasdk is linked
+      # statically precisely so this holds, and the way it failed before was invisible
+      # on the build machine: a plugin resolving its dependencies through an absolute
+      # RUNPATH into the build tree. See docs/packaging.md.
+      - name: Check the bundle is self contained
+        run: |
+          set -euo pipefail
+          case "${{ matrix.arch }}" in
+            x86_64) arch_dir=x64 ;;
+            *)      arch_dir=arm64 ;;
+          esac
+          bundle="example/build/linux/$arch_dir/release/bundle"
+
+          cp -a "$bundle" /tmp/relocated
+          # Nothing in lib/ may be a symlink to something that is not there.
+          if find /tmp/relocated -xtype l | grep .; then
+            echo "::error::the bundle contains dangling symlinks"
+            exit 1
+          fi
+          # Only the three libraries the app is made of.
+          echo "bundled libraries:"
+          ls -1 /tmp/relocated/lib
+          if ls /tmp/relocated/lib | grep -E '^libaasdk|^libaap_protobuf'; then
+            echo "::error::aasdk is being shipped beside the plugin again"
+            exit 1
+          fi
+          # And with the build tree gone, every dependency still resolves.
+          mv example/build /tmp/build-moved-away
+          if ldd /tmp/relocated/lib/libandroid_auto_linux_plugin.so | grep 'not found'; then
+            echo "::error::the bundle only loads on the machine that built it"
+            exit 1
+          fi
+          mv /tmp/build-moved-away example/build
+
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats
