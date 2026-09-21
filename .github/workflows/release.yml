@@ -25,8 +25,17 @@ env:
   FLUTTER_VERSION: 3.47.4
 
 jobs:
-  # The real thing: aasdk, the plugin and the example app. Both architectures build the
-  # same way, so this is one job with a matrix rather than two that drift apart.
+  # Both architectures, built the same way, so they cannot drift apart.
+  #
+  # The one thing that differs is how Flutter gets installed, and the reason is worth
+  # knowing. Flutter publishes prebuilt SDK archives for x64 only: releases_linux.json
+  # lists no arm64 entry, so subosito/flutter-action, which downloads from there, fails
+  # on an ARM runner with "Unable to determine Flutter version ... architecture: arm64".
+  #
+  # That is a gap in the prebuilt archives, not in Flutter. Installing from a git clone
+  # works on ARM64: the engine artifacts exist for linux-arm64, in all three build
+  # modes, and `flutter precache --linux` fetches them. So ARM uses the clone and x64
+  # keeps the action, which is faster and caches.
   build:
     name: build ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -43,11 +52,26 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: subosito/flutter-action@v2
+      - name: Install Flutter (x86_64, from the prebuilt archive)
+        if: matrix.arch == 'x86_64'
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      # No prebuilt archive exists for arm64, so clone the tag instead. `precache` is
+      # what pulls the linux-arm64 engine, and doing it here rather than letting the
+      # first build trigger it keeps the failure legible if the artifacts ever move.
+      - name: Install Flutter (aarch64, from a git clone)
+        if: matrix.arch == 'aarch64'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ env.FLUTTER_VERSION }}" \
+            https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" --version
+          "$HOME/flutter/bin/flutter" precache --linux
 
       - name: Install build dependencies
         run: |
