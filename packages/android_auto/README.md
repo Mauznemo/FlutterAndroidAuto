@@ -42,6 +42,10 @@ space from the phone rather than covering part of it, with no black bars either 
 happens. `AndroidAutoView` maps its own touches into the projected video, letterboxing
 included, so input needs no wiring.
 
+The [example app](https://github.com/Mauznemo/FlutterAndroidAuto/tree/main/example)
+is the reference integration: a status bar, the hardware keys, and a turn card and now
+playing bar drawn from metadata, with test bench panels for the rest of the API.
+
 Left out, `width` and `height` are picked per connection: the smallest of 800x480,
 1280x720 and 1920x1080 whose picture covers the view in physical pixels, so it is never
 stretched. Set both to pin a size instead. They must then be one of 800x480, 1280x720,
@@ -69,6 +73,26 @@ head unit claims a position. Offer only what the app will actually feed.
 Linux today, through `android_auto_linux`, over USB or over Wi-Fi. Built and tested on
 x86_64; ARM64 is intended and not yet verified. The package layout is federated, so an
 Android implementation can be added without touching this API.
+
+## Setting up a Linux machine
+
+**To build** an app that uses this package, the machine needs the development packages,
+because `android_auto_linux` compiles aasdk from source as part of the app's build. On
+Ubuntu or Debian:
+
+```bash
+sudo apt-get install cmake ninja-build pkg-config \
+  libboost-all-dev libusb-1.0-0-dev libssl-dev libprotobuf-dev protobuf-compiler \
+  libavcodec-dev libavutil-dev libswscale-dev libva-dev libpulse-dev \
+  libgtk-3-dev libegl1-mesa-dev libgles2-mesa-dev
+```
+
+**To run** it, a machine that did not build it needs the runtime libraries, listed in
+[`docs/packaging.md`](https://github.com/Mauznemo/FlutterAndroidAuto/blob/main/docs/packaging.md#runtime-dependencies).
+Either way, projecting over USB as a normal user needs a udev rule, or the app can only
+open the phone as root. The build does not need it; the first connection does.
+[`tools/setup-dev-machine.sh --udev`](https://github.com/Mauznemo/FlutterAndroidAuto/blob/main/tools/setup-dev-machine.sh)
+writes one, and the rule is short enough to copy out of it.
 
 ## Licence
 

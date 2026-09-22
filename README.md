@@ -1,5 +1,7 @@
 # Flutter Android Auto
 
+[![pub package](https://img.shields.io/pub/v/android_auto.svg)](https://pub.dev/packages/android_auto)
+
 A Flutter plugin that runs a real Android Auto head unit **inside** a Flutter app.
 
 The projected phone screen is rendered into a Flutter `Texture`, so the host app can
@@ -11,20 +13,21 @@ tested on x86_64 with ARM64 built in CI and not yet run on a device, and the pac
 layout is federated so an Android implementation can be added without touching the app
 facing API.
 
-![A Pixel projecting Google Maps into a Flutter texture, with the example app's own
-status line and controls drawn over it](docs/images/example-projecting.png)
+![A Pixel projecting Google Maps into a Flutter texture, under the example app's own
+status bar and with its controls and a panel drawn over it](docs/images/example-projecting.png)
 
-*A phone projecting over USB, decoded on VA-API into a Flutter `Texture`. Everything
-over the map, the status line at the top, the transport controls and the buttons, is
-ordinary Flutter drawn on top of it. The position is the example app's fixed test fix,
-not a real one.*
+*A phone projecting over USB, decoded on VA-API into a Flutter `Texture`. The status bar
+at the top is the example app's own, and the phone has laid itself out for the space
+left below it. The dock of keys and buttons along the bottom and the sensor panel are
+ordinary Flutter drawn on top of the projection. The position is the example app's
+fixed test fix, not a real one.*
 
-> **Status: working, not yet released.** A phone projects over USB and over Wi-Fi,
-> with video, touch and key input, three audio streams, the microphone, car sensors,
-> and the metadata channels that let the head unit draw its own turn card and now
-> playing bar. Nothing is published to pub.dev yet, ARM64 has been built but never run
-> on a device, and only one phone model has been tested. See
-> [What works](#what-works) for the detail.
+> **Status: released, early.** Published on pub.dev as
+> [`android_auto`](https://pub.dev/packages/android_auto). A phone projects over USB and
+> over Wi-Fi, with video, touch and key input, three audio streams, the microphone, car
+> sensors, and the metadata channels that let the head unit draw its own turn card and
+> now playing bar. ARM64 has been built but never run on a device, and only one phone
+> model has been tested. See [What works](#what-works) for the detail.
 
 ## Usage
 
@@ -62,8 +65,11 @@ the three audio streams' volume and mute, and `navigation`, `mediaPlayback`,
 `phoneStatus` and `notifications` for drawing the car's own interface rather than
 mirroring the phone's pixels.
 
-The example app under `example/` exercises all of it and is the best documentation in
-the repository.
+The example app under [`example/`](example/) is the reference integration: one
+controller, one view, a status bar, the hardware keys, and the turn card and now playing
+bar drawn from metadata, with test bench panels for every other part of the API. It is
+the best documentation in the repository, and [its README](example/README.md) says which
+file to read first.
 
 ## What works
 
@@ -78,10 +84,10 @@ the repository.
 | Transports | USB (AOAP), and Wi-Fi with Bluetooth for the handshake |
 | Phone calls | over Bluetooth HFP, which is configuration rather than code, see [`docs/echo-cancellation.md`](docs/echo-cancellation.md) |
 
-Not there yet: no published packages, no ARM64 device tested (CI builds it, which is
-not the same thing), no Android implementation, and the notification and media browser
-channels are implemented against the schema but unverified, because the one phone tested
-never opens them.
+Not there yet: no ARM64 device tested (CI builds it, which is not the same thing), no
+Android implementation, and the notification and media browser channels are
+implemented against the schema but unverified, because the one phone tested never opens
+them.
 
 ## Repository layout
 
@@ -90,7 +96,7 @@ packages/
   android_auto                        app facing API, pure Dart
   android_auto_platform_interface     the contract, pure Dart
   android_auto_linux                  Linux implementation, links aasdk
-example/                              test bench app
+example/                              the reference integration and test bench
 docs/
   research.md                         protocol notes and library evaluation
   architecture.md                     how the pieces fit together
@@ -123,16 +129,33 @@ phone, and the project builds and runs without it. See [`dev/README.md`](dev/REA
 
 ## Getting started
 
-Nothing is on pub.dev yet, so depend on it from a checkout:
-
-```yaml
-dependencies:
-  android_auto:
-    path: ../flutter_android_auto/packages/android_auto
+```bash
+flutter pub add android_auto
 ```
+
+That is the only package to name.
+[`android_auto_linux`](https://pub.dev/packages/android_auto_linux) is endorsed by it
+and comes along on its own, and
+[`android_auto_platform_interface`](https://pub.dev/packages/android_auto_platform_interface)
+is only for writing another implementation.
 
 **Doing so makes your application GPL-3.0-or-later**, because the Linux implementation
 links aasdk. See [Licence](#licence) below before going further.
+
+The Linux implementation compiles aasdk from source as part of your app's build, so the
+machine building it needs the development packages. On Ubuntu or Debian:
+
+```bash
+sudo apt-get install cmake ninja-build pkg-config \
+  libboost-all-dev libusb-1.0-0-dev libssl-dev libprotobuf-dev protobuf-compiler \
+  libavcodec-dev libavutil-dev libswscale-dev libva-dev libpulse-dev \
+  libgtk-3-dev libegl1-mesa-dev libgles2-mesa-dev
+```
+
+A machine that only runs the built app needs the runtime libraries instead, listed in
+[`docs/packaging.md`](docs/packaging.md). Either way, a normal user can only open a phone
+in accessory mode with a udev rule; `tools/setup-dev-machine.sh --udev` in this
+repository writes one, and it is short enough to copy from there.
 
 The minimum an app needs is a controller and a view. `AndroidAutoConfig` defaults to a
 30 fps head unit whose frame size follows its view: the smallest of 800x480, 1280x720 and
@@ -142,7 +165,7 @@ others.
 Wireless is opt-in, with `transports: {AndroidAutoTransport.usb,
 AndroidAutoTransport.wireless}` and the Wi-Fi passphrase in `AndroidAutoWirelessConfig`.
 
-To build the repository itself, on Ubuntu or Debian:
+To build this repository and run the example, on Ubuntu or Debian:
 
 ```bash
 git submodule update --init --recursive
