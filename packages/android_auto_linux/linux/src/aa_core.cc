@@ -242,7 +242,8 @@ struct AaSession {
     // Zero is the head unit choosing, per connection, from the view's size.
     int32_t width = 0;
     int32_t height = 0;
-    // Whether the phone draws in the whole 16:9 frame rather than the view's shape.
+    // Whether the phone draws in the whole 16:9 frame rather than a picture fitted to
+    // the view.
     bool letterbox = false;
     int32_t fps = 30;
     int32_t dpi = 140;
@@ -332,7 +333,7 @@ struct AaSession {
   }
 
   Config config;
-  // The shape of the view the host app draws the projection in, or 0 by 0 while it has
+  // The size of the view the host app draws the projection in, or 0 by 0 while it has
   // not said. Written from Flutter's platform thread and read from an io thread when a
   // phone connects.
   mutable std::mutex view_mutex;

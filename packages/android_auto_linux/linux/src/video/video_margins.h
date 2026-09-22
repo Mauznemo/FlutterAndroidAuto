@@ -45,13 +45,20 @@ struct VideoMargins {
   bool operator!=(const VideoMargins& other) const { return !(*this == other); }
 };
 
-// The margins that give a `frame_width` by `frame_height` frame a visible picture the
-// shape of a `view_width` by `view_height` view.
+// The margins that give a `frame_width` by `frame_height` frame a visible picture for a
+// `view_width` by `view_height` view, in physical pixels.
 //
-// Only the view's aspect ratio matters, so logical pixels are as good as physical ones.
-// Zero margins when the view has no size yet. The visible size is rounded to a multiple
-// of four, which keeps every side's margin even, so the half size chroma plane of an NV12
-// frame is cropped on a whole sample.
+// When the view fits inside the frame, the picture is the view's own size, so it is
+// drawn one to one: the phone lays out a screen exactly that big, at its usual density,
+// and nothing is resampled. Shrinking a larger picture instead would draw every glyph the
+// phone rendered at a fraction of its size, which is what made a stream started in a big
+// window and then moved to a small one look so grainy. When the view is larger than the
+// frame, the picture is the largest rectangle of the view's shape that fits, and is
+// stretched to fill it.
+//
+// Zero margins when the view has no size yet. The visible size is even, so the totals
+// service discovery carries split into two whole sides; a side may be odd, which the
+// converter handles by sampling chroma where it really is.
 VideoMargins MarginsForView(int32_t frame_width, int32_t frame_height, double view_width,
                             double view_height);
 
@@ -62,9 +69,8 @@ struct FrameSize {
 };
 
 // The frame to ask the phone for when the host app left the choice to the head unit:
-// the smallest of 800x480, 1280x720 and 1920x1080 whose visible picture covers a
-// `view_width` by `view_height` view, in physical pixels, to within five percent. So the
-// picture is drawn one to one or shrunk, which the present adapter does well, and never
+// the smallest of 800x480, 1280x720 and 1920x1080 that holds a `view_width` by
+// `view_height` view, in physical pixels. So the picture is drawn one to one and never
 // stretched, which nothing can do well: detail the phone never encoded cannot be put
 // back. 1920x1080 for a view larger than that, and 1280x720 while the view has no size.
 //

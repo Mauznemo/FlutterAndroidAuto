@@ -333,15 +333,16 @@ AA_EXPORT int32_t aa_session_video_height(AaSession* session);
 // Tells the head unit the size of the view the projection is drawn in, in physical
 // pixels. 0 by 0 forgets it.
 //
-// Two things come of it. Unless AaConfig::letterbox is set, the view's shape: the
-// protocol only has 16:9 frame sizes, so a view of any other shape asks the phone to
-// keep margins clear round its interface, and the texture is cropped to what is inside
-// them. And unless AaConfig names a size, the frame itself: the smallest one whose
-// picture covers the view, so it is never stretched.
+// Two things come of it. Unless AaConfig::letterbox is set, the picture: the protocol
+// only has 16:9 frame sizes, so the phone is asked to keep margins clear round its
+// interface, leaving a picture the view's exact size when the view fits in the frame
+// and the view's shape when it does not, and the texture is cropped to what is inside
+// them. And unless AaConfig names a size, the frame itself: the smallest one that
+// holds the view, so the picture is never stretched.
 //
-// Read when a phone connects. A change of shape while one is connected asks the phone
-// to lay out again, which restarts its video stream once the view has held still for a
-// moment; a change of size does not change the frame until the next connection.
+// Read when a phone connects. A change while one is connected asks the phone to lay out
+// again, which restarts its video stream once the view has held still for a moment; the
+// frame itself does not change until the next connection.
 // Callable at any time, including before aa_session_start.
 AA_EXPORT void aa_session_set_view_size(AaSession* session, double width, double height);
 

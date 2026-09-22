@@ -283,6 +283,11 @@ Goal: the phone's projected screen appears inside the Flutter app.
       800x480, 1280x720 and 1920x1080 that covers it, so the picture is never stretched.
       Verified 2026-09-22: 1280x720 for the default window, 1920x1080 for a 1920 wide
       one, 800x480 for an 800 wide one with taps landing, and a named 1920x1080 kept.
+- [x] Size the picture to the view, not only its shape, and draw it on whole pixels.
+      A stream started maximized and then shrunk to the default window had every glyph
+      at two thirds of its size; it now gets 1280x676 of its 1920x1080 frame, one to
+      one and indistinguishable from a fresh start. A window shrunk slightly likewise
+      gets 1220x636 of 1280x720 rather than a resampled, softened picture. 2026-09-22.
 
 **Checkpoint met.** Google Maps projected from a Pixel 8 Pro, 1280x720, inside the
 example app, with the Flutter status bar drawn over it and overlay clicks still counting.

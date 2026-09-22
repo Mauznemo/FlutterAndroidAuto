@@ -55,8 +55,8 @@ uniform vec3 u_offset;
 // margins the phone left black are simply never sampled.
 uniform vec4 u_crop;
 // Taps per axis and the distance between them, in texture coordinates. One tap when
-// the output is the size of the picture; more when it is smaller, spread across every
-// source pixel the output pixel covers, so the average is over all of them.
+// the output is the size of the picture; more when it is smaller, spread so that
+// together they cover every source pixel the output pixel covers.
 uniform ivec2 u_taps;
 uniform vec2 u_step;
 // Whether u_luma already holds RGB, which is what the software decoder produces.
@@ -537,17 +537,23 @@ static gboolean aa_video_texture_convert(AaVideoTexture* self, const ConvertSour
                 source.crop_height);
 
     // Each output pixel covers `footprint` source pixels per axis. As many taps as that,
-    // rounded up, spread evenly across it: at exactly two, the taps land on the two
-    // source pixels themselves and the result is their plain average.
+    // rounded up, spread over the footprint less one pixel, because every tap is
+    // bilinear and already reaches half a pixel either side. At exactly two the taps
+    // land on the two source pixels and the result is their plain average; just above
+    // one they almost coincide, so a picture barely shrunk stays as sharp as a single
+    // bilinear read. Spreading them over the whole footprint instead blurred text at
+    // scales like 0.95 over one and a half pixels.
     const float footprint_x = static_cast<float>(source.visible_width) / out_width;
     const float footprint_y = static_cast<float>(source.visible_height) / out_height;
     const int taps_x =
         std::clamp(static_cast<int>(std::ceil(footprint_x - 0.01f)), 1, kMaxTaps);
     const int taps_y =
         std::clamp(static_cast<int>(std::ceil(footprint_y - 0.01f)), 1, kMaxTaps);
+    const float spacing_x = taps_x > 1 ? (footprint_x - 1.0f) / (taps_x - 1) : 0.0f;
+    const float spacing_y = taps_y > 1 ? (footprint_y - 1.0f) / (taps_y - 1) : 0.0f;
     glUniform2i(self->uniform_taps, taps_x, taps_y);
-    glUniform2f(self->uniform_step, footprint_x / taps_x / source.texture_width,
-                footprint_y / taps_y / source.texture_height);
+    glUniform2f(self->uniform_step, spacing_x / source.texture_width,
+                spacing_y / source.texture_height);
 
     glDrawArrays(GL_TRIANGLES, 0, 3);
     drawn = TRUE;

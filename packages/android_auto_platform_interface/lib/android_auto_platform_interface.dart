@@ -68,16 +68,17 @@ class AndroidAutoConfig {
   /// Screen density the phone should lay out for.
   final int dpi;
 
-  /// Whether the phone lays its interface out in the shape of the view it is shown in.
+  /// Whether the phone lays its interface out to fit the view it is shown in.
   ///
   /// The protocol only offers 16:9 frame sizes, and a head unit screen rarely is 16:9
   /// once the host app has put a status bar above the projection. With this on, the
   /// view tells the head unit its size and the phone is asked to leave margins round its
-  /// interface so that what is inside them has the view's shape. The margins are
-  /// cropped off before the frame reaches Flutter, so the texture fills the view with
-  /// nothing wasted and no bars of its own.
+  /// interface so that what is inside them is the view's size, or its shape for a view
+  /// larger than the frame. The margins are cropped off before the frame reaches
+  /// Flutter, so the texture fills the view one to one, with nothing wasted, no bars of
+  /// its own, and the phone's text at the size it drew it.
   ///
-  /// The shape is read when a phone connects. A view that changes shape while one is
+  /// The size is read when a phone connects. A view that changes size while one is
   /// connected asks the phone to lay out again once it has held still for a moment,
   /// which restarts the phone's video stream: the picture freezes for about a second.
   ///

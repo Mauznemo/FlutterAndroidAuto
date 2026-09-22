@@ -163,7 +163,10 @@ The protocol names five frame sizes and every one is 16:9, while a head unit's v
 almost never is once the host app has drawn anything beside it. So the phone is asked to
 leave margins: it still encodes the whole frame, lays its interface out in the rectangle
 inside the margins and paints the rest black, and the head unit crops the black off
-again. The texture Flutter gets is exactly the view's shape.
+again. When the view fits in the frame, the picture is the view's exact size in physical
+pixels, so the phone lays out a screen that big and it is drawn one to one; only a view
+larger than the frame gets a picture of its shape, stretched. The texture Flutter gets
+fills the view either way.
 
 ```
 AndroidAutoView layout ─> aa_session_set_view_size (physical pixels)

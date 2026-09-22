@@ -637,7 +637,7 @@ void ProtocolSession::onServiceDiscoveryRequest(
     ReportState(AA_STATE_HANDSHAKING,
                 "Asking the phone for " +
                     DescribeMargins(frame_width, frame_height, description_.margins) +
-                    ", the shape of the view.");
+                    ", to fit the view.");
   }
 
   opened_channels_.clear();

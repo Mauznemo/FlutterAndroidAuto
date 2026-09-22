@@ -220,7 +220,7 @@ Once toled to, for commit message and PR style: read CONTRIBUTING.md before writ
 | `linux/src/present/texture_registry.*` | the `FlTextureRegistrar` the GTK entry point captured |
 | `linux/src/event_bus.*` | native to Dart events |
 | `linux/src/video/video_decoder.*` | H.264 to frames on its own thread, VA-API or software |
-| `linux/src/video/video_margins.*` | the margins that give a 16:9 frame the view's shape, **no protobuf** |
+| `linux/src/video/video_margins.*` | the frame size and the margins that fit it to the view, **no protobuf** |
 | `linux/src/session/video_channel.*` | the MEDIA_SINK_VIDEO channel |
 | `linux/src/audio/pcm_sink.*` | the API agnostic seam for playback, **PulseAudio is named only in pulse_sink.cc** |
 | `linux/src/audio/pcm_source.*` | the same seam for capture, **PulseAudio is named only in pulse_source.cc** |
@@ -318,17 +318,22 @@ What comes back is a video stream of at most 60 fps, so extra samples cannot pro
 distinguishable picture. Only movement is limited: a finger landing or lifting is an edge,
 not a sample, and has to go at once.
 
-## Margins, and why the texture is the view's shape
+## Margins, and why the texture is the view's size
 
-The protocol only names 16:9 frame sizes. `AndroidAutoView` reports its size, the phone
-is told at service discovery to leave `width_margin` and `height_margin` clear, and the
-present adapter crops them off, so the texture is exactly the view's shape. All of the
-following was measured on the Pixel 8 Pro, none of it is in the schema, and any of it
-could be different on another phone:
+The protocol only names 16:9 frame sizes. `AndroidAutoView` reports its size in physical
+pixels, the phone is told at service discovery to leave `width_margin` and
+`height_margin` clear, and the present adapter crops them off. **When the view fits in
+the frame the picture is the view's exact size, not merely its shape**, so the phone lays
+out a screen that big at its usual density and it is drawn one to one. Matching only
+the shape and shrinking a larger picture looked grainy after a big window was made
+small: every glyph the phone drew ended up at two thirds of its size. Only a view larger
+than the frame gets a picture of its shape that is then stretched. All of the following
+was measured on the Pixel 8 Pro, none of it is in the schema, and any of it could be
+different on another phone:
 
 - **The picture is centred** in the frame, each total split evenly between two sides.
-  The margins are kept multiples of four so every side is even and NV12 chroma is cut on
-  a whole sample.
+  Totals are kept even so the split is whole; a side may be odd, which is fine because
+  the converter samples chroma at its true position.
 - **Touch is relative to the picture's corner and unscaled.** Tapping at frame
   coordinates missed by exactly the top margin. Nothing adds the margins back.
 - **The touchscreen stays announced at the full frame**, not at the picture size. Both
@@ -344,6 +349,9 @@ could be different on another phone:
   moves its app rail from the left side to the bottom.
 - The one third floor on the visible size in `video_margins.cc` is a guard against
   transient layouts, not a limit anything has been seen to enforce.
+- **Every change of view size relays out the phone**, not only a change of shape, since
+  the picture follows the size. Each one freezes the stream for about a second, after
+  the 400 ms the view has to hold still.
 
 **A texture drawn smaller than the video is shrunk in `gl_adapter`, not by Flutter.**
 Flutter samples an external texture with one bilinear read per screen pixel whatever
@@ -351,7 +359,11 @@ the scale, which skips source pixels and turns small text and the phone's compre
 noise into grain. `Texture.filterQuality` does not help: Impeller only adds mipmap
 filtering, and an external texture has no mipmaps. So `AndroidAutoView` reports the
 size it draws at in physical pixels (`aa_session_set_display_size`), and the converter
-renders straight to that size, averaging every source pixel. Measured at 0.67x: a
+renders straight to that size, averaging every source pixel. The taps are spread over
+the footprint *less one pixel*, since each is already bilinear; spread over the whole
+footprint they blurred text at scales just under one. And `AndroidAutoView` places the
+texture on whole physical pixels and draws it at exactly its own size when within two
+pixels of it: a texture at a half pixel position is resampled even at one to one. Measured at 0.67x: a
 quarter less high frequency noise and visibly smooth text. A texture drawn *larger*
 than the video cannot be helped here; that takes a bigger frame from the phone.
 

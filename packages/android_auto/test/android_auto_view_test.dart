@@ -370,6 +370,29 @@ void main() {
       expect(platform.displaySizes.last, '1600x900');
     });
 
+    testWidgets('draws a video a pixel short of the view one to one, on whole pixels', (
+      tester,
+    ) async {
+      // The margins leave the video up to a pixel smaller than an odd sized view.
+      // Stretching it across that pixel would resample the whole picture, and centring
+      // it would put it on a half pixel, which blurs it just the same.
+      platform.video = const AndroidAutoVideoInfo(
+        width: 1280,
+        height: 676,
+        decoder: 'VA-API',
+      );
+      await pumpView(tester, size: const Size(1281, 677));
+
+      final placed = tester.getRect(find.byType(Texture));
+      expect(placed, const Rect.fromLTWH(1, 1, 1280, 676));
+      expect(platform.displaySizes.last, '1280x676');
+
+      await tester.tapAt(const Offset(1 + 100, 1 + 50));
+      await tester.pump();
+      expect(platform.touches.first.subject.x, 100);
+      expect(platform.touches.first.subject.y, 50);
+    });
+
     testWidgets('sends nothing when touch is turned off', (tester) async {
       await pumpView(tester, enableTouch: false);
 
