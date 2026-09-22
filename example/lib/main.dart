@@ -38,8 +38,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
   // Not const: the Wi-Fi passphrase below is read from the environment at startup.
   final AndroidAutoController _controller = AndroidAutoController(
     config: AndroidAutoConfig(
-      width: 1280,
-      height: 720,
+      // No width or height: the frame size follows the window, which is the default and
+      // what this bench is for. Name one to pin it, 1920x1080 say.
       fps: 30,
       // Location is in here as well as the two defaults, because a test bench that
       // cannot exercise the GPS sensor cannot tell whether it works. It comes with the
@@ -245,26 +245,36 @@ class _TestBenchPageState extends State<TestBenchPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
+      // The status bar sits above the projection rather than over it, the way a real
+      // head unit's own bar would, so the view below it is not 16:9 and the phone lays
+      // itself out for what is left. Everything else is drawn over the projection, which
+      // is what the overlay hit test is for.
+      body: Column(
         children: [
-          AndroidAutoView(
-            controller: _controller,
-            placeholder: const _ProjectionPlaceholder(),
+          _statusBar(),
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                AndroidAutoView(
+                  controller: _controller,
+                  placeholder: const _ProjectionPlaceholder(),
+                ),
+                if (_audioPanelOpen)
+                  Positioned(top: 16, right: 20, width: 360, child: _audioPanel()),
+                if (_sensorPanelOpen)
+                  Positioned(top: 16, left: 20, width: 380, child: _sensorPanel()),
+                if (_metadataPanelOpen)
+                  Positioned(top: 16, left: 420, width: 440, child: _metadataPanel()),
+                if (_wirelessPanelOpen)
+                  Positioned(top: 16, right: 400, width: 380, child: _wirelessPanel()),
+                // The point of the metadata channels, drawn as ordinary Flutter widgets
+                // over the projection rather than read off the phone's own pixels.
+                Positioned(left: 20, bottom: 160, width: 440, child: _metadataOverlay()),
+                Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
+              ],
+            ),
           ),
-          Positioned(top: 0, left: 0, right: 0, child: _statusBar()),
-          if (_audioPanelOpen)
-            Positioned(top: 60, right: 20, width: 360, child: _audioPanel()),
-          if (_sensorPanelOpen)
-            Positioned(top: 60, left: 20, width: 380, child: _sensorPanel()),
-          if (_metadataPanelOpen)
-            Positioned(top: 60, left: 420, width: 440, child: _metadataPanel()),
-          if (_wirelessPanelOpen)
-            Positioned(top: 60, right: 400, width: 380, child: _wirelessPanel()),
-          // The point of the metadata channels, drawn as ordinary Flutter widgets over
-          // the projection rather than read off the phone's own pixels.
-          Positioned(left: 20, bottom: 160, width: 440, child: _metadataOverlay()),
-          Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
         ],
       ),
     );

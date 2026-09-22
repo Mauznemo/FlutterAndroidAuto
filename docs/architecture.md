@@ -93,7 +93,13 @@ H.264 ─> decoder ─> dmabuf fd + DRM format modifier + stride  ┐
 Rules that keep this true:
 
 - Nothing above the seam may name a GL type. The decoder hands over
-  `{int fd, uint64_t modifier, uint32_t stride, offset, fourcc, width, height}`.
+  `{int fd, uint64_t modifier, uint32_t stride, offset, fourcc, width, height}`, plus
+  the four edges to crop off, see "Filling a view of any shape" below. The crop is the
+  adapter's job, done while sampling, so nothing is ever copied to cut the margins away.
+- The adapter also owns the one scale that happens before Flutter: when the texture is
+  drawn smaller than the picture, it renders at the drawn size and averages every
+  source pixel into it, because Flutter's sampling of an external texture skips pixels
+  when shrinking and the result looks grainy.
 - `FlTextureGL` is referenced in exactly one file, `present/gl_adapter.cc`.
 - The software decode fallback also produces a dmabuf where it can, and only drops to
   `FlPixelBufferTexture` when the driver gives us nothing better.
@@ -151,18 +157,58 @@ microphone, sensors, metadata and wireless. `AaState` in that header and
 `AndroidAutoConnectionState` in the platform interface cross as plain integers, so their
 orders have to stay in step.
 
-## Coordinate mapping
+## Filling a view of any shape
 
-The projected surface has its own resolution (say 1280x720). `AndroidAutoView` is laid
-out in logical pixels and may be letterboxed. The mapping from a Flutter
-`PointerEvent.localPosition` to protocol coordinates is:
+The protocol names five frame sizes and every one is 16:9, while a head unit's view
+almost never is once the host app has drawn anything beside it. So the phone is asked to
+leave margins: it still encodes the whole frame, lays its interface out in the rectangle
+inside the margins and paints the rest black, and the head unit crops the black off
+again. When the view fits in the frame, the picture is the view's exact size in physical
+pixels, so the phone lays out a screen that big and it is drawn one to one; only a view
+larger than the frame gets a picture of its shape, stretched. The texture Flutter gets
+fills the view either way.
 
 ```
-projected_x = (local.dx - letterbox_left) / rendered_width  * projected_width
-projected_y = (local.dy - letterbox_top)  / rendered_height * projected_height
+AndroidAutoView layout ─> aa_session_set_view_size (physical pixels)
+   ─> FrameSizeForView, unless the host app named a size
+   ─> MarginsForView
+   ─> service discovery: width_margin, height_margin
+   ─> decoder: crop stamped on every frame of the advertised size
+   ─> gl_adapter: samples only the inside, output texture is the visible size
+```
+
+What the phone does with margins is written down nowhere in the schema, and was measured
+on a Pixel 8 Pro:
+
+- The inside rectangle is **centred**: a margin announced as a total is split evenly
+  between two opposite sides.
+- Touch positions are **relative to the inside rectangle's top left corner, not the
+  frame's, and unscaled**. The touchscreen is still announced at the full frame size,
+  which is the only arrangement that survives the margins changing mid session.
+
+A view that changes shape while a phone is projecting is followed, by
+`VideoChannel::Resize`: video focus goes back to the phone, which stops the stream; an
+`UpdateUiConfigRequest` carries the new margins per side and the phone answers with the
+ones it took; focus is taken again and a new stream starts, laid out for them from its
+first frame. The focus round trip matters. Sent alone, the update re-lays out the
+phone's launcher but leaves the app in front drawn for the old margins, and the stream
+freezes until something else on screen changes. The restart is also what makes the crop
+exact, since the decoder is told the new margins while no frame is in flight.
+
+## Coordinate mapping
+
+The texture has its own resolution (say 1280x676, the frame less its margins).
+`AndroidAutoView` is laid out in logical pixels and may be letterboxed. The mapping from
+a Flutter `PointerEvent.localPosition` to protocol coordinates is:
+
+```
+projected_x = (local.dx - letterbox_left) / rendered_width  * texture_width
+projected_y = (local.dy - letterbox_top)  / rendered_height * texture_height
 ```
 
 Do this in Dart, not native, so the widget's `BoxFit` stays the single source of truth.
+Nothing has to add the margins back: the phone reads positions from the corner of the
+picture it drew, which is the texture's corner.
 
 ## Package boundaries and licence
 

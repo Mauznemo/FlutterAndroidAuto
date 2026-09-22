@@ -148,6 +148,17 @@ plugin that was 23 MB of DWARF in a shipped library, for a configuration nobody 
 for: CMake already has `RelWithDebInfo` for an optimised build with symbols. The `-g` is
 dropped and the standard `-O3 -DNDEBUG` left.
 
+## One addition that is a feature rather than a fix
+
+aasdk's video channel sends nothing the head unit starts on its own, and it logs an
+`UpdateUiConfigReply` as an unhandled message id and drops it. The patch adds
+`sendUpdateUiConfigRequest` to `IVideoMediaSinkService` and `VideoMediaSinkService`, and
+an `onUpdateUiConfigReply` handler that the reply is parsed into. The handler has an
+empty default body rather than being pure, so nothing else implementing the interface
+has to change. It is what lets the margins round the phone's interface follow a view
+that changes shape mid session; see "Filling a view of any shape" in
+[`architecture.md`](architecture.md).
+
 ## What the script does and does not reproduce
 
 `tools/port-aasdk.sh` has three verbs and two of them look interchangeable and are not.
@@ -155,8 +166,8 @@ dropped and the standard `-O3 -DNDEBUG` left.
 `apply` applies the committed patch, which is what CMake does at configure time and what
 "redo the port" means in every ordinary case. `regen` runs the script's own source
 transforms, and it produces **less than the patch holds**: the USBEndpoint transfer
-retry, the endpoint halt clearing and the `AA_FAULT_TRANSFER_AFTER` knob are hand
-written and live in no function in the script. Running `regen` and then `patch` deletes
+retry, the endpoint halt clearing, the `AA_FAULT_TRANSFER_AFTER` knob and the
+`UpdateUiConfig` pair above are hand written and live in no function in the script. Running `regen` and then `patch` deletes
 them. Use `regen` only when the submodule pin has moved somewhere the patch no longer
 applies, and expect to restore the hand written parts yourself.
 

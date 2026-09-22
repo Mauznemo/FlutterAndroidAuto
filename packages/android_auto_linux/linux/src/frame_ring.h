@@ -59,8 +59,20 @@ struct Frame {
   static constexpr int kMaxLayers = 3;
 
   FrameKind kind = FrameKind::kNone;
+  // The whole decoded image, margins included.
   int32_t width = 0;
   int32_t height = 0;
+
+  // What to cut off each edge before showing it, the black the phone was asked to leave
+  // round its interface. See src/video/video_margins.h. The present adapter hands Flutter
+  // only what is inside, so a texture never has black bars of its own to letterbox.
+  int32_t crop_top = 0;
+  int32_t crop_bottom = 0;
+  int32_t crop_left = 0;
+  int32_t crop_right = 0;
+
+  int32_t visible_width() const { return width - crop_left - crop_right; }
+  int32_t visible_height() const { return height - crop_top - crop_bottom; }
 
   // kCpuRgba
   const uint8_t* pixels = nullptr;

@@ -302,6 +302,97 @@ void main() {
       expect(tester.widget<Texture>(find.byType(Texture)).textureId, 7);
     });
 
+    testWidgets('tells the head unit its size before there is a texture', (tester) async {
+      // The phone is told the view's shape when it connects, which is before its
+      // first frame, so the size cannot wait for a texture to exist.
+      tester.view.physicalSize = const Size(1280, 676);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      platform.texture = null;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(controller: controller),
+        ),
+      );
+
+      expect(platform.viewSizes, ['1280x676']);
+    });
+
+    testWidgets('tells the head unit again only when the size changes', (tester) async {
+      await pumpView(tester, size: const Size(1280, 676));
+      // A rebuild at the same size, which every notification causes.
+      platform.emit(AndroidAutoConnectionState.connected);
+      await tester.pump();
+      expect(platform.viewSizes, ['1280x676']);
+
+      tester.view.physicalSize = const Size(832, 720);
+      await tester.pump();
+
+      expect(platform.viewSizes, ['1280x676', '832x720']);
+    });
+
+    testWidgets('tells the head unit its size in physical pixels', (tester) async {
+      // The frame is chosen to cover the view's pixels, so logical ones would ask for
+      // half the frame a 2x screen needs.
+      tester.view.physicalSize = const Size(1920, 1016);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      platform.texture = null;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(controller: controller),
+        ),
+      );
+
+      expect(platform.viewSizes, ['1920x1016']);
+    });
+
+    testWidgets('tells the head unit the size the texture is drawn at, in pixels', (
+      tester,
+    ) async {
+      // 1280x720 video letterboxed into an 800x800 logical view on a 2x screen: drawn
+      // 800x450 logical, which is 1600x900 physical, larger than the video.
+      tester.view.physicalSize = const Size(1600, 1600);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      platform.texture = 7;
+      await controller.start();
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(controller: controller),
+        ),
+      );
+      await tester.pump();
+
+      expect(platform.displaySizes.last, '1600x900');
+    });
+
+    testWidgets('draws a video a pixel short of the view one to one, on whole pixels', (
+      tester,
+    ) async {
+      // The margins leave the video up to a pixel smaller than an odd sized view.
+      // Stretching it across that pixel would resample the whole picture, and centring
+      // it would put it on a half pixel, which blurs it just the same.
+      platform.video = const AndroidAutoVideoInfo(
+        width: 1280,
+        height: 676,
+        decoder: 'VA-API',
+      );
+      await pumpView(tester, size: const Size(1281, 677));
+
+      final placed = tester.getRect(find.byType(Texture));
+      expect(placed, const Rect.fromLTWH(1, 1, 1280, 676));
+      expect(platform.displaySizes.last, '1280x676');
+
+      await tester.tapAt(const Offset(1 + 100, 1 + 50));
+      await tester.pump();
+      expect(platform.touches.first.subject.x, 100);
+      expect(platform.touches.first.subject.y, 50);
+    });
+
     testWidgets('sends nothing when touch is turned off', (tester) async {
       await pumpView(tester, enableTouch: false);
 

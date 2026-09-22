@@ -30,17 +30,29 @@ not a real one.*
 
 ```dart
 final controller = AndroidAutoController(
-  config: const AndroidAutoConfig(width: 1280, height: 720, fps: 30),
+  config: const AndroidAutoConfig(fps: 30),
 );
 
-Stack(
+Column(
   children: [
-    AndroidAutoView(controller: controller),  // the phone's screen
-    MyStatusBar(),                            // your widgets, on top
-    MyNowPlayingCard(),                       // fed by AA metadata, not pixels
+    MyStatusBar(),                                // your widgets, beside it
+    Expanded(
+      child: Stack(
+        children: [
+          AndroidAutoView(controller: controller),  // the phone's screen
+          MyNowPlayingCard(),                       // on top, fed by AA metadata
+        ],
+      ),
+    ),
   ],
 )
 ```
+
+The phone lays its interface out in whatever shape the view is, even though the protocol
+only has 16:9 frame sizes: it is asked to leave margins inside the frame, and those are
+cropped off before the texture reaches Flutter. So a status bar beside the view takes
+space from the phone rather than covering part of it, with no black bars either way.
+`AndroidAutoConfig.matchViewAspectRatio: false` turns that off.
 
 `controller.start()` begins looking for a phone and `controller.events` reports what
 happens; `AndroidAutoView` maps its own touches into the projected video, so input needs
@@ -57,7 +69,7 @@ the repository.
 
 | | |
 |---|---|
-| Video | H.264 to a Flutter texture, VA-API zero copy with a software fallback |
+| Video | H.264 to a Flutter texture, VA-API zero copy with a software fallback, laid out by the phone for a view of any shape |
 | Input | touch (multi-touch), keys and a rotary controller |
 | Audio out | media, system and speech as three streams, mixed and ducked by the head unit |
 | Audio in | the microphone, opened only when the phone asks for it |
@@ -123,8 +135,10 @@ dependencies:
 links aasdk. See [Licence](#licence) below before going further.
 
 The minimum an app needs is a controller and a view. `AndroidAutoConfig` defaults to a
-720p30 head unit that every phone accepts; `width` and `height` must be one of 800x480,
-1280x720, 1920x1080, 2560x1440 or 3840x2160, since the protocol has names for no others.
+30 fps head unit whose frame size follows its view: the smallest of 800x480, 1280x720 and
+1920x1080 that covers it. Set `width` and `height` to pin one instead; they must be one of
+800x480, 1280x720, 1920x1080, 2560x1440 or 3840x2160, since the protocol has names for no
+others.
 Wireless is opt-in, with `transports: {AndroidAutoTransport.usb,
 AndroidAutoTransport.wireless}` and the Wi-Fi passphrase in `AndroidAutoWirelessConfig`.
 

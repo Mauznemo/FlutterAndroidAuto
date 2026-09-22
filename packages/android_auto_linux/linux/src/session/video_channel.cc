@@ -5,6 +5,7 @@
 
 #include <aasdk/Common/Log.hpp>
 
+#include <aap_protobuf/service/control/message/UpdateUiConfigRequest.pb.h>
 #include <aap_protobuf/service/media/source/message/Ack.pb.h>
 #include <aap_protobuf/service/media/video/message/VideoFocusMode.pb.h>
 #include <aap_protobuf/service/media/video/message/VideoFocusNotification.pb.h>
@@ -16,6 +17,12 @@ namespace control_pb = aap_protobuf::service::control::message;
 namespace media_pb = aap_protobuf::service::media::shared::message;
 namespace source_pb = aap_protobuf::service::media::source::message;
 namespace video_pb = aap_protobuf::service::media::video::message;
+
+// How long the view has to hold still before the phone is asked to follow it. A window
+// being dragged reports a new size every frame, and every change costs a stream restart.
+constexpr std::chrono::milliseconds kResizeSettle{400};
+// How long each step of a resize waits on the phone before carrying on without it.
+constexpr std::chrono::milliseconds kResizeStepTimeout{1500};
 
 // The first bytes of a buffer, as hex. Only ever used at debug level, and only for the
 // first buffer of each kind: what the phone puts on this channel is the one thing that
@@ -81,6 +88,12 @@ void VideoEventRelay::onVideoFocusRequest(
   }
 }
 
+void VideoEventRelay::onUpdateUiConfigReply(const control_pb::UpdateUiConfigReply& reply) {
+  if (auto channel = channel_.lock()) {
+    channel->onUpdateUiConfigReply(reply);
+  }
+}
+
 void VideoEventRelay::onChannelError(const aasdk::error::Error& error) {
   if (auto channel = channel_.lock()) {
     channel->onChannelError(error);
@@ -90,19 +103,25 @@ void VideoEventRelay::onChannelError(const aasdk::error::Error& error) {
 std::shared_ptr<VideoChannel> VideoChannel::Create(
     boost::asio::io_context& io_context, aasdk::Strand& strand,
     aasdk::messenger::IMessenger::Pointer messenger, std::shared_ptr<VideoDecoder> decoder,
-    LogHandler log) {
+    int32_t frame_width, int32_t frame_height, VideoMargins margins, LogHandler log) {
   return std::make_shared<VideoChannel>(io_context, strand, std::move(messenger),
-                                        std::move(decoder), std::move(log));
+                                        std::move(decoder), frame_width, frame_height,
+                                        margins, std::move(log));
 }
 
 VideoChannel::VideoChannel(boost::asio::io_context& io_context, aasdk::Strand& strand,
                            aasdk::messenger::IMessenger::Pointer messenger,
-                           std::shared_ptr<VideoDecoder> decoder, LogHandler log)
+                           std::shared_ptr<VideoDecoder> decoder, int32_t frame_width,
+                           int32_t frame_height, VideoMargins margins, LogHandler log)
     : io_context_(io_context),
       strand_(strand),
       messenger_(std::move(messenger)),
       decoder_(std::move(decoder)),
-      log_(std::move(log)) {}
+      log_(std::move(log)),
+      frame_width_(frame_width),
+      frame_height_(frame_height),
+      margins_(margins),
+      resize_timer_(io_context) {}
 
 VideoChannel::~VideoChannel() { Stop(); }
 
@@ -117,6 +136,11 @@ void VideoChannel::Start() {
     }
     channel_ = std::make_shared<aasdk::channel::mediasink::video::VideoMediaSinkService>(
         strand_, messenger_, aasdk::messenger::ChannelId::MEDIA_SINK_VIDEO);
+  }
+  // Before the phone can send a frame, since service discovery is what told it to lay
+  // out inside these margins and every frame from the first is drawn for them.
+  if (decoder_) {
+    decoder_->SetMargins(frame_width_, frame_height_, margins_);
   }
   Listen();
 }
@@ -228,6 +252,10 @@ void VideoChannel::onVideoFocusRequest(
 void VideoChannel::onMediaChannelStartIndication(const media_pb::Start& indication) {
   session_id_ = indication.session_id();
   Log("The phone started the video stream.");
+  // A resize asked for while there was no stream to restart waited for this one.
+  if (resize_step_ == ResizeStep::kIdle && wanted_ && *wanted_ != margins_) {
+    ArmResizeTimer(kResizeSettle);
+  }
   Listen();
 }
 
@@ -238,7 +266,147 @@ void VideoChannel::onMediaChannelStopIndication(const media_pb::Stop& indication
     decoder_->Flush();
   }
   Log("The phone stopped the video stream.");
+  if (resize_step_ == ResizeStep::kReleasing) {
+    SendUiConfig();
+  }
   Listen();
+}
+
+void VideoChannel::onUpdateUiConfigReply(const control_pb::UpdateUiConfigReply& reply) {
+  AASDK_LOG(debug) << "[Video] UI config reply: " << reply.ShortDebugString();
+  if (resize_step_ == ResizeStep::kUpdating) {
+    // The reply carries the margins the phone took, which is what it will draw for, so
+    // that is what gets cropped. Only when they fit the frame, though: a reply that
+    // makes no sense is not worth cropping the whole picture away for.
+    VideoMargins accepted = requested_;
+    if (reply.has_ui_config() && reply.ui_config().has_margins()) {
+      const auto& insets = reply.ui_config().margins();
+      VideoMargins answered;
+      answered.top = static_cast<int32_t>(insets.top());
+      answered.bottom = static_cast<int32_t>(insets.bottom());
+      answered.left = static_cast<int32_t>(insets.left());
+      answered.right = static_cast<int32_t>(insets.right());
+      if (answered.horizontal() < frame_width_ && answered.vertical() < frame_height_) {
+        accepted = answered;
+      }
+    }
+    FinishResize(accepted);
+  }
+  Listen();
+}
+
+void VideoChannel::Resize(VideoMargins margins) {
+  std::weak_ptr<VideoChannel> weak = weak_from_this();
+  boost::asio::post(strand_, [weak, margins]() {
+    auto self = weak.lock();
+    if (!self || self->stopped_.load()) {
+      return;
+    }
+    self->wanted_ = margins;
+    // One already under way picks the new wish up when it finishes.
+    if (self->resize_step_ == ResizeStep::kIdle) {
+      self->ArmResizeTimer(kResizeSettle);
+    }
+  });
+}
+
+void VideoChannel::ArmResizeTimer(std::chrono::milliseconds delay) {
+  // A generation rather than trusting cancel(): a wait that has already expired is
+  // queued to run and cannot be cancelled any more, so it has to be told it is stale.
+  const uint64_t generation = ++resize_generation_;
+  resize_timer_.expires_after(delay);
+  std::weak_ptr<VideoChannel> weak = weak_from_this();
+  resize_timer_.async_wait([weak, generation](const boost::system::error_code& error) {
+    if (error) {
+      return;
+    }
+    auto self = weak.lock();
+    if (!self) {
+      return;
+    }
+    boost::asio::post(self->strand_, [self, generation]() {
+      if (!self->stopped_.load() && generation == self->resize_generation_) {
+        self->OnResizeTimer();
+      }
+    });
+  });
+}
+
+void VideoChannel::OnResizeTimer() {
+  switch (resize_step_) {
+    case ResizeStep::kIdle:
+      if (!wanted_ || *wanted_ == margins_) {
+        wanted_.reset();
+        return;
+      }
+      // With no stream there is nothing to restart and nothing drawn for the old
+      // margins. The next start indication picks this up.
+      if (session_id_.load() < 0) {
+        return;
+      }
+      BeginResize();
+      return;
+    case ResizeStep::kReleasing:
+      Log("The phone did not stop the video stream for the resize, updating anyway.");
+      SendUiConfig();
+      return;
+    case ResizeStep::kUpdating:
+      // A phone that does not know the message ignores it and keeps drawing for the
+      // old margins, so those are the ones to go on cropping.
+      Log("The phone did not answer the new margins, keeping " +
+          DescribeMargins(frame_width_, frame_height_, margins_) + ".");
+      FinishResize(std::nullopt);
+      return;
+  }
+}
+
+void VideoChannel::BeginResize() {
+  requested_ = *wanted_;
+  resize_step_ = ResizeStep::kReleasing;
+  Log("The view changed shape, asking the phone for " +
+      DescribeMargins(frame_width_, frame_height_, requested_) + ".");
+  SendVideoFocus(false, true);
+  ArmResizeTimer(kResizeStepTimeout);
+}
+
+void VideoChannel::SendUiConfig() {
+  auto channel = Channel();
+  if (!channel) {
+    return;
+  }
+  resize_step_ = ResizeStep::kUpdating;
+  control_pb::UpdateUiConfigRequest request;
+  auto* insets = request.mutable_ui_config()->mutable_margins();
+  insets->set_top(static_cast<uint32_t>(requested_.top));
+  insets->set_bottom(static_cast<uint32_t>(requested_.bottom));
+  insets->set_left(static_cast<uint32_t>(requested_.left));
+  insets->set_right(static_cast<uint32_t>(requested_.right));
+  channel->sendUpdateUiConfigRequest(request, MakeSendPromise("UI config update"));
+  ArmResizeTimer(kResizeStepTimeout);
+}
+
+void VideoChannel::FinishResize(const std::optional<VideoMargins>& accepted) {
+  // Whatever timer is outstanding belonged to the step that just ended.
+  ++resize_generation_;
+  resize_step_ = ResizeStep::kIdle;
+  if (accepted) {
+    margins_ = *accepted;
+    // No frame is in flight: the stream stopped for this and restarts on the focus
+    // below, so the first frame drawn for the new margins is the first one cropped.
+    if (decoder_) {
+      decoder_->SetMargins(frame_width_, frame_height_, margins_);
+    }
+    Log("The phone laid its interface out for " +
+        DescribeMargins(frame_width_, frame_height_, margins_) + ".");
+  }
+  SendVideoFocus(true, true);
+  // Asked again while this one was under way. Compared with what was asked for rather
+  // than with what was granted, or a phone that adjusts margins would be asked forever.
+  if (wanted_ && *wanted_ != requested_) {
+    ArmResizeTimer(kResizeSettle);
+  } else {
+    wanted_.reset();
+  }
 }
 
 void VideoChannel::AcknowledgeFrame() {

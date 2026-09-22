@@ -21,6 +21,7 @@
 
 #include "../metadata/metadata_state.h"
 #include "../sensors/sensor_state.h"
+#include "../video/video_margins.h"
 
 namespace aa {
 
@@ -29,6 +30,10 @@ namespace aa {
 struct HeadUnitDescription {
   int32_t width = 1280;
   int32_t height = 720;
+  // What the phone should leave black round its interface, so that what is left is the
+  // shape of the host app's view rather than 16:9. Relative to the frame size actually
+  // advertised, see AdvertisedFrameSize. None means the view is 16:9 or unknown.
+  VideoMargins margins;
   int32_t fps = 30;
   int32_t dpi = 140;
   std::string head_unit_name = "Flutter Head Unit";
@@ -74,6 +79,11 @@ struct HeadUnitDescription {
 // route them itself, and it expects the head unit to be able to send every code on the
 // list. Keep it in step with AndroidAutoKey in the platform interface.
 const std::vector<int32_t>& SupportedKeycodes();
+
+// The frame size the phone is asked to encode for a configured `width` by `height`: the
+// size itself when the protocol has a name for it, 1280x720 otherwise.
+void AdvertisedFrameSize(int32_t width, int32_t height, int32_t* frame_width,
+                         int32_t* frame_height);
 
 // Fills `response` in place.
 void BuildServiceDiscoveryResponse(

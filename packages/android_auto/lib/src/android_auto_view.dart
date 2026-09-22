@@ -23,6 +23,13 @@ import 'android_auto_controller.dart';
 /// taps and the phone never sees them. Touches that land on the projection itself are
 /// mapped into projected video pixels and sent on, which is what makes the phone's UI
 /// usable rather than just visible.
+///
+/// The view tells the controller its size on every layout, and with
+/// [AndroidAutoConfig.matchViewAspectRatio] on (the default) the phone lays its
+/// interface out to fit the view, and it is drawn one to one. So the projection can sit under a status bar,
+/// beside a panel or in any other space the host app has left, and fill it. Put
+/// widgets *beside* the view to take space from the phone, and *over* it to cover part
+/// of what the phone draws.
 class AndroidAutoView extends StatefulWidget {
   /// The session to render.
   final AndroidAutoController controller;
@@ -75,6 +82,21 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Before there is a texture as well as after: the phone is told the shape
+        // when it connects, which is before its first frame. Physical pixels, because
+        // the frame size is chosen to cover them.
+        final size = constraints.biggest;
+        if (size.isFinite && !size.isEmpty) {
+          widget.controller.setViewSize(size * View.of(context).devicePixelRatio);
+        }
+        return _buildProjection(constraints);
+      },
+    );
+  }
+
+  Widget _buildProjection(BoxConstraints constraints) {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -91,41 +113,91 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
         // usually agree, and when they do not it is the phone that is right.
         final info = widget.controller.videoInfo;
         final source = Size(
-          (info?.width ?? widget.controller.config.width).toDouble(),
-          (info?.height ?? widget.controller.config.height).toDouble(),
+          (info?.width ?? widget.controller.config.width ?? 1280).toDouble(),
+          (info?.height ?? widget.controller.config.height ?? 720).toDouble(),
         );
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            _source = source;
-            _projection = _fitProjection(source, constraints.biggest, widget.fit);
-            final view = FittedBox(
-              fit: widget.fit,
-              child: SizedBox(
-                width: source.width,
-                height: source.height,
-                child: Texture(textureId: textureId),
-              ),
-            );
-            if (!widget.enableTouch) {
-              return view;
-            }
-            return Listener(
-              // The projection swallows what lands on it rather than letting it fall
-              // through to whatever is behind, which is what a real head unit screen
-              // does. Widgets drawn *over* the view are unaffected: they are later in
-              // the stack and win the hit test before this ever sees the pointer.
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: _onPointerDown,
-              onPointerMove: _onPointerMove,
-              onPointerUp: _onPointerUp,
-              onPointerCancel: _onPointerCancel,
-              child: view,
-            );
-          },
+        final pixelRatio = View.of(context).devicePixelRatio;
+        _source = source;
+        _projection = _snapToPixels(
+          _fitProjection(source, constraints.biggest, widget.fit),
+          source,
+          pixelRatio,
+        );
+        // In physical pixels, because that is what decides whether the texture is
+        // being shrunk: a 1280 pixel wide video in a 640 logical pixel view on a
+        // screen at 2x is drawn one to one.
+        widget.controller.setDisplaySize(_projection.size * pixelRatio);
+        // Placed by hand rather than through a FittedBox, so that it lands on whole
+        // pixels. Clipped, so a BoxFit that overflows stays inside the view.
+        final view = SizedBox.fromSize(
+          size: _resolveBox(source, constraints.biggest),
+          child: ClipRect(
+            child: Stack(
+              children: [
+                Positioned.fromRect(
+                  rect: _projection,
+                  child: Texture(textureId: textureId),
+                ),
+              ],
+            ),
+          ),
+        );
+        if (!widget.enableTouch) {
+          return view;
+        }
+        return Listener(
+          // The projection swallows what lands on it rather than letting it fall
+          // through to whatever is behind, which is what a real head unit screen
+          // does. Widgets drawn *over* the view are unaffected: they are later in the
+          // stack and win the hit test before this ever sees the pointer.
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          onPointerCancel: _onPointerCancel,
+          child: view,
         );
       },
     );
   }
+
+  /// [rect] moved and sized onto whole physical pixels.
+  ///
+  /// A texture drawn at a fractional position is resampled even at one to one, which
+  /// blurs every edge by half a pixel, and centring leaves exactly such a half whenever
+  /// the space to spare is odd. And a texture within a pixel or two of its own size is
+  /// drawn at exactly that size, rather than stretched across the difference, which
+  /// would resample the whole picture to gain a pixel. The margins the phone is asked
+  /// for can leave the video one pixel short of the view, so this is the common case.
+  static Rect _snapToPixels(Rect rect, Size source, double pixelRatio) {
+    if (rect.isEmpty || pixelRatio <= 0) {
+      return rect;
+    }
+    var width = rect.width * pixelRatio;
+    var height = rect.height * pixelRatio;
+    if ((width - source.width).abs() <= 2 && (height - source.height).abs() <= 2) {
+      width = source.width;
+      height = source.height;
+    } else {
+      width = width.roundToDouble();
+      height = height.roundToDouble();
+    }
+    final left = (rect.center.dx * pixelRatio - width / 2).roundToDouble();
+    final top = (rect.center.dy * pixelRatio - height / 2).roundToDouble();
+    return Rect.fromLTWH(
+      left / pixelRatio,
+      top / pixelRatio,
+      width / pixelRatio,
+      height / pixelRatio,
+    );
+  }
+
+  /// The space the view takes: [box], or the video's own size along an axis the
+  /// constraints leave unbounded, the way FittedBox sizes itself to its child there.
+  static Size _resolveBox(Size source, Size box) => Size(
+    box.width.isFinite ? box.width : source.width,
+    box.height.isFinite ? box.height : source.height,
+  );
 
   /// Where the projection is drawn inside a box of [box], for [fit].
   ///
@@ -135,19 +207,13 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
     if (source.isEmpty) {
       return Rect.zero;
     }
-    // An unbounded constraint means FittedBox sized itself to the child instead of
-    // scaling it, so the projection is exactly the source. Substituting the source
-    // dimension here reproduces that rather than giving up on touch.
-    final resolved = Size(
-      box.width.isFinite ? box.width : source.width,
-      box.height.isFinite ? box.height : source.height,
-    );
+    final resolved = _resolveBox(source, box);
     if (resolved.isEmpty) {
       return Rect.zero;
     }
     final sizes = applyBoxFit(fit, source, resolved);
-    // Alignment.center, because that is FittedBox's default and this has to agree with
-    // what was actually painted.
+    // Centred, as FittedBox would. _snapToPixels then moves it by under a pixel, and
+    // its result is what is painted, so touch and picture agree by construction.
     return Alignment.center.inscribe(sizes.destination, Offset.zero & resolved);
   }
 

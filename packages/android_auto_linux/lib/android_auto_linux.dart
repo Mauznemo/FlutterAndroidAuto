@@ -44,6 +44,13 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   /// pushed into each new one.
   AndroidAutoWirelessConfig? _wireless;
 
+  /// The view's size, held for the same reason again: the view is laid out before
+  /// there is a session to tell, and the phone is told when it connects.
+  double _viewWidth = 0;
+  double _viewHeight = 0;
+  int _displayWidth = 0;
+  int _displayHeight = 0;
+
   /// What the car is doing, held here for the same reason the audio settings are: a
   /// host app that sets the parking brake before it ever starts a session should not
   /// lose it, and the core only exists from [start] onwards. Replayed into each new
@@ -121,6 +128,24 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  void setViewSize(double width, double height) {
+    _viewWidth = width;
+    _viewHeight = height;
+    if (_session != nullptr) {
+      _bindings.aa_session_set_view_size(_session, width, height);
+    }
+  }
+
+  @override
+  void setDisplaySize(int width, int height) {
+    _displayWidth = width;
+    _displayHeight = height;
+    if (_session != nullptr) {
+      _bindings.aa_session_set_display_size(_session, width, height);
+    }
+  }
+
+  @override
   Future<void> initialize(AndroidAutoConfig config) async {
     _createSession(config);
     if (_session == nullptr) {
@@ -185,8 +210,10 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     final carYear = config.carYear.toNativeUtf8();
     try {
       native.ref
-        ..width = config.width
-        ..height = config.height
+        // Zero is the core choosing a size from the view.
+        ..width = config.width ?? 0
+        ..height = config.height ?? 0
+        ..letterbox = config.matchViewAspectRatio ? 0 : 1
         ..fps = config.fps
         ..dpi = config.dpi
         ..head_unit_name = headUnitName.cast()
@@ -202,6 +229,8 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         return;
       }
       _wireless = config.wireless ?? _wireless;
+      _bindings.aa_session_set_view_size(_session, _viewWidth, _viewHeight);
+      _bindings.aa_session_set_display_size(_session, _displayWidth, _displayHeight);
       _applyAudioSettings();
       _applySensorSettings();
       _applyWirelessSettings();
