@@ -119,6 +119,13 @@ ColorSpace ColorSpaceOf(const AVFrame* frame) {
   }
 }
 
+void ApplyCrop(const VideoMargins& margins, Frame* frame) {
+  frame->crop_top = margins.top;
+  frame->crop_bottom = margins.bottom;
+  frame->crop_left = margins.left;
+  frame->crop_right = margins.right;
+}
+
 }  // namespace
 
 int64_t NowMicros() {
@@ -230,6 +237,22 @@ void VideoDecoder::Flush() {
     awaiting_keyframe_ = true;
   }
   cv_.notify_one();
+}
+
+void VideoDecoder::SetMargins(int32_t frame_width, int32_t frame_height,
+                              VideoMargins margins) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  margins_frame_width_ = frame_width;
+  margins_frame_height_ = frame_height;
+  margins_ = margins;
+}
+
+VideoMargins VideoDecoder::MarginsFor(int32_t width, int32_t height) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (width != margins_frame_width_ || height != margins_frame_height_) {
+    return VideoMargins{};
+  }
+  return margins_;
 }
 
 std::string VideoDecoder::backend_name() const {
@@ -457,18 +480,24 @@ void VideoDecoder::DrainFrames() {
     }
 
     const int64_t received_us = frame_->pts;
+    const VideoMargins margins = MarginsFor(frame_->width, frame_->height);
+    const int32_t visible_width = frame_->width - margins.horizontal();
+    const int32_t visible_height = frame_->height - margins.vertical();
     // A size change mid stream is legal and does not disturb anything downstream: the
     // ring carries the size per frame and the output texture is reallocated in place,
     // so the texture id Flutter holds stays the same. Worth saying out loud, though,
-    // because the host app lays its overlay out from it.
-    const int32_t previous_width = frame_width_.exchange(frame_->width);
-    const int32_t previous_height = frame_height_.exchange(frame_->height);
+    // because the host app lays its overlay out from it. New margins on a frame of the
+    // same size count too, since what is shown changes shape.
+    const int32_t previous_width = frame_width_.exchange(visible_width);
+    const int32_t previous_height = frame_height_.exchange(visible_height);
     const bool resized =
-        previous_width != frame_->width || previous_height != frame_->height;
+        previous_width != visible_width || previous_height != visible_height;
     if (resized) {
-      Log("Video: " + std::to_string(frame_->width) + "x" +
-          std::to_string(frame_->height) + ", decoded by the " + backend_name() +
-          " backend.");
+      const std::string size =
+          margins.empty() ? std::to_string(frame_->width) + "x" +
+                                std::to_string(frame_->height)
+                          : DescribeMargins(frame_->width, frame_->height, margins);
+      Log("Video: " + size + ", decoded by the " + backend_name() + " backend.");
     }
     // What the frame actually is, not what the context was configured for. libavcodec
     // drops to a software format on its own when the hardware decoder will not take the
@@ -480,9 +509,9 @@ void VideoDecoder::DrainFrames() {
           (decoded_in_hardware ? "VA-API" : "software") + " backend.");
     }
     if (decoded_in_hardware) {
-      PublishHardware(frame_, received_us);
+      PublishHardware(frame_, margins);
     } else {
-      PublishSoftware(frame_, received_us);
+      PublishSoftware(frame_, margins);
     }
     frames_decoded_.fetch_add(1);
     NoteLatency(received_us);
@@ -490,7 +519,7 @@ void VideoDecoder::DrainFrames() {
   }
 }
 
-void VideoDecoder::PublishHardware(AVFrame* frame, int64_t received_us) {
+void VideoDecoder::PublishHardware(AVFrame* frame, const VideoMargins& margins) {
   AVFrame* drm = av_frame_alloc();
   if (drm == nullptr) {
     return;
@@ -514,6 +543,7 @@ void VideoDecoder::PublishHardware(AVFrame* frame, int64_t received_us) {
   out.kind = FrameKind::kDmabuf;
   out.width = frame->width;
   out.height = frame->height;
+  ApplyCrop(margins, &out);
   out.color_space = ColorSpaceOf(frame);
   out.full_range = frame->color_range == AVCOL_RANGE_JPEG;
 
@@ -589,7 +619,7 @@ std::shared_ptr<std::vector<uint8_t>> VideoDecoder::TakeRgbaBuffer(size_t bytes)
   return buffer;
 }
 
-void VideoDecoder::PublishSoftware(AVFrame* frame, int64_t received_us) {
+void VideoDecoder::PublishSoftware(AVFrame* frame, const VideoMargins& margins) {
   const auto source_format = static_cast<AVPixelFormat>(frame->format);
   if (scaler_ == nullptr || scaler_src_format_ != frame->format ||
       scaler_width_ != frame->width || scaler_height_ != frame->height) {
@@ -622,6 +652,7 @@ void VideoDecoder::PublishSoftware(AVFrame* frame, int64_t received_us) {
   out.kind = FrameKind::kCpuRgba;
   out.width = frame->width;
   out.height = frame->height;
+  ApplyCrop(margins, &out);
   out.pixels = buffer->data();
   out.stride = stride;
   publish_(out, std::shared_ptr<void>(buffer, buffer.get()));

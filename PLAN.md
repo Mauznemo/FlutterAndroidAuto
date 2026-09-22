@@ -267,8 +267,17 @@ Goal: the phone's projected screen appears inside the Flutter app.
 - [ ] Handle resolution changes mid-session without tearing down the texture. The code
       does it by construction (the ring carries the size per frame, the output texture is
       reallocated in place and keeps its id), but the only size change tested so far went
-      through a restart, so this is unproven rather than done.
+      through a restart, so this is unproven rather than done. The texture half is now
+      proven by the margins below: the texture went 1280x676, 832x720, 1280x676 mid
+      session and kept its id throughout. What is still untested is a phone that changes
+      the frame size itself.
 - [x] Measure end to end latency and log it
+- [x] Fill a view of any shape, not only 16:9. The phone is told margins at service
+      discovery, the present adapter crops them off, touch is sent from the picture's
+      corner, and a view that changes shape mid session is followed. Verified 2026-09-22
+      against the Pixel 8 Pro under the example app's status bar (1280x676 of 1280x720)
+      and in a narrowed window (832x720), VA-API and software decode, fresh connection
+      and mid session both ways, with taps landing on Maps' search bar and zoom buttons.
 
 **Checkpoint met.** Google Maps projected from a Pixel 8 Pro, 1280x720, inside the
 example app, with the Flutter status bar drawn over it and overlay clicks still counting.
@@ -340,6 +349,24 @@ the luma plane on unit 0 and the chroma plane on unit 1, then resized the output
 while unit 1 was still current, which replaced the chroma plane with the previous frame.
 The picture decoded and displayed perfectly, in entirely the wrong colours. The output
 texture now gets a unit of its own and is bound before the planes, not after.
+
+### Filling a view that is not 16:9
+
+Added late, once it was clear that almost no real head unit layout is 16:9: a
+status bar alone is enough to leave black bars down both sides. The protocol has
+`width_margin` and `height_margin` for this, and what the phone does with them had to be
+measured, because the schema does not say and other head units disagree with each other:
+
+- The phone centres its interface in the frame and splits each margin evenly. Seen
+  directly, 131 black rows above and below a 240 row margin (AA's own dark padding makes
+  up the rest), and the same horizontally.
+- Touch is relative to the picture's corner, unscaled. Tapping in frame coordinates
+  missed the search bar; tapping 120 rows higher, in the black, opened it, and a target
+  further down the list hit exactly, which ruled out scaling.
+- `UpdateUiConfigRequest` works mid session but freezes the app in front, and wrapping
+  it in a video focus release and regain fixes that, with the stream restarting laid out
+  for the new margins in under a second. Details in CLAUDE.md and
+  `docs/architecture.md`.
 
 ### Debugging affordances added along the way
 

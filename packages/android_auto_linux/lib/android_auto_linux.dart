@@ -44,6 +44,11 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   /// pushed into each new one.
   AndroidAutoWirelessConfig? _wireless;
 
+  /// The view's size, held for the same reason again: the view is laid out before
+  /// there is a session to tell, and the phone is told when it connects.
+  double _viewWidth = 0;
+  double _viewHeight = 0;
+
   /// What the car is doing, held here for the same reason the audio settings are: a
   /// host app that sets the parking brake before it ever starts a session should not
   /// lose it, and the core only exists from [start] onwards. Replayed into each new
@@ -118,6 +123,15 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
       _bindings.aa_string_free(backend);
     }
     return AndroidAutoVideoInfo(width: width, height: height, decoder: decoder);
+  }
+
+  @override
+  void setViewSize(double width, double height) {
+    _viewWidth = width;
+    _viewHeight = height;
+    if (_session != nullptr) {
+      _bindings.aa_session_set_view_size(_session, width, height);
+    }
   }
 
   @override
@@ -202,6 +216,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         return;
       }
       _wireless = config.wireless ?? _wireless;
+      _bindings.aa_session_set_view_size(_session, _viewWidth, _viewHeight);
       _applyAudioSettings();
       _applySensorSettings();
       _applyWirelessSettings();

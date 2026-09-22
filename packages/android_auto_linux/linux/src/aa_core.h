@@ -78,9 +78,10 @@ typedef enum {
 } AaTouchAction;
 
 // One finger. `x` and `y` are in projected video pixels, not logical pixels and not
-// normalised: the phone is told the head unit has a touchscreen exactly the size of the
-// video it asked for, and it reads these against that. `id` identifies the finger
-// across a gesture and should be a small index, the way Android numbers pointers.
+// normalised, measured from the top left corner of the texture: the picture the phone
+// drew, which is the frame less any margins it was asked to leave. That is how the phone
+// reads them. `id` identifies the finger across a gesture and should be a small index,
+// the way Android numbers pointers.
 typedef struct {
   int32_t id;
   int32_t x;
@@ -312,13 +313,25 @@ AA_EXPORT int32_t aa_session_stop(AaSession* session);
 // The texture is registered lazily on the first frame.
 AA_EXPORT int64_t aa_session_texture_id(AaSession* session);
 
-// Size of the video the phone is actually sending, or 0 before the first frame.
+// Size of the video the phone is actually sending, less the margins it was asked to
+// leave, so the size of the texture. 0 before the first frame.
 //
 // This is not necessarily the size asked for in AaConfig. The phone picks from the
 // video configurations service discovery advertised, and it may change mid session
 // without the texture being rebuilt, so the host app reads it rather than assuming.
+// Touch positions are in these pixels, measured from the texture's top left corner.
 AA_EXPORT int32_t aa_session_video_width(AaSession* session);
 AA_EXPORT int32_t aa_session_video_height(AaSession* session);
+
+// Tells the head unit the size of the view the projection is drawn in, in any unit,
+// since only the shape is used. 0 by 0 forgets it.
+//
+// The protocol only has 16:9 frame sizes, so a view of any other shape asks the phone
+// to keep margins clear round its interface, and the texture is cropped to what is
+// inside them. Read when a phone connects; a change while one is connected asks the
+// phone to lay out again, which restarts its video stream once the view has held still
+// for a moment. Callable at any time, including before aa_session_start.
+AA_EXPORT void aa_session_set_view_size(AaSession* session, double width, double height);
 
 // Which decoder is running: "VA-API", "software", or "none" before the first frame.
 // The returned string is heap allocated and must be handed back to aa_string_free.

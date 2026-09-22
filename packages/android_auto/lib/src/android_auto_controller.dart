@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
+import 'dart:ui' show Size;
 
 import 'package:android_auto_platform_interface/android_auto_platform_interface.dart';
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,7 @@ class AndroidAutoController extends ChangeNotifier {
   String? _message;
   int? _textureId;
   AndroidAutoVideoInfo? _videoInfo;
+  Size? _viewSize;
 
   /// Creates a controller. Nothing is projected until [start] is called.
   ///
@@ -134,6 +136,21 @@ class AndroidAutoController extends ChangeNotifier {
 
   /// Stops the pattern started by [startTestPattern].
   Future<void> stopTestPattern() => _platform.stopTestPattern();
+
+  /// Tells the head unit the size of the view the projection is shown in, so the phone
+  /// can lay its interface out in that shape. See
+  /// [AndroidAutoConfig.matchViewAspectRatio], without which this does nothing.
+  ///
+  /// [AndroidAutoView] calls this whenever it is laid out, so an app that uses the view
+  /// has nothing to do here. Calling it directly is for a head unit that shows the
+  /// texture some other way.
+  void setViewSize(Size size) {
+    if (!config.matchViewAspectRatio || size == _viewSize) {
+      return;
+    }
+    _viewSize = size;
+    _platform.setViewSize(size.width, size.height);
+  }
 
   /// Reports a touch to the phone.
   ///

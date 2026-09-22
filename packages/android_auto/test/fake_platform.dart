@@ -41,6 +41,9 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   /// Rotary steps reported.
   final List<int> rotarySteps = [];
 
+  /// Every view size the head unit was told, oldest first, as `widthxheight`.
+  final List<String> viewSizes = [];
+
   /// How many times [start] has been called.
   int starts = 0;
 
@@ -86,6 +89,10 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
 
   @override
   Future<AndroidAutoVideoInfo?> get videoInfo async => video;
+
+  @override
+  void setViewSize(double width, double height) =>
+      viewSizes.add('${width.round()}x${height.round()}');
 
   @override
   void sendTouch(

@@ -49,13 +49,17 @@ uniform sampler2D u_luma;
 uniform sampler2D u_chroma;
 uniform mat3 u_matrix;
 uniform vec3 u_offset;
+// The visible part of the frame, as an origin and a size in texture coordinates. The
+// margins the phone left black are simply never sampled.
+uniform vec4 u_crop;
 in vec2 v_uv;
 out vec4 frag_color;
 void main() {
+  vec2 uv = u_crop.xy + v_uv * u_crop.zw;
   // The chroma texture is half size in both directions, so sampling it with the same
   // coordinates and GL_LINEAR is the bilinear upsample, for free.
-  float luma = texture(u_luma, v_uv).r;
-  vec2 chroma = texture(u_chroma, v_uv).rg;
+  float luma = texture(u_luma, uv).r;
+  vec2 chroma = texture(u_chroma, uv).rg;
   vec3 yuv = vec3(luma, chroma.x, chroma.y) - u_offset;
   frag_color = vec4(clamp(u_matrix * yuv, 0.0, 1.0), 1.0);
 }
@@ -82,6 +86,13 @@ std::string ShaderSource(const char* body, bool fragment) {
 bool HasModernShaders() {
   const int version = epoxy_gl_version();
   return epoxy_is_desktop_gl() ? version >= 32 : version >= 30;
+}
+
+// Whether an upload can skip the end of every row, which is what cropping the sides off
+// a frame in host memory takes. Core in desktop GL and GLES 3.0, an extension below.
+bool HasUnpackRowLength() {
+  return epoxy_is_desktop_gl() || epoxy_gl_version() >= 30 ||
+         epoxy_has_gl_extension("GL_EXT_unpack_subimage");
 }
 
 GLuint CompileShader(GLenum type, const std::string& source, std::string* error) {
@@ -213,6 +224,7 @@ struct _AaVideoTexture {
   GLint uniform_chroma;
   GLint uniform_matrix;
   GLint uniform_offset;
+  GLint uniform_crop;
 };
 
 G_DECLARE_FINAL_TYPE(AaVideoTexture, aa_video_texture, AA, VIDEO_TEXTURE, FlTextureGL)
@@ -300,6 +312,7 @@ static gboolean aa_video_texture_ensure_converter(AaVideoTexture* self) {
   self->uniform_chroma = glGetUniformLocation(self->program, "u_chroma");
   self->uniform_matrix = glGetUniformLocation(self->program, "u_matrix");
   self->uniform_offset = glGetUniformLocation(self->program, "u_offset");
+  self->uniform_crop = glGetUniformLocation(self->program, "u_crop");
 
   glGenFramebuffers(1, &self->framebuffer);
   // Core profile refuses to draw without one, and the shader reads no attributes, so an
@@ -404,8 +417,13 @@ static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
   // after. Every glBindTexture lands on whatever unit is active, so resizing the output
   // while unit 1 was current used to replace the chroma plane with the previous frame:
   // the picture decoded and displayed, in entirely the wrong colours.
+  const int32_t visible_width = frame.visible_width();
+  const int32_t visible_height = frame.visible_height();
+  if (visible_width <= 0 || visible_height <= 0) {
+    return FALSE;
+  }
   glActiveTexture(GL_TEXTURE2);
-  aa_video_texture_resize_output(self, frame.width, frame.height, nullptr);
+  aa_video_texture_resize_output(self, visible_width, visible_height, nullptr);
 
   glActiveTexture(GL_TEXTURE0);
   const EGLImageKHR luma =
@@ -433,7 +451,7 @@ static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
                          0);
   gboolean drawn = FALSE;
   if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-    glViewport(0, 0, frame.width, frame.height);
+    glViewport(0, 0, visible_width, visible_height);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_STENCIL_TEST);
@@ -453,6 +471,10 @@ static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
     glUniformMatrix3fv(self->uniform_matrix, 1, GL_FALSE, matrix);
     const float luma_offset = frame.full_range ? 0.0f : 16.0f / 255.0f;
     glUniform3f(self->uniform_offset, luma_offset, 128.0f / 255.0f, 128.0f / 255.0f);
+    const float width = static_cast<float>(frame.width);
+    const float height = static_cast<float>(frame.height);
+    glUniform4f(self->uniform_crop, frame.crop_left / width, frame.crop_top / height,
+                visible_width / width, visible_height / height);
 
     glDrawArrays(GL_TRIANGLES, 0, 3);
     drawn = TRUE;
@@ -472,6 +494,42 @@ static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
   return drawn;
 }
 
+// Uploads the visible part of an RGBA frame in host memory into the output texture.
+static void aa_video_texture_upload_rgba(AaVideoTexture* self, const aa::Frame& frame) {
+  const int32_t visible_width = frame.visible_width();
+  const int32_t visible_height = frame.visible_height();
+  if (visible_width <= 0 || visible_height <= 0) {
+    return;
+  }
+  const uint8_t* first = frame.pixels + static_cast<size_t>(frame.crop_top) * frame.stride +
+                         static_cast<size_t>(frame.crop_left) * 4;
+  // Flutter only accepts GL_RGBA8, so producers on this path hand over RGBA and there
+  // is nothing to convert.
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
+  // Rows that follow on from each other, which is every frame without side margins: a
+  // pointer into the first visible row is the whole of the crop.
+  if (frame.stride == visible_width * 4) {
+    aa_video_texture_resize_output(self, visible_width, visible_height, first);
+    return;
+  }
+  if (HasUnpackRowLength()) {
+    GLint row_length = 0;
+    glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_length);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, frame.stride / 4);
+    aa_video_texture_resize_output(self, visible_width, visible_height, first);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, row_length);
+    return;
+  }
+  // GLES 2 without the extension has no way to skip the end of a row, so one row at a
+  // time. Slow, and only reachable on a driver too old for the dmabuf path as well.
+  aa_video_texture_resize_output(self, visible_width, visible_height, nullptr);
+  for (int32_t row = 0; row < visible_height; ++row) {
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, row, visible_width, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                    first + static_cast<size_t>(row) * frame.stride);
+  }
+}
+
 static gboolean aa_video_texture_populate(FlTextureGL* texture,
                                           uint32_t* target,
                                           uint32_t* name,
@@ -486,10 +544,7 @@ static gboolean aa_video_texture_populate(FlTextureGL* texture,
     if (frame.kind == aa::FrameKind::kDmabuf) {
       aa_video_texture_draw_dmabuf(self, frame);
     } else if (frame.kind == aa::FrameKind::kCpuRgba && frame.pixels != nullptr) {
-      // Flutter only accepts GL_RGBA8, so producers on this path hand over RGBA and
-      // there is nothing to convert.
-      glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-      aa_video_texture_resize_output(self, frame.width, frame.height, frame.pixels);
+      aa_video_texture_upload_rgba(self, frame);
     }
     self->ring->ReleaseRead();
   }
@@ -547,6 +602,7 @@ static void aa_video_texture_init(AaVideoTexture* self) {
   self->uniform_chroma = -1;
   self->uniform_matrix = -1;
   self->uniform_offset = -1;
+  self->uniform_crop = -1;
 }
 
 static AaVideoTexture* aa_video_texture_new(aa::FrameRing* ring) {

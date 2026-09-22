@@ -17,14 +17,26 @@ final controller = AndroidAutoController(
   config: const AndroidAutoConfig(width: 1280, height: 720, fps: 30),
 );
 
-Stack(
+Column(
   children: [
-    AndroidAutoView(controller: controller),  // the phone's screen
-    MyStatusBar(),                            // your widgets, on top
-    MyNowPlayingCard(),                       // fed by AA metadata, not pixels
+    MyStatusBar(),                                // your widgets, beside it
+    Expanded(
+      child: Stack(
+        children: [
+          AndroidAutoView(controller: controller),  // the phone's screen
+          MyNowPlayingCard(),                       // on top, fed by AA metadata
+        ],
+      ),
+    ),
   ],
 )
 ```
+
+The phone lays its interface out in whatever shape the view is, even though the protocol
+only has 16:9 frame sizes: it is asked to leave margins inside the frame, and those are
+cropped off before the texture reaches Flutter. So a status bar beside the view takes
+space from the phone rather than covering part of it, with no black bars either way.
+`AndroidAutoConfig.matchViewAspectRatio: false` turns that off.
 
 `controller.start()` begins looking for a phone and `controller.events` reports what
 happens. `AndroidAutoView` maps its own touches into the projected video, letterboxing

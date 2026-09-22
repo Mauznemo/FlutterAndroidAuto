@@ -36,6 +36,7 @@
 #include "session/wireless_connector.h"
 #include "test_pattern.h"
 #include "video/video_decoder.h"
+#include "video/video_margins.h"
 
 namespace {
 
@@ -261,6 +262,7 @@ struct AaSession {
     description.height = config.height;
     description.fps = config.fps;
     description.dpi = config.dpi;
+    description.margins = Margins();
     description.head_unit_name = config.head_unit_name;
     description.car_model = config.car_model;
     description.car_year = config.car_year;
@@ -285,6 +287,15 @@ struct AaSession {
     return description;
   }
 
+  // What the phone should leave clear round its interface for the view as it is now.
+  aa::VideoMargins Margins() const {
+    int32_t frame_width = 0;
+    int32_t frame_height = 0;
+    aa::AdvertisedFrameSize(config.width, config.height, &frame_width, &frame_height);
+    std::lock_guard<std::mutex> lock(view_mutex);
+    return aa::MarginsForView(frame_width, frame_height, view_width, view_height);
+  }
+
   // The live connection, as a reference of the caller's own. See protocol_mutex.
   std::shared_ptr<aa::ProtocolSession> Protocol() const {
     std::lock_guard<std::mutex> lock(protocol_mutex);
@@ -292,6 +303,12 @@ struct AaSession {
   }
 
   Config config;
+  // The shape of the view the host app draws the projection in, or 0 by 0 while it has
+  // not said. Written from Flutter's platform thread and read from an io thread when a
+  // phone connects.
+  mutable std::mutex view_mutex;
+  double view_width = 0.0;
+  double view_height = 0.0;
   aa::EventBus events;
   aa::FrameRing ring;
   std::unique_ptr<aa::GlAdapter> gl;
@@ -985,6 +1002,25 @@ int32_t aa_session_video_height(AaSession* session) {
     return 0;
   }
   return session->decoder->frame_height();
+}
+
+void aa_session_set_view_size(AaSession* session, double width, double height) {
+  if (session == nullptr) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(session->view_mutex);
+    if (width == session->view_width && height == session->view_height) {
+      return;
+    }
+    session->view_width = width;
+    session->view_height = height;
+  }
+  // A phone that is already projecting laid out for the old shape. Asked every time the
+  // size moves, and the channel waits for it to hold still before asking the phone.
+  if (auto protocol = session->Protocol()) {
+    protocol->ResizeVideo(session->Margins());
+  }
 }
 
 char* aa_session_video_backend(AaSession* session) {

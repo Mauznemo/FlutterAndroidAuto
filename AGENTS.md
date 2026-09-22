@@ -152,8 +152,8 @@ tools/port-aasdk.sh patch      # regenerate linux/patches/ from the working tree
 
 **`apply` and `regen` are not the same thing and the difference has already cost work
 once.** Part of the port is hand written rather than scripted: the USBEndpoint transfer
-retry, the halt clearing and `AA_FAULT_TRANSFER_AFTER` live in the patch and in no
-function in the script. So `regen` produces *less* than the patch holds, and `patch` run
+retry, the halt clearing, `AA_FAULT_TRANSFER_AFTER` and the video channel's
+`UpdateUiConfig` send and reply live in the patch and in no function in the script. So `regen` produces *less* than the patch holds, and `patch` run
 straight after it silently deletes the difference. `apply` applies the committed patch,
 which is what "redo the port" means in every ordinary case. Reach for `regen` only when
 the submodule pin has moved somewhere the patch will not apply, and expect to put the
@@ -220,6 +220,7 @@ Once toled to, for commit message and PR style: read CONTRIBUTING.md before writ
 | `linux/src/present/texture_registry.*` | the `FlTextureRegistrar` the GTK entry point captured |
 | `linux/src/event_bus.*` | native to Dart events |
 | `linux/src/video/video_decoder.*` | H.264 to frames on its own thread, VA-API or software |
+| `linux/src/video/video_margins.*` | the margins that give a 16:9 frame the view's shape, **no protobuf** |
 | `linux/src/session/video_channel.*` | the MEDIA_SINK_VIDEO channel |
 | `linux/src/audio/pcm_sink.*` | the API agnostic seam for playback, **PulseAudio is named only in pulse_sink.cc** |
 | `linux/src/audio/pcm_source.*` | the same seam for capture, **PulseAudio is named only in pulse_source.cc** |
@@ -292,11 +293,11 @@ service discovery response just stops talking and drops out of accessory mode.
 Everything else is the phone pushing and the head unit answering. Input is the head unit
 talking unprompted, and that makes three things different.
 
-- **Coordinates are projected video pixels.** Not logical pixels, not normalised. The
-  head unit tells the phone it has a touchscreen exactly the size of the video it asked
-  for. `AndroidAutoView` maps widget-local positions through the same `applyBoxFit`
-  arithmetic `FittedBox` paints with, so letterboxing stays consistent between what is
-  drawn and where taps land.
+- **Coordinates are projected video pixels.** Not logical pixels, not normalised, and
+  measured from the corner of the texture, which is the frame less its margins (see
+  the next section). `AndroidAutoView` maps widget-local positions through the same
+  `applyBoxFit` arithmetic `FittedBox` paints with, so letterboxing stays consistent
+  between what is drawn and where taps land.
 - **Touch follows Android's `MotionEvent` rules**, because that is what the phone's input
   stack expects: first finger `ACTION_DOWN`, extra fingers `ACTION_POINTER_DOWN` with
   `action_index` naming the one that changed, last finger `ACTION_UP`. Flutter's
@@ -316,6 +317,33 @@ USB bulk write per Flutter pointer event, measured at 382 a second on a desktop 
 What comes back is a video stream of at most 60 fps, so extra samples cannot produce a
 distinguishable picture. Only movement is limited: a finger landing or lifting is an edge,
 not a sample, and has to go at once.
+
+## Margins, and why the texture is the view's shape
+
+The protocol only names 16:9 frame sizes. `AndroidAutoView` reports its size, the phone
+is told at service discovery to leave `width_margin` and `height_margin` clear, and the
+present adapter crops them off, so the texture is exactly the view's shape. All of the
+following was measured on the Pixel 8 Pro, none of it is in the schema, and any of it
+could be different on another phone:
+
+- **The picture is centred** in the frame, each total split evenly between two sides.
+  The margins are kept multiples of four so every side is even and NV12 chroma is cut on
+  a whole sample.
+- **Touch is relative to the picture's corner and unscaled.** Tapping at frame
+  coordinates missed by exactly the top margin. Nothing adds the margins back.
+- **The touchscreen stays announced at the full frame**, not at the picture size. Both
+  worked with fixed margins, but only the full frame still holds a picture that grows
+  after a mid session change.
+- **A mid session change is focus native, then `UpdateUiConfigRequest`, then focus
+  projected**, in `VideoChannel::Resize`. Never send the update on its own: the phone
+  re-lays out its launcher, leaves the app in front drawn for the old margins, and the
+  stream freezes until something else on screen changes. The focus release makes the
+  phone stop and restart the stream, which is also what makes the crop frame exact.
+  The reply echoes the per side margins the phone took, and those are what is cropped.
+- **A narrow picture changes the phone's layout**, not only its size: at 832x720 it
+  moves its app rail from the left side to the bottom.
+- The one third floor on the visible size in `video_margins.cc` is a guard against
+  transient layouts, not a limit anything has been seen to enforce.
 
 ## Audio, and why the head unit is the thing that mixes
 

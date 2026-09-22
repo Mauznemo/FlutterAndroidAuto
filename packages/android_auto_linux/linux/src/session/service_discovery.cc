@@ -40,6 +40,12 @@ int32_t ChannelNumber(aasdk::messenger::ChannelId id) {
   return static_cast<int32_t>(id);
 }
 
+bool IsNamedResolution(int32_t width, int32_t height) {
+  return (width == 800 && height == 480) || (width == 1280 && height == 720) ||
+         (width == 1920 && height == 1080) || (width == 2560 && height == 1440) ||
+         (width == 3840 && height == 2160);
+}
+
 // The protocol only has names for a fixed set of resolutions, so the configured size
 // has to land on one of them.
 sink::message::VideoCodecResolutionType ResolutionFor(int32_t width, int32_t height) {
@@ -84,10 +90,12 @@ void AddVideoService(const HeadUnitDescription& description,
                                               : sink::message::VIDEO_FPS_30);
   video->set_density(static_cast<uint32_t>(description.dpi));
   video->set_real_density(static_cast<uint32_t>(description.dpi));
-  // No margins: the host app decides how to letterbox the texture in Flutter, and
-  // asking the phone to letterbox as well would double up.
-  video->set_width_margin(0);
-  video->set_height_margin(0);
+  // Totals only, which the phone splits evenly between opposite sides. The per side
+  // form in ui_config is what a mid session change uses, see VideoChannel::Resize, and
+  // is deliberately not sent here as well: the two are not documented to combine and
+  // these fields are the ones every phone has always read.
+  video->set_width_margin(static_cast<uint32_t>(description.margins.horizontal()));
+  video->set_height_margin(static_cast<uint32_t>(description.margins.vertical()));
   video->set_video_codec_type(shared::message::MEDIA_CODEC_VIDEO_H264_BP);
 }
 
@@ -115,10 +123,15 @@ void AddInputService(const HeadUnitDescription& description,
 
   auto* input = service->mutable_input_source_service();
   auto* touchscreen = input->add_touchscreen();
-  // Touch coordinates are in projected pixels, so the touchscreen the head unit claims
-  // to have is exactly the size of the video it asked for.
-  touchscreen->set_width(description.width);
-  touchscreen->set_height(description.height);
+  // The whole frame, margins included, even though touches are only ever sent from
+  // inside them: the phone reads a position relative to the corner of the picture it
+  // drew, unscaled, so a touchscreen this size holds every picture any margins could
+  // leave. That is what lets the margins change mid session, when this cannot.
+  int32_t frame_width = 0;
+  int32_t frame_height = 0;
+  AdvertisedFrameSize(description.width, description.height, &frame_width, &frame_height);
+  touchscreen->set_width(frame_width);
+  touchscreen->set_height(frame_height);
   touchscreen->set_type(pb::service::inputsource::message::CAPACITIVE);
   touchscreen->set_is_secondary(false);
   for (const int32_t keycode : SupportedKeycodes()) {
@@ -253,6 +266,13 @@ const std::vector<int32_t>& SupportedKeycodes() {
       sink::message::KEYCODE_SEARCH,           sink::message::KEYCODE_ROTARY_CONTROLLER,
   };
   return keycodes;
+}
+
+void AdvertisedFrameSize(int32_t width, int32_t height, int32_t* frame_width,
+                         int32_t* frame_height) {
+  const bool named = IsNamedResolution(width, height);
+  *frame_width = named ? width : 1280;
+  *frame_height = named ? height : 720;
 }
 
 void BuildServiceDiscoveryResponse(

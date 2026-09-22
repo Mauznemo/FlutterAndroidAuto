@@ -174,6 +174,10 @@ class ProtocolSession : public std::enable_shared_from_this<ProtocolSession> {
   // Tears the connection down immediately. Safe from any thread.
   void Stop();
 
+  // Asks the phone to lay its interface out inside new margins, for a view that changed
+  // shape after service discovery. Safe from any thread. See VideoChannel::Resize.
+  void ResizeVideo(VideoMargins margins);
+
   // The channels the phone accepted, filled in once service discovery completes.
   std::vector<std::string> opened_channels() const { return opened_channels_; }
 

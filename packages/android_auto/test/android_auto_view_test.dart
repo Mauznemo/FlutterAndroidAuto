@@ -302,6 +302,56 @@ void main() {
       expect(tester.widget<Texture>(find.byType(Texture)).textureId, 7);
     });
 
+    testWidgets('tells the head unit its size before there is a texture', (tester) async {
+      // The phone is told the view's shape when it connects, which is before its
+      // first frame, so the size cannot wait for a texture to exist.
+      tester.view.physicalSize = const Size(1280, 676);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      platform.texture = null;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(controller: controller),
+        ),
+      );
+
+      expect(platform.viewSizes, ['1280x676']);
+    });
+
+    testWidgets('tells the head unit again only when the size changes', (tester) async {
+      await pumpView(tester, size: const Size(1280, 676));
+      // A rebuild at the same size, which every notification causes.
+      platform.emit(AndroidAutoConnectionState.connected);
+      await tester.pump();
+      expect(platform.viewSizes, ['1280x676']);
+
+      tester.view.physicalSize = const Size(832, 720);
+      await tester.pump();
+
+      expect(platform.viewSizes, ['1280x676', '832x720']);
+    });
+
+    testWidgets('keeps its size to itself when the config says not to match it', (
+      tester,
+    ) async {
+      final letterboxed = AndroidAutoController(
+        config: const AndroidAutoConfig(matchViewAspectRatio: false),
+      );
+      addTearDown(letterboxed.dispose);
+      tester.view.physicalSize = const Size(1280, 676);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(controller: letterboxed),
+        ),
+      );
+
+      expect(platform.viewSizes, isEmpty);
+    });
+
     testWidgets('sends nothing when touch is turned off', (tester) async {
       await pumpView(tester, enableTouch: false);
 

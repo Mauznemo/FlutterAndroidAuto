@@ -225,9 +225,13 @@ void ProtocolSession::StartLocked(aasdk::transport::ITransport::Pointer transpor
   // arrives for a channel with no outstanding receive, so either order works, but the
   // phone opens the video channel the instant it has our response and there is nothing
   // to gain by being late.
+  int32_t frame_width = 0;
+  int32_t frame_height = 0;
+  AdvertisedFrameSize(description_.width, description_.height, &frame_width, &frame_height);
   if (description_.enable_video && decoder_) {
     video_channel_ = VideoChannel::Create(
-        io_context_, strand_, messenger_, decoder_,
+        io_context_, strand_, messenger_, decoder_, frame_width, frame_height,
+        description_.margins,
         [weak = weak_from_this()](const std::string& message) {
           if (auto self = weak.lock()) {
             self->ReportState(AA_STATE_CONNECTED, message);
@@ -241,7 +245,7 @@ void ProtocolSession::StartLocked(aasdk::transport::ITransport::Pointer transpor
   // answer it is one that advertised a channel and then ignored it.
   if (description_.enable_input) {
     input_channel_ = InputChannel::Create(
-        io_context_, strand_, messenger_, description_.width, description_.height,
+        io_context_, strand_, messenger_, frame_width, frame_height,
         [weak = weak_from_this()](const std::string& message) {
           if (auto self = weak.lock()) {
             self->ReportState(AA_STATE_CONNECTED, message);
@@ -417,6 +421,18 @@ void ProtocolSession::Shutdown() {
 bool ProtocolSession::WaitForShutdown(std::chrono::milliseconds timeout) {
   std::unique_lock<std::mutex> lock(shutdown_mutex_);
   return shutdown_cv_.wait_for(lock, timeout, [this] { return shutdown_acknowledged_; });
+}
+
+void ProtocolSession::ResizeVideo(VideoMargins margins) {
+  if (stopped_.load()) {
+    return;
+  }
+  // Waits out a Start() still building, the same as Stop, so the channel is either not
+  // made yet or whole.
+  std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+  if (video_channel_) {
+    video_channel_->Resize(margins);
+  }
 }
 
 void ProtocolSession::NoteShutdownAcknowledged() {
@@ -613,6 +629,16 @@ void ProtocolSession::onServiceDiscoveryRequest(
 
   control_pb::ServiceDiscoveryResponse response;
   BuildServiceDiscoveryResponse(description_, &response);
+  if (!description_.margins.empty()) {
+    int32_t frame_width = 0;
+    int32_t frame_height = 0;
+    AdvertisedFrameSize(description_.width, description_.height, &frame_width,
+                        &frame_height);
+    ReportState(AA_STATE_HANDSHAKING,
+                "Asking the phone for " +
+                    DescribeMargins(frame_width, frame_height, description_.margins) +
+                    ", the shape of the view.");
+  }
 
   opened_channels_.clear();
   for (const auto& channel : response.channels()) {

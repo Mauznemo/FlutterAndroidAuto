@@ -43,6 +43,10 @@ class AndroidAutoConfig {
   /// be 800x480, 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is
   /// advertised to the phone as 1280x720, with a warning in the log, and the phone then
   /// projects at that size rather than the one asked for.
+  ///
+  /// All five are 16:9. For a view of another shape, see [matchViewAspectRatio]: this
+  /// is then the size of the frame the phone encodes, and what it draws in is the part
+  /// of it with the view's shape.
   final int width;
 
   /// Projected surface height in pixels. See [width] for the sizes the protocol names.
@@ -53,6 +57,22 @@ class AndroidAutoConfig {
 
   /// Screen density the phone should lay out for.
   final int dpi;
+
+  /// Whether the phone lays its interface out in the shape of the view it is shown in.
+  ///
+  /// The protocol only offers 16:9 frame sizes, and a head unit screen rarely is 16:9
+  /// once the host app has put a status bar above the projection. With this on, the
+  /// view tells the head unit its size and the phone is asked to leave margins round its
+  /// interface so that what is inside them has the view's shape. The margins are
+  /// cropped off before the frame reaches Flutter, so the texture fills the view with
+  /// nothing wasted and no bars of its own.
+  ///
+  /// The shape is read when a phone connects. A view that changes shape while one is
+  /// connected asks the phone to lay out again once it has held still for a moment,
+  /// which restarts the phone's video stream: the picture freezes for about a second.
+  ///
+  /// Off, the phone always draws in the whole 16:9 frame and the view letterboxes it.
+  final bool matchViewAspectRatio;
 
   /// Shown on the phone while Android Auto is active.
   final String headUnitName;
@@ -118,6 +138,7 @@ class AndroidAutoConfig {
     this.height = 720,
     this.fps = 30,
     this.dpi = 140,
+    this.matchViewAspectRatio = true,
     this.headUnitName = 'Flutter Head Unit',
     this.carModel = 'Universal',
     this.carYear = '2026',
@@ -143,10 +164,14 @@ class AndroidAutoConfig {
 /// app that lays out from the config alone will letterbox the projection wrongly the
 /// first time a phone does something unexpected.
 class AndroidAutoVideoInfo {
-  /// Width of the decoded video in pixels.
+  /// Width of the video in pixels, which is the width of the texture.
+  ///
+  /// Less than the phone's frame when it was asked to leave margins, see
+  /// [AndroidAutoConfig.matchViewAspectRatio]: this is the part it draws in, and the
+  /// part touch positions are measured in.
   final int width;
 
-  /// Height of the decoded video in pixels.
+  /// Height of the video in pixels, which is the height of the texture.
   final int height;
 
   /// Which decoder is doing the work: `VA-API`, `software`, or `none` before the first
@@ -203,9 +228,10 @@ enum AndroidAutoTouchAction {
 /// One finger in a touch report.
 ///
 /// [x] and [y] are in **projected video pixels**, not logical pixels and not
-/// normalised. The head unit tells the phone it has a touchscreen exactly the size of
-/// the video it asked for, and the phone reads these against that, so a widget local
-/// position has to be mapped through however the projection is fitted on screen first.
+/// normalised, measured from the top left corner of the texture: the
+/// [AndroidAutoVideoInfo.width] by [AndroidAutoVideoInfo.height] picture the phone drew.
+/// The phone reads them against that, so a widget local position has to be mapped
+/// through however the projection is fitted on screen first.
 /// `AndroidAutoView` in the `android_auto` package does that; an app sending its own
 /// touches has to do it itself.
 class AndroidAutoTouchPoint {
@@ -860,6 +886,14 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
 
   /// The size and decoder of the incoming video, or null before the first frame.
   Future<AndroidAutoVideoInfo?> get videoInfo async => null;
+
+  /// Tells the head unit the size of the view the projection is shown in.
+  ///
+  /// Only the shape is used, so logical pixels are fine. Callable at any time, before
+  /// [start] included; the size last given is what a connecting phone is told. See
+  /// [AndroidAutoConfig.matchViewAspectRatio], which decides whether anything calls
+  /// this at all. `AndroidAutoView` does, on every layout.
+  void setViewSize(double width, double height) {}
 
   /// Feeds the video path from a generated pattern instead of a phone.
   ///

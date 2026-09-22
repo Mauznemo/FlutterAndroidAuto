@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../frame_ring.h"
+#include "video_margins.h"
 
 struct AVCodecContext;
 struct AVBufferRef;
@@ -79,9 +80,17 @@ class VideoDecoder {
   // clean. Called when the phone stops the stream.
   void Flush();
 
+  // The black the phone was asked to leave round a `frame_width` by `frame_height`
+  // frame, cropped off every frame of exactly that size from now on. A frame of any
+  // other size is shown whole: the margins were worked out against the size advertised,
+  // and a phone sending something else has not laid its interface out inside them. Safe
+  // from any thread.
+  void SetMargins(int32_t frame_width, int32_t frame_height, VideoMargins margins);
+
   // "VA-API" or "software", or "none" before the first open.
   std::string backend_name() const;
 
+  // The size of what is shown, which is the decoded frame less its margins.
   int32_t frame_width() const { return frame_width_.load(); }
   int32_t frame_height() const { return frame_height_.load(); }
   uint64_t frames_decoded() const { return frames_decoded_.load(); }
@@ -98,8 +107,10 @@ class VideoDecoder {
   void Close();
   void DecodePacket(const Packet& packet);
   void DrainFrames();
-  void PublishHardware(AVFrame* frame, int64_t received_us);
-  void PublishSoftware(AVFrame* frame, int64_t received_us);
+  // The margins to crop off a frame of this size. Decoder thread.
+  VideoMargins MarginsFor(int32_t width, int32_t height) const;
+  void PublishHardware(AVFrame* frame, const VideoMargins& margins);
+  void PublishSoftware(AVFrame* frame, const VideoMargins& margins);
   void NoteLatency(int64_t received_us);
   // Recycles one of a handful of RGBA buffers rather than allocating three megabytes
   // per frame. A buffer is free when the ring has let go of the frame that used it.
@@ -124,6 +135,10 @@ class VideoDecoder {
   bool awaiting_keyframe_ = false;
   // Said once, not once per codec config. See ConstrainBaselineSps.
   bool constrained_logged_ = false;
+  // What SetMargins was last told.
+  int32_t margins_frame_width_ = 0;
+  int32_t margins_frame_height_ = 0;
+  VideoMargins margins_;
 
   // Decoder thread only, past construction.
   AVCodecContext* codec_ = nullptr;

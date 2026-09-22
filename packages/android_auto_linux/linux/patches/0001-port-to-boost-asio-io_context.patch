@@ -379,8 +379,56 @@ index c4e1398..372a512 100644
 +    VideoChannel(aasdk::Strand &strand, messenger::IMessenger::Pointer messenger);
    };
  }
+diff --git a/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkService.hpp b/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkService.hpp
+index 1118ce8..eee6436 100644
+--- a/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkService.hpp
++++ b/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkService.hpp
+@@ -29,6 +29,7 @@
+ #include <aap_protobuf/service/media/video/message/VideoFocusNotification.pb.h>
+ #include <aap_protobuf/service/media/video/message/VideoFocusRequestNotification.pb.h>
+ #include <aap_protobuf/service/control/message/ChannelOpenResponse.pb.h>
++#include <aap_protobuf/service/control/message/UpdateUiConfigRequest.pb.h>
+ 
+ namespace aasdk::channel::mediasink::video {
+ 
+@@ -60,6 +61,12 @@ namespace aasdk::channel::mediasink::video {
+         const aap_protobuf::service::media::video::message::VideoFocusNotification &indication,
+         SendPromise::Pointer promise) = 0;
+ 
++    // Asks the phone to lay its interface out inside new margins, mid session.
++    virtual void
++    sendUpdateUiConfigRequest(
++        const aap_protobuf::service::control::message::UpdateUiConfigRequest &request,
++        SendPromise::Pointer promise) = 0;
++
+   };
+ 
+ }
+diff --git a/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkServiceEventHandler.hpp b/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkServiceEventHandler.hpp
+index 09d498b..bd45a53 100644
+--- a/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkServiceEventHandler.hpp
++++ b/include/aasdk/Channel/MediaSink/Video/IVideoMediaSinkServiceEventHandler.hpp
+@@ -27,6 +27,7 @@
+ #include "aasdk/Common/Data.hpp"
+ #include "aasdk/Error/Error.hpp"
+ #include <aap_protobuf/service/media/video/message/VideoFocusRequestNotification.pb.h>
++#include <aap_protobuf/service/control/message/UpdateUiConfigReply.pb.h>
+ 
+ namespace aasdk::channel::mediasink::video {
+ 
+@@ -54,6 +55,10 @@ namespace aasdk::channel::mediasink::video {
+     virtual void onVideoFocusRequest(
+         const aap_protobuf::service::media::video::message::VideoFocusRequestNotification &request) = 0;
+ 
++    // Not pure, so a handler that never sends an UpdateUiConfigRequest has nothing to add.
++    virtual void onUpdateUiConfigReply(
++        const aap_protobuf::service::control::message::UpdateUiConfigReply &reply) {}
++
+     virtual void onChannelError(const error::Error &e) = 0;
+   };
+ 
 diff --git a/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp b/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp
-index fdfd8bb..1e2705e 100644
+index fdfd8bb..c61ac52 100644
 --- a/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp
 +++ b/include/aasdk/Channel/MediaSink/Video/VideoMediaSinkService.hpp
 @@ -21,13 +21,14 @@
@@ -399,6 +447,27 @@ index fdfd8bb..1e2705e 100644
                            messenger::ChannelId channelId);
  
      // Senders and Receivers
+@@ -51,6 +52,10 @@ namespace aasdk::channel::mediasink::video {
+         const aap_protobuf::service::media::video::message::VideoFocusNotification &indication,
+         SendPromise::Pointer promise) override;
+ 
++    void sendUpdateUiConfigRequest(
++        const aap_protobuf::service::control::message::UpdateUiConfigRequest &request,
++        SendPromise::Pointer promise) override;
++
+   protected:
+     void registerMessageHandler(int messageId,
+                                 std::function<void(const common::DataConstBuffer &,
+@@ -85,6 +90,9 @@ namespace aasdk::channel::mediasink::video {
+     void handleVideoFocusRequest(const common::DataConstBuffer &payload,
+                                  IVideoMediaSinkServiceEventHandler::Pointer eventHandler);
+ 
++    void handleUpdateUiConfigReply(const common::DataConstBuffer &payload,
++                                   IVideoMediaSinkServiceEventHandler::Pointer eventHandler);
++
+   };
+ 
+ }
 diff --git a/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp b/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp
 index ab13545..7948b20 100644
 --- a/include/aasdk/Channel/MediaSource/Audio/MicrophoneAudioChannel.hpp
@@ -1500,7 +1569,7 @@ index 192f735..3d7b935 100644
 \ No newline at end of file
 +}
 diff --git a/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp b/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp
-index 1958afb..6b14db7 100644
+index 1958afb..dc4f49c 100644
 --- a/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp
 +++ b/src/Channel/MediaSink/Video/VideoMediaSinkService.cpp
 @@ -20,6 +20,7 @@
@@ -1520,6 +1589,52 @@ index 1958afb..6b14db7 100644
                                                 messenger::IMessenger::Pointer messenger,
                                                 messenger::ChannelId channelId)
        : Channel(strand, std::move(messenger), channelId) {
+@@ -99,6 +100,18 @@ namespace aasdk::channel::mediasink::video {
+     this->send(std::move(message), std::move(promise));
+   }
+ 
++  void VideoMediaSinkService::sendUpdateUiConfigRequest(
++      const aap_protobuf::service::control::message::UpdateUiConfigRequest &request,
++      SendPromise::Pointer promise) {
++    AASDK_LOG_CHANNEL_MEDIA_SINK(debug, "sendUpdateUiConfigRequest()");
++
++    auto message(std::make_shared<messenger::Message>(channelId_, messenger::EncryptionType::ENCRYPTED, messenger::MessageType::SPECIFIC));
++    message->insertPayload(messenger::MessageId(aap_protobuf::service::media::sink::MediaMessageId::MEDIA_MESSAGE_UPDATE_UI_CONFIG_REQUEST).getData());
++    message->insertPayload(request);
++
++    this->send(std::move(message), std::move(promise));
++  }
++
+   void VideoMediaSinkService::messageHandler(messenger::Message::Pointer message,
+                                              IVideoMediaSinkServiceEventHandler::Pointer eventHandler) {
+     AASDK_LOG_CHANNEL_MEDIA_SINK(debug, "messageHandler()");
+@@ -127,6 +140,9 @@ namespace aasdk::channel::mediasink::video {
+       case aap_protobuf::service::media::sink::MediaMessageId::MEDIA_MESSAGE_VIDEO_FOCUS_REQUEST:
+         this->handleVideoFocusRequest(payload, std::move(eventHandler));
+         break;
++      case aap_protobuf::service::media::sink::MediaMessageId::MEDIA_MESSAGE_UPDATE_UI_CONFIG_REPLY:
++        this->handleUpdateUiConfigReply(payload, std::move(eventHandler));
++        break;
+       default:
+         AASDK_LOG(error) << "[VideoMediaSinkService] Message Id not Handled: " << messageId.getId();
+         this->receive(std::move(eventHandler));
+@@ -201,5 +217,16 @@ namespace aasdk::channel::mediasink::video {
+       eventHandler->onChannelError(error::Error(error::ErrorCode::PARSE_PAYLOAD));
+     }
+   }
++
++  void VideoMediaSinkService::handleUpdateUiConfigReply(const common::DataConstBuffer &payload,
++                                                        IVideoMediaSinkServiceEventHandler::Pointer eventHandler) {
++    AASDK_LOG_CHANNEL_MEDIA_SINK(debug, "handleUpdateUiConfigReply()");
++    aap_protobuf::service::control::message::UpdateUiConfigReply reply;
++    if (reply.ParseFromArray(payload.cdata, payload.size)) {
++      eventHandler->onUpdateUiConfigReply(reply);
++    } else {
++      eventHandler->onChannelError(error::Error(error::ErrorCode::PARSE_PAYLOAD));
++    }
++  }
+ }
+ 
 diff --git a/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp b/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp
 index 1b25ba7..5ea70c8 100644
 --- a/src/Channel/MediaSource/Audio/MicrophoneAudioChannel.cpp

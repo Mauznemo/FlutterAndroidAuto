@@ -23,6 +23,13 @@ import 'android_auto_controller.dart';
 /// taps and the phone never sees them. Touches that land on the projection itself are
 /// mapped into projected video pixels and sent on, which is what makes the phone's UI
 /// usable rather than just visible.
+///
+/// The view tells the controller its size on every layout, and with
+/// [AndroidAutoConfig.matchViewAspectRatio] on (the default) the phone lays its
+/// interface out in the view's shape. So the projection can sit under a status bar,
+/// beside a panel or in any other space the host app has left, and fill it. Put
+/// widgets *beside* the view to take space from the phone, and *over* it to cover part
+/// of what the phone draws.
 class AndroidAutoView extends StatefulWidget {
   /// The session to render.
   final AndroidAutoController controller;
@@ -75,6 +82,20 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Before there is a texture as well as after: the phone is told the shape
+        // when it connects, which is before its first frame.
+        final size = constraints.biggest;
+        if (size.isFinite && !size.isEmpty) {
+          widget.controller.setViewSize(size);
+        }
+        return _buildProjection(constraints);
+      },
+    );
+  }
+
+  Widget _buildProjection(BoxConstraints constraints) {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -94,34 +115,30 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
           (info?.width ?? widget.controller.config.width).toDouble(),
           (info?.height ?? widget.controller.config.height).toDouble(),
         );
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            _source = source;
-            _projection = _fitProjection(source, constraints.biggest, widget.fit);
-            final view = FittedBox(
-              fit: widget.fit,
-              child: SizedBox(
-                width: source.width,
-                height: source.height,
-                child: Texture(textureId: textureId),
-              ),
-            );
-            if (!widget.enableTouch) {
-              return view;
-            }
-            return Listener(
-              // The projection swallows what lands on it rather than letting it fall
-              // through to whatever is behind, which is what a real head unit screen
-              // does. Widgets drawn *over* the view are unaffected: they are later in
-              // the stack and win the hit test before this ever sees the pointer.
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: _onPointerDown,
-              onPointerMove: _onPointerMove,
-              onPointerUp: _onPointerUp,
-              onPointerCancel: _onPointerCancel,
-              child: view,
-            );
-          },
+        _source = source;
+        _projection = _fitProjection(source, constraints.biggest, widget.fit);
+        final view = FittedBox(
+          fit: widget.fit,
+          child: SizedBox(
+            width: source.width,
+            height: source.height,
+            child: Texture(textureId: textureId),
+          ),
+        );
+        if (!widget.enableTouch) {
+          return view;
+        }
+        return Listener(
+          // The projection swallows what lands on it rather than letting it fall
+          // through to whatever is behind, which is what a real head unit screen
+          // does. Widgets drawn *over* the view are unaffected: they are later in the
+          // stack and win the hit test before this ever sees the pointer.
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          onPointerCancel: _onPointerCancel,
+          child: view,
         );
       },
     );

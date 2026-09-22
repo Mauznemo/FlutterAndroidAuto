@@ -161,11 +161,13 @@ class AaCoreBindings {
   late final _aa_session_texture_id = _aa_session_texture_idPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
-  /// Size of the video the phone is actually sending, or 0 before the first frame.
+  /// Size of the video the phone is actually sending, less the margins it was asked to
+  /// leave, so the size of the texture. 0 before the first frame.
   ///
   /// This is not necessarily the size asked for in AaConfig. The phone picks from the
   /// video configurations service discovery advertised, and it may change mid session
   /// without the texture being rebuilt, so the host app reads it rather than assuming.
+  /// Touch positions are in these pixels, measured from the texture's top left corner.
   int aa_session_video_width(ffi.Pointer<AaSession> session) {
     return _aa_session_video_width(session);
   }
@@ -187,6 +189,31 @@ class AaCoreBindings {
       );
   late final _aa_session_video_height = _aa_session_video_heightPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
+  /// Tells the head unit the size of the view the projection is drawn in, in any unit,
+  /// since only the shape is used. 0 by 0 forgets it.
+  ///
+  /// The protocol only has 16:9 frame sizes, so a view of any other shape asks the phone
+  /// to keep margins clear round its interface, and the texture is cropped to what is
+  /// inside them. Read when a phone connects; a change while one is connected asks the
+  /// phone to lay out again, which restarts its video stream once the view has held still
+  /// for a moment. Callable at any time, including before aa_session_start.
+  void aa_session_set_view_size(
+    ffi.Pointer<AaSession> session,
+    double width,
+    double height,
+  ) {
+    return _aa_session_set_view_size(session, width, height);
+  }
+
+  late final _aa_session_set_view_sizePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<AaSession>, ffi.Double, ffi.Double)
+        >
+      >('aa_session_set_view_size');
+  late final _aa_session_set_view_size = _aa_session_set_view_sizePtr
+      .asFunction<void Function(ffi.Pointer<AaSession>, double, double)>();
 
   /// Which decoder is running: "VA-API", "software", or "none" before the first frame.
   /// The returned string is heap allocated and must be handed back to aa_string_free.
@@ -1250,9 +1277,10 @@ enum AaTouchAction {
 }
 
 /// One finger. `x` and `y` are in projected video pixels, not logical pixels and not
-/// normalised: the phone is told the head unit has a touchscreen exactly the size of the
-/// video it asked for, and it reads these against that. `id` identifies the finger
-/// across a gesture and should be a small index, the way Android numbers pointers.
+/// normalised, measured from the top left corner of the texture: the picture the phone
+/// drew, which is the frame less any margins it was asked to leave. That is how the phone
+/// reads them. `id` identifies the finger across a gesture and should be a small index,
+/// the way Android numbers pointers.
 final class AaTouchPoint extends ffi.Struct {
   @ffi.Int32()
   external int id;
