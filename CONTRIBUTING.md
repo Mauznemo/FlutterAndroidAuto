@@ -173,12 +173,6 @@ message if it is missing.
 - Verified end to end on a Pixel 8 and an emulator, foreground and killed.
 ```
 
-### One more rule, everywhere
-
-**Never use em dashes or en dashes**, not in code, comments, documentation, commit
-messages, pull request descriptions or user facing strings. Use a comma, parentheses, or
-a separate sentence.
-
 ## Before you open a pull request
 
 Give your own diff one honest read first. `git diff main...HEAD` shows everything you are
@@ -199,8 +193,6 @@ cd example && flutter run -d linux
 
 Match the style of the code around your change: its naming, its idiom, how much it
 comments. A change that reads like the file it lives in is a change that gets merged.
-Project specific rules that are not obvious from the code are in `AGENTS.md` and in
-`docs/`.
 
 ## What happens next
 
