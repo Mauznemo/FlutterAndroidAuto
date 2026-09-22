@@ -20,6 +20,7 @@ class AndroidAutoController extends ChangeNotifier {
   int? _textureId;
   AndroidAutoVideoInfo? _videoInfo;
   Size? _viewSize;
+  Size? _displaySize;
 
   /// Creates a controller. Nothing is projected until [start] is called.
   ///
@@ -150,6 +151,20 @@ class AndroidAutoController extends ChangeNotifier {
     }
     _viewSize = size;
     _platform.setViewSize(size.width, size.height);
+  }
+
+  /// Tells the head unit how many physical pixels the texture is drawn across, so a
+  /// projection drawn smaller than the video is shrunk properly rather than looking
+  /// grainy. See [AndroidAutoPlatform.setDisplaySize].
+  ///
+  /// [AndroidAutoView] calls this whenever it is laid out. Calling it directly is for a
+  /// head unit that shows the texture some other way.
+  void setDisplaySize(Size physicalSize) {
+    if (physicalSize == _displaySize) {
+      return;
+    }
+    _displaySize = physicalSize;
+    _platform.setDisplaySize(physicalSize.width.round(), physicalSize.height.round());
   }
 
   /// Reports a touch to the phone.

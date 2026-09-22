@@ -48,6 +48,8 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   /// there is a session to tell, and the phone is told when it connects.
   double _viewWidth = 0;
   double _viewHeight = 0;
+  int _displayWidth = 0;
+  int _displayHeight = 0;
 
   /// What the car is doing, held here for the same reason the audio settings are: a
   /// host app that sets the parking brake before it ever starts a session should not
@@ -135,6 +137,15 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  void setDisplaySize(int width, int height) {
+    _displayWidth = width;
+    _displayHeight = height;
+    if (_session != nullptr) {
+      _bindings.aa_session_set_display_size(_session, width, height);
+    }
+  }
+
+  @override
   Future<void> initialize(AndroidAutoConfig config) async {
     _createSession(config);
     if (_session == nullptr) {
@@ -217,6 +228,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
       }
       _wireless = config.wireless ?? _wireless;
       _bindings.aa_session_set_view_size(_session, _viewWidth, _viewHeight);
+      _bindings.aa_session_set_display_size(_session, _displayWidth, _displayHeight);
       _applyAudioSettings();
       _applySensorSettings();
       _applyWirelessSettings();

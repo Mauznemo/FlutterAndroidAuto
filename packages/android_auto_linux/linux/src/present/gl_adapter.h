@@ -9,6 +9,7 @@
 #ifndef ANDROID_AUTO_LINUX_PRESENT_GL_ADAPTER_H_
 #define ANDROID_AUTO_LINUX_PRESENT_GL_ADAPTER_H_
 
+#include <atomic>
 #include <cstdint>
 
 namespace aa {
@@ -39,6 +40,12 @@ class GlAdapter {
   // The Flutter texture id, or -1 before the first frame.
   int64_t texture_id() const;
 
+  // How many physical pixels the texture is drawn across, 0 by 0 when unknown. When
+  // that is smaller than the picture, the texture is made that size, with every source
+  // pixel averaged in, rather than left for Flutter to shrink. Safe from any thread;
+  // the next frame is drawn at the new size.
+  void SetDisplaySize(int32_t width, int32_t height);
+
   // Unregisters the texture. Must run on the platform thread.
   void Shutdown();
 
@@ -56,6 +63,8 @@ class GlAdapter {
   // Flutter types. Only gl_adapter.cc knows what it is.
   void* texture_ = nullptr;
   int64_t texture_id_ = -1;
+  // Width in the high half, height in the low, so the raster thread reads both at once.
+  std::atomic<uint64_t> display_size_{0};
 };
 
 }  // namespace aa

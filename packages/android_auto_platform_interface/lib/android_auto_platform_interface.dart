@@ -895,6 +895,16 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// this at all. `AndroidAutoView` does, on every layout.
   void setViewSize(double width, double height) {}
 
+  /// Tells the head unit how many physical pixels the texture is drawn across: the part
+  /// of the view it covers once fitted, not the view itself.
+  ///
+  /// A rendering hint. When the texture is drawn smaller than the video, the head unit
+  /// shrinks it itself, averaging every pixel, rather than leaving it to Flutter, whose
+  /// sampling reads four pixels per screen pixel and skips the rest, which is what makes
+  /// small text and compression noise look grainy. `AndroidAutoView` calls this on every
+  /// layout.
+  void setDisplaySize(int width, int height) {}
+
   /// Feeds the video path from a generated pattern instead of a phone.
   ///
   /// Exists so the texture pipeline can be exercised without hardware, and so a host

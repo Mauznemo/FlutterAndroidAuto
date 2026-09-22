@@ -345,6 +345,17 @@ could be different on another phone:
 - The one third floor on the visible size in `video_margins.cc` is a guard against
   transient layouts, not a limit anything has been seen to enforce.
 
+**A texture drawn smaller than the video is shrunk in `gl_adapter`, not by Flutter.**
+Flutter samples an external texture with one bilinear read per screen pixel whatever
+the scale, which skips source pixels and turns small text and the phone's compression
+noise into grain. `Texture.filterQuality` does not help: Impeller only adds mipmap
+filtering, and an external texture has no mipmaps. So `AndroidAutoView` reports the
+size it draws at in physical pixels (`aa_session_set_display_size`), and the converter
+renders straight to that size, averaging every source pixel. Measured at 0.67x: a
+quarter less high frequency noise and visibly smooth text. A texture drawn *larger*
+than the video cannot be helped here; that takes a bigger frame from the phone, which
+is `AndroidAutoConfig.width` and `height`.
+
 ## Audio, and why the head unit is the thing that mixes
 
 Android Auto sends media, system and speech as **three separate PCM streams** and leaves

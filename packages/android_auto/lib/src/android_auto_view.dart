@@ -117,6 +117,11 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
         );
         _source = source;
         _projection = _fitProjection(source, constraints.biggest, widget.fit);
+        // In physical pixels, because that is what decides whether the texture is
+        // being shrunk: a 1280 pixel wide video in a 640 logical pixel view on a
+        // screen at 2x is drawn one to one.
+        final pixelRatio = View.of(context).devicePixelRatio;
+        widget.controller.setDisplaySize(_projection.size * pixelRatio);
         final view = FittedBox(
           fit: widget.fit,
           child: SizedBox(

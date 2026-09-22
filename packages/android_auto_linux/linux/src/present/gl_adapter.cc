@@ -6,7 +6,9 @@
 #include <epoxy/gl.h>
 #include <flutter_linux/flutter_linux.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -52,18 +54,48 @@ uniform vec3 u_offset;
 // The visible part of the frame, as an origin and a size in texture coordinates. The
 // margins the phone left black are simply never sampled.
 uniform vec4 u_crop;
+// Taps per axis and the distance between them, in texture coordinates. One tap when
+// the output is the size of the picture; more when it is smaller, spread across every
+// source pixel the output pixel covers, so the average is over all of them.
+uniform ivec2 u_taps;
+uniform vec2 u_step;
+// Whether u_luma already holds RGB, which is what the software decoder produces.
+uniform bool u_rgb;
 in vec2 v_uv;
 out vec4 frag_color;
-void main() {
-  vec2 uv = u_crop.xy + v_uv * u_crop.zw;
+
+vec3 Fetch(vec2 uv) {
+  if (u_rgb) {
+    return texture(u_luma, uv).rgb;
+  }
   // The chroma texture is half size in both directions, so sampling it with the same
   // coordinates and GL_LINEAR is the bilinear upsample, for free.
-  float luma = texture(u_luma, uv).r;
-  vec2 chroma = texture(u_chroma, uv).rg;
-  vec3 yuv = vec3(luma, chroma.x, chroma.y) - u_offset;
-  frag_color = vec4(clamp(u_matrix * yuv, 0.0, 1.0), 1.0);
+  return vec3(texture(u_luma, uv).r, texture(u_chroma, uv).rg);
+}
+
+void main() {
+  vec2 centre = u_crop.xy + v_uv * u_crop.zw;
+  vec2 first = centre - u_step * (vec2(u_taps) - 1.0) * 0.5;
+  vec3 sum = vec3(0.0);
+  for (int y = 0; y < u_taps.y; ++y) {
+    for (int x = 0; x < u_taps.x; ++x) {
+      sum += Fetch(first + u_step * vec2(x, y));
+    }
+  }
+  // Averaging before the conversion is the same as averaging after it: the matrix is
+  // linear, and only the clamp is not.
+  vec3 value = sum / float(u_taps.x * u_taps.y);
+  if (u_rgb) {
+    frag_color = vec4(value, 1.0);
+  } else {
+    frag_color = vec4(clamp(u_matrix * (value - u_offset), 0.0, 1.0), 1.0);
+  }
 }
 )";
+
+// The most taps per axis a shrink takes. Enough for a picture drawn at an eighth of its
+// size; smaller than that aliases a little, which nothing would show at that size.
+constexpr int kMaxTaps = 8;
 
 // GLSL 1.50 and GLSL ES 3.00 are the same language for a shader this simple, they just
 // disagree about the version line and whether precision has to be spelled out.
@@ -195,10 +227,14 @@ struct GlStateGuard {
 // current, which is the one place in this project where GL calls are legal. Two paths
 // land here:
 //
-//   kCpuRgba   uploaded straight into the output texture, no shader involved
+//   kCpuRgba   uploaded straight into the output texture, no shader involved, unless
+//              it is drawn smaller than it is, when the shader below shrinks it
 //   kDmabuf    each layer imported as an EGLImage, then converted to RGBA by a shader
 //              into the same output texture, because Flutter only takes GL_RGBA8 and
 //              the decoder produces NV12
+//
+// Either way the output is the size the picture is drawn at when that is smaller than
+// the picture, see aa_video_texture_output_size.
 //
 // The import happens here rather than on the decoder thread on purpose: this is the one
 // thread with a context, so there is no second context to share and no fence to get
@@ -206,6 +242,9 @@ struct GlStateGuard {
 struct _AaVideoTexture {
   FlTextureGL parent_instance;
   aa::FrameRing* ring;
+  // How big the texture is drawn, from GlAdapter::SetDisplaySize, packed as width in the
+  // high half and height in the low. Zero while nobody has said.
+  const std::atomic<uint64_t>* display_size;
   GLuint name;
   // Dimensions the output texture was last allocated at. A change means glTexImage2D
   // instead of the cheaper glTexSubImage2D.
@@ -225,6 +264,14 @@ struct _AaVideoTexture {
   GLint uniform_matrix;
   GLint uniform_offset;
   GLint uniform_crop;
+  GLint uniform_taps;
+  GLint uniform_step;
+  GLint uniform_rgb;
+  // The software decoder's frame, uploaded here when it has to be shrunk rather than
+  // straight into the output. Lazily created, like the rest of the converter.
+  GLuint rgb_source;
+  int32_t rgb_source_width;
+  int32_t rgb_source_height;
 };
 
 G_DECLARE_FINAL_TYPE(AaVideoTexture, aa_video_texture, AA, VIDEO_TEXTURE, FlTextureGL)
@@ -313,6 +360,9 @@ static gboolean aa_video_texture_ensure_converter(AaVideoTexture* self) {
   self->uniform_matrix = glGetUniformLocation(self->program, "u_matrix");
   self->uniform_offset = glGetUniformLocation(self->program, "u_offset");
   self->uniform_crop = glGetUniformLocation(self->program, "u_crop");
+  self->uniform_taps = glGetUniformLocation(self->program, "u_taps");
+  self->uniform_step = glGetUniformLocation(self->program, "u_step");
+  self->uniform_rgb = glGetUniformLocation(self->program, "u_rgb");
 
   glGenFramebuffers(1, &self->framebuffer);
   // Core profile refuses to draw without one, and the shader reads no attributes, so an
@@ -373,31 +423,143 @@ static EGLImageKHR aa_video_texture_import_layer(EGLDisplay display,
   return image;
 }
 
-// Makes sure the output texture exists and is `width` by `height` RGBA8.
-static void aa_video_texture_resize_output(AaVideoTexture* self, int32_t width,
-                                           int32_t height, const void* pixels) {
-  if (self->name == 0) {
-    glGenTextures(1, &self->name);
-    glBindTexture(GL_TEXTURE_2D, self->name);
+// Creates `*texture` on first use, bilinear and clamped, and binds it on the active unit.
+static void aa_video_texture_bind_rgba(GLuint* texture) {
+  if (*texture == 0) {
+    glGenTextures(1, texture);
+    glBindTexture(GL_TEXTURE_2D, *texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   } else {
-    glBindTexture(GL_TEXTURE_2D, self->name);
+    glBindTexture(GL_TEXTURE_2D, *texture);
   }
-  if (width != self->allocated_width || height != self->allocated_height) {
-    // A resolution change mid session lands here. The texture is reallocated but not
-    // replaced, so the texture id Flutter is holding stays valid and the widget tree
-    // does not have to be rebuilt.
+}
+
+// Makes `*texture` a `width` by `height` RGBA8 texture, holding `pixels` when given.
+// Reallocates only when the size changes, and a reallocation keeps the name, which for
+// the output is what keeps the texture id Flutter holds valid.
+static void aa_video_texture_store_rgba(GLuint* texture, int32_t* allocated_width,
+                                        int32_t* allocated_height, int32_t width,
+                                        int32_t height, const void* pixels) {
+  aa_video_texture_bind_rgba(texture);
+  if (width != *allocated_width || height != *allocated_height) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                  pixels);
-    self->allocated_width = width;
-    self->allocated_height = height;
+    *allocated_width = width;
+    *allocated_height = height;
   } else if (pixels != nullptr) {
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE,
                     pixels);
   }
+}
+
+// Makes sure the output texture exists and is `width` by `height` RGBA8.
+static void aa_video_texture_resize_output(AaVideoTexture* self, int32_t width,
+                                           int32_t height, const void* pixels) {
+  aa_video_texture_store_rgba(&self->name, &self->allocated_width, &self->allocated_height,
+                              width, height, pixels);
+}
+
+// The size to make the output for a picture of `visible_width` by `visible_height`.
+//
+// The picture's own size unless it is drawn smaller than that, in which case the size it
+// is drawn at. Flutter samples a texture with one bilinear read per screen pixel, which
+// reads four source pixels whatever the scale and skips the rest, so a picture drawn at
+// three quarters of its size loses whole rows of small text and turns the phone's
+// compression noise into grain. Shrinking it here, averaging every source pixel, leaves
+// Flutter drawing at one to one. Never larger than the picture: growing it adds nothing
+// Flutter's own bilinear upscale would not.
+static void aa_video_texture_output_size(AaVideoTexture* self, int32_t visible_width,
+                                         int32_t visible_height, int32_t* out_width,
+                                         int32_t* out_height) {
+  *out_width = visible_width;
+  *out_height = visible_height;
+  if (self->display_size == nullptr || !HasModernShaders()) {
+    return;
+  }
+  const uint64_t packed = self->display_size->load();
+  const int32_t display_width = static_cast<int32_t>(packed >> 32);
+  const int32_t display_height = static_cast<int32_t>(packed & 0xffffffffu);
+  if (display_width <= 0 || display_height <= 0) {
+    return;
+  }
+  *out_width = std::min(visible_width, display_width);
+  *out_height = std::min(visible_height, display_height);
+}
+
+// What the converter needs to know about the texture it samples.
+struct ConvertSource {
+  // RGB already, from the software decoder, rather than NV12 from VA-API.
+  bool rgb = false;
+  const float* matrix = kBt601Limited;
+  float luma_offset = 0.0f;
+  // The visible part of the sampled texture, in texture coordinates.
+  float crop_x = 0.0f;
+  float crop_y = 0.0f;
+  float crop_width = 1.0f;
+  float crop_height = 1.0f;
+  // The sampled texture's size in texels, and the visible part's in pixels.
+  int32_t texture_width = 0;
+  int32_t texture_height = 0;
+  int32_t visible_width = 0;
+  int32_t visible_height = 0;
+};
+
+// Draws the textures bound on units 0 and 1 into the output, which must already be the
+// `out_width` by `out_height` it should be. The caller holds a GlStateGuard.
+static gboolean aa_video_texture_convert(AaVideoTexture* self, const ConvertSource& source,
+                                         int32_t out_width, int32_t out_height) {
+  glBindFramebuffer(GL_FRAMEBUFFER, self->framebuffer);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self->name,
+                         0);
+  gboolean drawn = FALSE;
+  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+    glViewport(0, 0, out_width, out_height);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_FALSE);
+
+    glBindVertexArray(self->vertex_array);
+    glUseProgram(self->program);
+    glUniform1i(self->uniform_luma, 0);
+    glUniform1i(self->uniform_chroma, 1);
+    glUniform1i(self->uniform_rgb, source.rgb ? 1 : 0);
+    glUniformMatrix3fv(self->uniform_matrix, 1, GL_FALSE, source.matrix);
+    glUniform3f(self->uniform_offset, source.luma_offset, 128.0f / 255.0f,
+                128.0f / 255.0f);
+    glUniform4f(self->uniform_crop, source.crop_x, source.crop_y, source.crop_width,
+                source.crop_height);
+
+    // Each output pixel covers `footprint` source pixels per axis. As many taps as that,
+    // rounded up, spread evenly across it: at exactly two, the taps land on the two
+    // source pixels themselves and the result is their plain average.
+    const float footprint_x = static_cast<float>(source.visible_width) / out_width;
+    const float footprint_y = static_cast<float>(source.visible_height) / out_height;
+    const int taps_x =
+        std::clamp(static_cast<int>(std::ceil(footprint_x - 0.01f)), 1, kMaxTaps);
+    const int taps_y =
+        std::clamp(static_cast<int>(std::ceil(footprint_y - 0.01f)), 1, kMaxTaps);
+    glUniform2i(self->uniform_taps, taps_x, taps_y);
+    glUniform2f(self->uniform_step, footprint_x / taps_x / source.texture_width,
+                footprint_y / taps_y / source.texture_height);
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    drawn = TRUE;
+  } else {
+    g_warning("android_auto: the video conversion framebuffer is not complete.");
+  }
+
+  // Detach before the output texture is handed to Flutter, so nothing is both a render
+  // target and a sampled texture at the same time.
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+  glFlush();
+  return drawn;
 }
 
 static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
@@ -411,19 +573,24 @@ static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
     return FALSE;
   }
 
+  const int32_t visible_width = frame.visible_width();
+  const int32_t visible_height = frame.visible_height();
+  if (visible_width <= 0 || visible_height <= 0) {
+    return FALSE;
+  }
+  int32_t out_width = 0;
+  int32_t out_height = 0;
+  aa_video_texture_output_size(self, visible_width, visible_height, &out_width,
+                               &out_height);
+
   GlStateGuard guard;
 
   // The output texture is bound on a unit of its own, and before the planes rather than
   // after. Every glBindTexture lands on whatever unit is active, so resizing the output
   // while unit 1 was current used to replace the chroma plane with the previous frame:
   // the picture decoded and displayed, in entirely the wrong colours.
-  const int32_t visible_width = frame.visible_width();
-  const int32_t visible_height = frame.visible_height();
-  if (visible_width <= 0 || visible_height <= 0) {
-    return FALSE;
-  }
   glActiveTexture(GL_TEXTURE2);
-  aa_video_texture_resize_output(self, visible_width, visible_height, nullptr);
+  aa_video_texture_resize_output(self, out_width, out_height, nullptr);
 
   glActiveTexture(GL_TEXTURE0);
   const EGLImageKHR luma =
@@ -446,88 +613,102 @@ static gboolean aa_video_texture_draw_dmabuf(AaVideoTexture* self,
     return FALSE;
   }
 
-  glBindFramebuffer(GL_FRAMEBUFFER, self->framebuffer);
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self->name,
-                         0);
-  gboolean drawn = FALSE;
-  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-    glViewport(0, 0, visible_width, visible_height);
-    glDisable(GL_SCISSOR_TEST);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_STENCIL_TEST);
-    glDisable(GL_BLEND);
-    glDisable(GL_CULL_FACE);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    glDepthMask(GL_FALSE);
+  ConvertSource source;
+  const bool bt709 = frame.color_space == aa::ColorSpace::kBt709;
+  source.matrix = frame.full_range ? (bt709 ? kBt709Full : kBt601Full)
+                                   : (bt709 ? kBt709Limited : kBt601Limited);
+  source.luma_offset = frame.full_range ? 0.0f : 16.0f / 255.0f;
+  const float width = static_cast<float>(frame.width);
+  const float height = static_cast<float>(frame.height);
+  source.crop_x = frame.crop_left / width;
+  source.crop_y = frame.crop_top / height;
+  source.crop_width = visible_width / width;
+  source.crop_height = visible_height / height;
+  source.texture_width = frame.width;
+  source.texture_height = frame.height;
+  source.visible_width = visible_width;
+  source.visible_height = visible_height;
+  const gboolean drawn = aa_video_texture_convert(self, source, out_width, out_height);
 
-    glBindVertexArray(self->vertex_array);
-    glUseProgram(self->program);
-    glUniform1i(self->uniform_luma, 0);
-    glUniform1i(self->uniform_chroma, 1);
-
-    const bool bt709 = frame.color_space == aa::ColorSpace::kBt709;
-    const float* matrix = frame.full_range ? (bt709 ? kBt709Full : kBt601Full)
-                                           : (bt709 ? kBt709Limited : kBt601Limited);
-    glUniformMatrix3fv(self->uniform_matrix, 1, GL_FALSE, matrix);
-    const float luma_offset = frame.full_range ? 0.0f : 16.0f / 255.0f;
-    glUniform3f(self->uniform_offset, luma_offset, 128.0f / 255.0f, 128.0f / 255.0f);
-    const float width = static_cast<float>(frame.width);
-    const float height = static_cast<float>(frame.height);
-    glUniform4f(self->uniform_crop, frame.crop_left / width, frame.crop_top / height,
-                visible_width / width, visible_height / height);
-
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    drawn = TRUE;
-  } else {
-    g_warning("android_auto: the video conversion framebuffer is not complete.");
-  }
-
-  // Detach before the output texture is handed to Flutter, so nothing is both a render
-  // target and a sampled texture at the same time.
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
   // The draw is issued, so the images have been consumed as far as the API is
   // concerned. The dmabuf behind them stays alive regardless: the FrameRing holds the
   // decoder's frame until the slot is written again, two frames from now.
-  glFlush();
   eglDestroyImageKHR(display, chroma);
   eglDestroyImageKHR(display, luma);
   return drawn;
 }
 
-// Uploads the visible part of an RGBA frame in host memory into the output texture.
-static void aa_video_texture_upload_rgba(AaVideoTexture* self, const aa::Frame& frame) {
+// Uploads the visible part of an RGBA frame in host memory into `*texture`.
+static void aa_video_texture_upload_visible(GLuint* texture, int32_t* allocated_width,
+                                            int32_t* allocated_height,
+                                            const aa::Frame& frame) {
   const int32_t visible_width = frame.visible_width();
   const int32_t visible_height = frame.visible_height();
-  if (visible_width <= 0 || visible_height <= 0) {
-    return;
-  }
   const uint8_t* first = frame.pixels + static_cast<size_t>(frame.crop_top) * frame.stride +
                          static_cast<size_t>(frame.crop_left) * 4;
-  // Flutter only accepts GL_RGBA8, so producers on this path hand over RGBA and there
-  // is nothing to convert.
   glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
   // Rows that follow on from each other, which is every frame without side margins: a
   // pointer into the first visible row is the whole of the crop.
   if (frame.stride == visible_width * 4) {
-    aa_video_texture_resize_output(self, visible_width, visible_height, first);
+    aa_video_texture_store_rgba(texture, allocated_width, allocated_height, visible_width,
+                                visible_height, first);
     return;
   }
   if (HasUnpackRowLength()) {
     GLint row_length = 0;
     glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_length);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, frame.stride / 4);
-    aa_video_texture_resize_output(self, visible_width, visible_height, first);
+    aa_video_texture_store_rgba(texture, allocated_width, allocated_height, visible_width,
+                                visible_height, first);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, row_length);
     return;
   }
   // GLES 2 without the extension has no way to skip the end of a row, so one row at a
   // time. Slow, and only reachable on a driver too old for the dmabuf path as well.
-  aa_video_texture_resize_output(self, visible_width, visible_height, nullptr);
+  aa_video_texture_store_rgba(texture, allocated_width, allocated_height, visible_width,
+                              visible_height, nullptr);
   for (int32_t row = 0; row < visible_height; ++row) {
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, row, visible_width, 1, GL_RGBA, GL_UNSIGNED_BYTE,
                     first + static_cast<size_t>(row) * frame.stride);
   }
+}
+
+// Puts an RGBA frame in host memory into the output texture. Flutter only accepts
+// GL_RGBA8, so producers on this path hand over RGBA and there is nothing to convert,
+// only, when the picture is drawn smaller than it is, something to shrink.
+static void aa_video_texture_draw_rgba(AaVideoTexture* self, const aa::Frame& frame) {
+  const int32_t visible_width = frame.visible_width();
+  const int32_t visible_height = frame.visible_height();
+  if (visible_width <= 0 || visible_height <= 0) {
+    return;
+  }
+  int32_t out_width = 0;
+  int32_t out_height = 0;
+  aa_video_texture_output_size(self, visible_width, visible_height, &out_width,
+                               &out_height);
+  const bool shrink = out_width != visible_width || out_height != visible_height;
+  if (!shrink || !aa_video_texture_ensure_converter(self)) {
+    aa_video_texture_upload_visible(&self->name, &self->allocated_width,
+                                    &self->allocated_height, frame);
+    return;
+  }
+
+  GlStateGuard guard;
+  // Output on a unit of its own before the source is touched, for the reason given in
+  // aa_video_texture_draw_dmabuf.
+  glActiveTexture(GL_TEXTURE2);
+  aa_video_texture_resize_output(self, out_width, out_height, nullptr);
+  glActiveTexture(GL_TEXTURE0);
+  aa_video_texture_upload_visible(&self->rgb_source, &self->rgb_source_width,
+                                  &self->rgb_source_height, frame);
+  ConvertSource source;
+  source.rgb = true;
+  source.texture_width = visible_width;
+  source.texture_height = visible_height;
+  source.visible_width = visible_width;
+  source.visible_height = visible_height;
+  aa_video_texture_convert(self, source, out_width, out_height);
 }
 
 static gboolean aa_video_texture_populate(FlTextureGL* texture,
@@ -544,7 +725,7 @@ static gboolean aa_video_texture_populate(FlTextureGL* texture,
     if (frame.kind == aa::FrameKind::kDmabuf) {
       aa_video_texture_draw_dmabuf(self, frame);
     } else if (frame.kind == aa::FrameKind::kCpuRgba && frame.pixels != nullptr) {
-      aa_video_texture_upload_rgba(self, frame);
+      aa_video_texture_draw_rgba(self, frame);
     }
     self->ring->ReleaseRead();
   }
@@ -576,8 +757,10 @@ static void aa_video_texture_dispose(GObject* object) {
   self->vertex_array = 0;
   self->plane_textures[0] = 0;
   self->plane_textures[1] = 0;
+  self->rgb_source = 0;
   self->converter_ready = FALSE;
   self->ring = nullptr;
+  self->display_size = nullptr;
   G_OBJECT_CLASS(aa_video_texture_parent_class)->dispose(object);
 }
 
@@ -603,12 +786,21 @@ static void aa_video_texture_init(AaVideoTexture* self) {
   self->uniform_matrix = -1;
   self->uniform_offset = -1;
   self->uniform_crop = -1;
+  self->uniform_taps = -1;
+  self->uniform_step = -1;
+  self->uniform_rgb = -1;
+  self->rgb_source = 0;
+  self->rgb_source_width = 0;
+  self->rgb_source_height = 0;
+  self->display_size = nullptr;
 }
 
-static AaVideoTexture* aa_video_texture_new(aa::FrameRing* ring) {
+static AaVideoTexture* aa_video_texture_new(aa::FrameRing* ring,
+                                            const std::atomic<uint64_t>* display_size) {
   AaVideoTexture* self =
       AA_VIDEO_TEXTURE(g_object_new(aa_video_texture_get_type(), nullptr));
   self->ring = ring;
+  self->display_size = display_size;
   return self;
 }
 
@@ -631,7 +823,7 @@ bool GlAdapter::Register() {
     return false;
   }
 
-  AaVideoTexture* texture = aa_video_texture_new(ring_);
+  AaVideoTexture* texture = aa_video_texture_new(ring_, &display_size_);
   if (!fl_texture_registrar_register_texture(registrar, FL_TEXTURE(texture))) {
     g_object_unref(texture);
     return false;
@@ -655,6 +847,14 @@ bool GlAdapter::NotifyFrameAvailable() {
 }
 
 int64_t GlAdapter::texture_id() const { return texture_id_; }
+
+void GlAdapter::SetDisplaySize(int32_t width, int32_t height) {
+  if (width <= 0 || height <= 0) {
+    display_size_.store(0);
+    return;
+  }
+  display_size_.store((static_cast<uint64_t>(width) << 32) | static_cast<uint32_t>(height));
+}
 
 void GlAdapter::Shutdown() {
   if (texture_ == nullptr) {

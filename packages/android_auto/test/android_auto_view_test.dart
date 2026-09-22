@@ -352,6 +352,27 @@ void main() {
       expect(platform.viewSizes, isEmpty);
     });
 
+    testWidgets('tells the head unit the size the texture is drawn at, in pixels', (
+      tester,
+    ) async {
+      // 1280x720 video letterboxed into an 800x800 logical view on a 2x screen: drawn
+      // 800x450 logical, which is 1600x900 physical, larger than the video.
+      tester.view.physicalSize = const Size(1600, 1600);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      platform.texture = 7;
+      await controller.start();
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(controller: controller),
+        ),
+      );
+      await tester.pump();
+
+      expect(platform.displaySizes.last, '1600x900');
+    });
+
     testWidgets('sends nothing when touch is turned off', (tester) async {
       await pumpView(tester, enableTouch: false);
 

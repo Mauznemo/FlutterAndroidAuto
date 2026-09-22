@@ -96,6 +96,10 @@ Rules that keep this true:
   `{int fd, uint64_t modifier, uint32_t stride, offset, fourcc, width, height}`, plus
   the four edges to crop off, see "Filling a view of any shape" below. The crop is the
   adapter's job, done while sampling, so nothing is ever copied to cut the margins away.
+- The adapter also owns the one scale that happens before Flutter: when the texture is
+  drawn smaller than the picture, it renders at the drawn size and averages every
+  source pixel into it, because Flutter's sampling of an external texture skips pixels
+  when shrinking and the result looks grainy.
 - `FlTextureGL` is referenced in exactly one file, `present/gl_adapter.cc`.
 - The software decode fallback also produces a dmabuf where it can, and only drops to
   `FlPixelBufferTexture` when the driver gives us nothing better.

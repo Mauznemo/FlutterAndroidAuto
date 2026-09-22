@@ -1023,6 +1023,13 @@ void aa_session_set_view_size(AaSession* session, double width, double height) {
   }
 }
 
+void aa_session_set_display_size(AaSession* session, int32_t width, int32_t height) {
+  if (session == nullptr || !session->gl) {
+    return;
+  }
+  session->gl->SetDisplaySize(width, height);
+}
+
 char* aa_session_video_backend(AaSession* session) {
   const std::string name =
       session == nullptr || !session->decoder ? std::string("none")

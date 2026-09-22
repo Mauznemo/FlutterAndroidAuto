@@ -333,6 +333,17 @@ AA_EXPORT int32_t aa_session_video_height(AaSession* session);
 // for a moment. Callable at any time, including before aa_session_start.
 AA_EXPORT void aa_session_set_view_size(AaSession* session, double width, double height);
 
+// Tells the head unit how many physical pixels the texture is drawn across, 0 by 0 when
+// unknown. Not the view's size: the part of it the texture covers after fitting.
+//
+// A rendering hint and nothing more. When the texture is drawn smaller than the video,
+// the head unit shrinks it itself, averaging every source pixel into the one it lands
+// on, and hands Flutter a texture of exactly that size. Flutter's own sampling reads
+// four source pixels per screen pixel whatever the scale, which turns small text and
+// the phone's compression noise into grain.
+AA_EXPORT void aa_session_set_display_size(AaSession* session, int32_t width,
+                                           int32_t height);
+
 // Which decoder is running: "VA-API", "software", or "none" before the first frame.
 // The returned string is heap allocated and must be handed back to aa_string_free.
 AA_EXPORT char* aa_session_video_backend(AaSession* session);

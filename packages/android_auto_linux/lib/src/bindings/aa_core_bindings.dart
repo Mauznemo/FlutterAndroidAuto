@@ -215,6 +215,31 @@ class AaCoreBindings {
   late final _aa_session_set_view_size = _aa_session_set_view_sizePtr
       .asFunction<void Function(ffi.Pointer<AaSession>, double, double)>();
 
+  /// Tells the head unit how many physical pixels the texture is drawn across, 0 by 0 when
+  /// unknown. Not the view's size: the part of it the texture covers after fitting.
+  ///
+  /// A rendering hint and nothing more. When the texture is drawn smaller than the video,
+  /// the head unit shrinks it itself, averaging every source pixel into the one it lands
+  /// on, and hands Flutter a texture of exactly that size. Flutter's own sampling reads
+  /// four source pixels per screen pixel whatever the scale, which turns small text and
+  /// the phone's compression noise into grain.
+  void aa_session_set_display_size(
+    ffi.Pointer<AaSession> session,
+    int width,
+    int height,
+  ) {
+    return _aa_session_set_display_size(session, width, height);
+  }
+
+  late final _aa_session_set_display_sizePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<AaSession>, ffi.Int32, ffi.Int32)
+        >
+      >('aa_session_set_display_size');
+  late final _aa_session_set_display_size = _aa_session_set_display_sizePtr
+      .asFunction<void Function(ffi.Pointer<AaSession>, int, int)>();
+
   /// Which decoder is running: "VA-API", "software", or "none" before the first frame.
   /// The returned string is heap allocated and must be handed back to aa_string_free.
   ffi.Pointer<ffi.Char> aa_session_video_backend(
