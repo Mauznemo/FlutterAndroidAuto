@@ -1210,11 +1210,36 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 - [x] GitHub Actions: build x86_64 and ARM64, run unit tests
 - [x] `README.md` with a real screenshot, quick start, and the licence situation spelled out
 - [x] Dart API docs on every public member
-- [ ] Example app polished enough to serve as the reference integration
+- [x] Example app polished enough to serve as the reference integration
 
-The remaining boxes are ARM64, which needs the device and a Flutter installed from a
-git clone rather than from the x64 only prebuilt archives, and the example app, which
-is one 1375 line `main.dart`: a good test bench, not yet a reference integration.
+The remaining box is ARM64, which needs the device and a Flutter installed from a git
+clone rather than from the x64 only prebuilt archives.
+
+### The example app, from test bench to reference integration
+
+It was one 1375 line `main.dart`: a good test bench, but not something to copy from.
+Now split along the line a reader needs, verified against the Pixel 8 Pro on
+2026-09-23:
+
+| | |
+|---|---|
+| `config.dart` | what the head unit advertises, with the reasons |
+| `head_unit_page.dart` | one controller, one view, the status bar above it and everything else stacked over it |
+| `head_unit/` | what a product would ship: status bar, keys, turn card, call banner, now playing |
+| `bench/` | the dock and the four panels, one open at a time in a shared frame, scrolling when the window is short |
+
+Behaviour that changed rather than moved:
+
+- Start and Stop are one button that follows the connection state.
+- The dock collapses to a handle, so the phone's own controls under it can be reached.
+  Collapsing it, like opening a panel, does not resize the view, and must not: every
+  change of view size makes the phone lay out again and freezes the video for a second.
+- The GPS feed and the PCM tap live on the page rather than in their panels, so closing
+  a panel does not quietly stop either. The PCM tap no longer rebuilds the whole page on
+  every buffer, only its own switch.
+- The Wireless panel starts from the passphrase in the config instead of an empty field,
+  shows it hidden, and remembers edits across closing. Starting wireless from it used to
+  replace the configured passphrase with whatever the empty field held.
 
 ### The bundle did not work anywhere but here
 

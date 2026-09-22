@@ -31,7 +31,7 @@ was taken, never for what the code does now.
 | `packages/android_auto` | app facing API, pure Dart, no GPL code |
 | `packages/android_auto_platform_interface` | the contract, pure Dart, no GPL code |
 | `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
-| `example/` | test bench app, run this to verify anything visually |
+| `example/` | the reference integration and test bench, run this to verify anything visually. `lib/head_unit/` is what a product would ship, `lib/bench/` the diagnostic panels |
 | `tools/` | what a stranger needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `wireless-ap.sh`, and `config/` for the PipeWire drop-in the fourth of those installs |
 | `dev/` | this machine's own tooling, not part of the plugin: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`, `fake-wireless-phone.py`, `audio-graph.sh`, `release.sh` with `release_support.py`, and `dev-environment.md` |
 | `pubspec.yaml` | the workspace root, not a package. Its only content is the member list |
