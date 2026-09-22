@@ -146,11 +146,13 @@ void main() {
     expect(platform.rotarySteps, [3, -1]);
   });
 
-  test('the default config is a 720p30 head unit with the two required sensors', () {
+  test('the default config is a 30 fps head unit with the two required sensors', () {
     const config = AndroidAutoConfig();
 
-    expect(config.width, 1280);
-    expect(config.height, 720);
+    // Left to the head unit, which picks a frame that covers the view.
+    expect(config.width, isNull);
+    expect(config.height, isNull);
+    expect(config.matchViewAspectRatio, isTrue);
     expect(config.fps, 30);
     // Night mode and driving status are the two the phone will not finish opening its
     // interface without.

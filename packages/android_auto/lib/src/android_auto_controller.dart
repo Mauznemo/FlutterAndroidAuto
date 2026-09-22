@@ -138,19 +138,20 @@ class AndroidAutoController extends ChangeNotifier {
   /// Stops the pattern started by [startTestPattern].
   Future<void> stopTestPattern() => _platform.stopTestPattern();
 
-  /// Tells the head unit the size of the view the projection is shown in, so the phone
-  /// can lay its interface out in that shape. See
-  /// [AndroidAutoConfig.matchViewAspectRatio], without which this does nothing.
+  /// Tells the head unit the size of the view the projection is shown in, in physical
+  /// pixels, so the phone can lay its interface out in that shape and be asked for a
+  /// frame big enough for it. See [AndroidAutoConfig.matchViewAspectRatio] and
+  /// [AndroidAutoConfig.width].
   ///
   /// [AndroidAutoView] calls this whenever it is laid out, so an app that uses the view
   /// has nothing to do here. Calling it directly is for a head unit that shows the
   /// texture some other way.
-  void setViewSize(Size size) {
-    if (!config.matchViewAspectRatio || size == _viewSize) {
+  void setViewSize(Size physicalSize) {
+    if (physicalSize == _viewSize) {
       return;
     }
-    _viewSize = size;
-    _platform.setViewSize(size.width, size.height);
+    _viewSize = physicalSize;
+    _platform.setViewSize(physicalSize.width, physicalSize.height);
   }
 
   /// Tells the head unit how many physical pixels the texture is drawn across, so a

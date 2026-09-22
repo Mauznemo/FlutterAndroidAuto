@@ -30,7 +30,7 @@ not a real one.*
 
 ```dart
 final controller = AndroidAutoController(
-  config: const AndroidAutoConfig(width: 1280, height: 720, fps: 30),
+  config: const AndroidAutoConfig(fps: 30),
 );
 
 Column(
@@ -135,8 +135,10 @@ dependencies:
 links aasdk. See [Licence](#licence) below before going further.
 
 The minimum an app needs is a controller and a view. `AndroidAutoConfig` defaults to a
-720p30 head unit that every phone accepts; `width` and `height` must be one of 800x480,
-1280x720, 1920x1080, 2560x1440 or 3840x2160, since the protocol has names for no others.
+30 fps head unit whose frame size follows its view: the smallest of 800x480, 1280x720 and
+1920x1080 that covers it. Set `width` and `height` to pin one instead; they must be one of
+800x480, 1280x720, 1920x1080, 2560x1440 or 3840x2160, since the protocol has names for no
+others.
 Wireless is opt-in, with `transports: {AndroidAutoTransport.usb,
 AndroidAutoTransport.wireless}` and the Wi-Fi passphrase in `AndroidAutoWirelessConfig`.
 

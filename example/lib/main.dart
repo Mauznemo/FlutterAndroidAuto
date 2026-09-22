@@ -38,8 +38,8 @@ class _TestBenchPageState extends State<TestBenchPage> {
   // Not const: the Wi-Fi passphrase below is read from the environment at startup.
   final AndroidAutoController _controller = AndroidAutoController(
     config: AndroidAutoConfig(
-      width: 1280,
-      height: 720,
+      // No width or height: the frame size follows the window, which is the default and
+      // what this bench is for. Name one to pin it, 1920x1080 say.
       fps: 30,
       // Location is in here as well as the two defaults, because a test bench that
       // cannot exercise the GPS sensor cannot tell whether it works. It comes with the

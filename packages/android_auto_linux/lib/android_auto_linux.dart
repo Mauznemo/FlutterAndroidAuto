@@ -210,8 +210,10 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     final carYear = config.carYear.toNativeUtf8();
     try {
       native.ref
-        ..width = config.width
-        ..height = config.height
+        // Zero is the core choosing a size from the view.
+        ..width = config.width ?? 0
+        ..height = config.height ?? 0
+        ..letterbox = config.matchViewAspectRatio ? 0 : 1
         ..fps = config.fps
         ..dpi = config.dpi
         ..head_unit_name = headUnitName.cast()

@@ -55,6 +55,25 @@ struct VideoMargins {
 VideoMargins MarginsForView(int32_t frame_width, int32_t frame_height, double view_width,
                             double view_height);
 
+// A frame size the protocol has a name for.
+struct FrameSize {
+  int32_t width = 0;
+  int32_t height = 0;
+};
+
+// The frame to ask the phone for when the host app left the choice to the head unit:
+// the smallest of 800x480, 1280x720 and 1920x1080 whose visible picture covers a
+// `view_width` by `view_height` view, in physical pixels, to within five percent. So the
+// picture is drawn one to one or shrunk, which the present adapter does well, and never
+// stretched, which nothing can do well: detail the phone never encoded cannot be put
+// back. 1920x1080 for a view larger than that, and 1280x720 while the view has no size.
+//
+// `match_view` says whether the picture will be given the view's shape with margins, as
+// MarginsForView does, or shown whole and letterboxed. The larger sizes the protocol
+// names are left out: nothing here has tried them, and phones are reported to want H.265
+// for them, which the decoder does not ask for.
+FrameSize FrameSizeForView(double view_width, double view_height, bool match_view);
+
 // "1280x552 of 1280x720", for logging.
 std::string DescribeMargins(int32_t frame_width, int32_t frame_height,
                             const VideoMargins& margins);

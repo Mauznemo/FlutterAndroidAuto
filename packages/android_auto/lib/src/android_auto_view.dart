@@ -85,10 +85,11 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Before there is a texture as well as after: the phone is told the shape
-        // when it connects, which is before its first frame.
+        // when it connects, which is before its first frame. Physical pixels, because
+        // the frame size is chosen to cover them.
         final size = constraints.biggest;
         if (size.isFinite && !size.isEmpty) {
-          widget.controller.setViewSize(size);
+          widget.controller.setViewSize(size * View.of(context).devicePixelRatio);
         }
         return _buildProjection(constraints);
       },
@@ -112,8 +113,8 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
         // usually agree, and when they do not it is the phone that is right.
         final info = widget.controller.videoInfo;
         final source = Size(
-          (info?.width ?? widget.controller.config.width).toDouble(),
-          (info?.height ?? widget.controller.config.height).toDouble(),
+          (info?.width ?? widget.controller.config.width ?? 1280).toDouble(),
+          (info?.height ?? widget.controller.config.height ?? 720).toDouble(),
         );
         _source = source;
         _projection = _fitProjection(source, constraints.biggest, widget.fit);

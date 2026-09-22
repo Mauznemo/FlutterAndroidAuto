@@ -190,14 +190,19 @@ class AaCoreBindings {
   late final _aa_session_video_height = _aa_session_video_heightPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
-  /// Tells the head unit the size of the view the projection is drawn in, in any unit,
-  /// since only the shape is used. 0 by 0 forgets it.
+  /// Tells the head unit the size of the view the projection is drawn in, in physical
+  /// pixels. 0 by 0 forgets it.
   ///
-  /// The protocol only has 16:9 frame sizes, so a view of any other shape asks the phone
-  /// to keep margins clear round its interface, and the texture is cropped to what is
-  /// inside them. Read when a phone connects; a change while one is connected asks the
-  /// phone to lay out again, which restarts its video stream once the view has held still
-  /// for a moment. Callable at any time, including before aa_session_start.
+  /// Two things come of it. Unless AaConfig::letterbox is set, the view's shape: the
+  /// protocol only has 16:9 frame sizes, so a view of any other shape asks the phone to
+  /// keep margins clear round its interface, and the texture is cropped to what is inside
+  /// them. And unless AaConfig names a size, the frame itself: the smallest one whose
+  /// picture covers the view, so it is never stretched.
+  ///
+  /// Read when a phone connects. A change of shape while one is connected asks the phone
+  /// to lay out again, which restarts its video stream once the view has held still for a
+  /// moment; a change of size does not change the frame until the next connection.
+  /// Callable at any time, including before aa_session_start.
   void aa_session_set_view_size(
     ffi.Pointer<AaSession> session,
     double width,
@@ -1463,6 +1468,9 @@ final class AaLocation extends ffi.Struct {
 
 /// How the head unit describes itself to the phone during service discovery.
 final class AaConfig extends ffi.Struct {
+  /// The frame the phone encodes. Zero, or either of the two left out, lets the head unit
+  /// pick one per connection from the view's size, see aa_session_set_view_size.
+  ///
   /// The protocol only names five sizes, so width and height together must be 800x480,
   /// 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is advertised as
   /// 1280x720, with a warning in the log.
@@ -1501,6 +1509,12 @@ final class AaConfig extends ffi.Struct {
   /// AA_TRANSPORT_USB, so a host app written before wireless existed keeps working.
   @ffi.Int32()
   external int transports;
+
+  /// Nonzero keeps the phone drawing in the whole 16:9 frame, for the host app to
+  /// letterbox. Zero, the default, has it lay its interface out in the view's shape, see
+  /// aa_session_set_view_size.
+  @ffi.Int32()
+  external int letterbox;
 }
 
 /// The Wi-Fi network a phone is told to join, and where to dial once it is on it.

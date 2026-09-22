@@ -239,8 +239,11 @@ void ApplyAasdkLogLevel() {
 // entry points themselves, which Dart already calls from it.
 struct AaSession {
   struct Config {
-    int32_t width = 1280;
-    int32_t height = 720;
+    // Zero is the head unit choosing, per connection, from the view's size.
+    int32_t width = 0;
+    int32_t height = 0;
+    // Whether the phone draws in the whole 16:9 frame rather than the view's shape.
+    bool letterbox = false;
     int32_t fps = 30;
     int32_t dpi = 140;
     std::string head_unit_name;
@@ -255,11 +258,17 @@ struct AaSession {
 
   explicit AaSession(AaEventCallback callback) : events(callback) {}
 
-  // How this head unit describes itself during service discovery.
-  aa::HeadUnitDescription Describe() const {
+  // How this head unit describes itself during service discovery. Called once per
+  // connection, and it is where an automatic frame size is settled for that connection.
+  aa::HeadUnitDescription Describe() {
     aa::HeadUnitDescription description;
-    description.width = config.width;
-    description.height = config.height;
+    const aa::FrameSize frame = ChooseFrameSize();
+    frame_width = frame.width;
+    frame_height = frame.height;
+    // A size the host app named goes through as named, so that service discovery can
+    // still say so when the protocol has no name for it.
+    description.width = automatic_frame() ? frame.width : config.width;
+    description.height = automatic_frame() ? frame.height : config.height;
     description.fps = config.fps;
     description.dpi = config.dpi;
     description.margins = Margins();
@@ -287,13 +296,33 @@ struct AaSession {
     return description;
   }
 
-  // What the phone should leave clear round its interface for the view as it is now.
-  aa::VideoMargins Margins() const {
-    int32_t frame_width = 0;
-    int32_t frame_height = 0;
-    aa::AdvertisedFrameSize(config.width, config.height, &frame_width, &frame_height);
+  // The test pattern's size, which has no phone to choose one for and no margins.
+  int32_t PatternWidth() const { return automatic_frame() ? 1280 : config.width; }
+  int32_t PatternHeight() const { return automatic_frame() ? 720 : config.height; }
+
+  // Whether the host app left the frame size to the head unit.
+  bool automatic_frame() const { return config.width <= 0 || config.height <= 0; }
+
+  // The frame to ask a connecting phone for.
+  aa::FrameSize ChooseFrameSize() const {
+    if (!automatic_frame()) {
+      aa::FrameSize frame;
+      aa::AdvertisedFrameSize(config.width, config.height, &frame.width, &frame.height);
+      return frame;
+    }
     std::lock_guard<std::mutex> lock(view_mutex);
-    return aa::MarginsForView(frame_width, frame_height, view_width, view_height);
+    return aa::FrameSizeForView(view_width, view_height, !config.letterbox);
+  }
+
+  // What the phone should leave clear round its interface, in the frame of the current
+  // connection, for the view as it is now.
+  aa::VideoMargins Margins() const {
+    if (config.letterbox) {
+      return aa::VideoMargins{};
+    }
+    std::lock_guard<std::mutex> lock(view_mutex);
+    return aa::MarginsForView(frame_width.load(), frame_height.load(), view_width,
+                              view_height);
   }
 
   // The live connection, as a reference of the caller's own. See protocol_mutex.
@@ -309,6 +338,10 @@ struct AaSession {
   mutable std::mutex view_mutex;
   double view_width = 0.0;
   double view_height = 0.0;
+  // The frame the current connection was asked for, or the last one. Settled on an io
+  // thread by Describe and read on the platform thread when the view changes shape.
+  std::atomic<int32_t> frame_width{1280};
+  std::atomic<int32_t> frame_height{720};
   aa::EventBus events;
   aa::FrameRing ring;
   std::unique_ptr<aa::GlAdapter> gl;
@@ -425,8 +458,15 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
   }
   session->reached_connected = false;
 
+  aa::HeadUnitDescription description = session->Describe();
+  if (session->automatic_frame()) {
+    session->events.Emit(session->events.last_state(),
+                         "Picked " + std::to_string(description.width) + "x" +
+                             std::to_string(description.height) +
+                             ", the smallest frame that covers the view.");
+  }
   auto protocol = aa::ProtocolSession::Create(
-      session->io_context, *session->channel_strand, session->Describe(),
+      session->io_context, *session->channel_strand, std::move(description),
       session->decoder, session->audio, session->microphone, session->sensors,
       session->metadata,
       [session, wireless](int state, const std::string& message) {
@@ -649,8 +689,12 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
   ApplyAasdkLogLevel();
   auto* session = new AaSession(on_event);
   if (config != nullptr) {
-    session->config.width = config->width > 0 ? config->width : 1280;
-    session->config.height = config->height > 0 ? config->height : 720;
+    // Both or neither: half a size is not one the protocol has a name for either, and
+    // the head unit choosing is a better answer to it than the 1280x720 fallback.
+    const bool named = config->width > 0 && config->height > 0;
+    session->config.width = named ? config->width : 0;
+    session->config.height = named ? config->height : 0;
+    session->config.letterbox = config->letterbox != 0;
     session->config.fps = config->fps > 0 ? config->fps : 30;
     session->config.dpi = config->dpi > 0 ? config->dpi : 140;
     session->config.head_unit_name = CopyOrEmpty(config->head_unit_name);
@@ -675,7 +719,7 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
         config->transports == 0 ? AA_TRANSPORT_USB : config->transports;
   }
 
-  session->ring.Configure(session->config.width, session->config.height);
+  session->ring.Configure(session->PatternWidth(), session->PatternHeight());
   session->gl = std::make_unique<aa::GlAdapter>(&session->ring);
   session->pattern = std::make_unique<aa::TestPattern>(
       &session->ring, [session]() { session->gl->NotifyFrameAvailable(); });
@@ -1555,7 +1599,7 @@ int32_t aa_session_start_test_pattern(AaSession* session) {
   if (!session->gl->Register()) {
     return -2;
   }
-  session->pattern->Start(session->config.width, session->config.height,
+  session->pattern->Start(session->PatternWidth(), session->PatternHeight(),
                           session->config.fps);
   return 0;
 }

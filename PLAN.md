@@ -262,8 +262,9 @@ Goal: the phone's projected screen appears inside the Flutter app.
       contained addition when Linux moves to Impeller Vulkan
 - [x] Frame pacing: mark texture frame available from the producer, drop late frames
 - [x] Send `VideoFocus` requests so the phone knows the head unit is showing the projection
-- [x] Support 720p30 and 1080p60, both verified against the phone. 800x480 and the
-      portrait sizes are mapped in `service_discovery.cc` but have not been tried.
+- [x] Support 720p30 and 1080p60, both verified against the phone. 800x480 too since
+      2026-09-22, when the automatic frame size picked it for a small window. The
+      portrait sizes are not mapped in `service_discovery.cc` and have not been tried.
 - [ ] Handle resolution changes mid-session without tearing down the texture. The code
       does it by construction (the ring carries the size per frame, the output texture is
       reallocated in place and keeps its id), but the only size change tested so far went
@@ -278,6 +279,10 @@ Goal: the phone's projected screen appears inside the Flutter app.
       against the Pixel 8 Pro under the example app's status bar (1280x676 of 1280x720)
       and in a narrowed window (832x720), VA-API and software decode, fresh connection
       and mid session both ways, with taps landing on Maps' search bar and zoom buttons.
+- [x] Pick the frame size from the view unless the host app names one: the smallest of
+      800x480, 1280x720 and 1920x1080 that covers it, so the picture is never stretched.
+      Verified 2026-09-22: 1280x720 for the default window, 1920x1080 for a 1920 wide
+      one, 800x480 for an 800 wide one with taps landing, and a named 1920x1080 kept.
 
 **Checkpoint met.** Google Maps projected from a Pixel 8 Pro, 1280x720, inside the
 example app, with the Flutter status bar drawn over it and overlay clicks still counting.

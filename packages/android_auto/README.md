@@ -14,7 +14,7 @@ manager tricks. Built for custom car infotainment systems written in Flutter.
 
 ```dart
 final controller = AndroidAutoController(
-  config: const AndroidAutoConfig(width: 1280, height: 720, fps: 30),
+  config: const AndroidAutoConfig(fps: 30),
 );
 
 Column(
@@ -42,9 +42,11 @@ space from the phone rather than covering part of it, with no black bars either 
 happens. `AndroidAutoView` maps its own touches into the projected video, letterboxing
 included, so input needs no wiring.
 
-`width` and `height` must be one of 800x480, 1280x720, 1920x1080, 2560x1440 or
-3840x2160: the protocol has names for no others, and anything else is advertised as
-1280x720 with a warning.
+Left out, `width` and `height` are picked per connection: the smallest of 800x480,
+1280x720 and 1920x1080 whose picture covers the view in physical pixels, so it is never
+stretched. Set both to pin a size instead. They must then be one of 800x480, 1280x720,
+1920x1080, 2560x1440 or 3840x2160: the protocol has names for no others, and anything
+else is advertised as 1280x720 with a warning.
 
 ## What the controller offers
 

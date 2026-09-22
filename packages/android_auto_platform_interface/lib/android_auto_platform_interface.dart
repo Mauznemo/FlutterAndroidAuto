@@ -37,20 +37,30 @@ enum AndroidAutoConnectionState {
 /// The values matter: the phone picks its layout and video encoding from them, and
 /// some of them show up in the phone's own UI.
 class AndroidAutoConfig {
-  /// Projected surface width in pixels.
+  /// Width in pixels of the frame the phone encodes, or null to let the head unit
+  /// choose.
   ///
-  /// The protocol only has names for five sizes, so [width] and [height] together must
-  /// be 800x480, 1280x720, 1920x1080, 2560x1440 or 3840x2160. Anything else is
-  /// advertised to the phone as 1280x720, with a warning in the log, and the phone then
-  /// projects at that size rather than the one asked for.
+  /// Left null, which is the default, the head unit picks per connection the smallest
+  /// of 800x480, 1280x720 and 1920x1080 whose picture covers the view in physical
+  /// pixels. The picture is then shown one to one or shrunk, which the plugin does
+  /// cleanly, and never stretched, which looks soft and blocky whatever does it: detail
+  /// the phone never encoded cannot be put back. The choice is made when a phone
+  /// connects, so a view made much larger afterwards is stretched until the next
+  /// connection.
+  ///
+  /// Set [width] and [height] together to name a size instead. The protocol only has
+  /// names for five, so they must be 800x480, 1280x720, 1920x1080, 2560x1440 or
+  /// 3840x2160. Anything else is advertised to the phone as 1280x720, with a warning in
+  /// the log, and the phone then projects at that size rather than the one asked for.
   ///
   /// All five are 16:9. For a view of another shape, see [matchViewAspectRatio]: this
   /// is then the size of the frame the phone encodes, and what it draws in is the part
   /// of it with the view's shape.
-  final int width;
+  final int? width;
 
-  /// Projected surface height in pixels. See [width] for the sizes the protocol names.
-  final int height;
+  /// Height in pixels of the frame the phone encodes, or null to let the head unit
+  /// choose. See [width].
+  final int? height;
 
   /// Target frame rate the head unit advertises. 30 or 60.
   final int fps;
@@ -131,11 +141,11 @@ class AndroidAutoConfig {
   /// afterwards, which takes effect the next time wireless starts.
   final AndroidAutoWirelessConfig? wireless;
 
-  /// Creates a head unit description. The defaults are a safe 720p30 head unit
-  /// that every phone accepts.
+  /// Creates a head unit description. The defaults are a 30 fps head unit whose frame
+  /// size follows its view, which every phone accepts.
   const AndroidAutoConfig({
-    this.width = 1280,
-    this.height = 720,
+    this.width,
+    this.height,
     this.fps = 30,
     this.dpi = 140,
     this.matchViewAspectRatio = true,
@@ -887,12 +897,13 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// The size and decoder of the incoming video, or null before the first frame.
   Future<AndroidAutoVideoInfo?> get videoInfo async => null;
 
-  /// Tells the head unit the size of the view the projection is shown in.
+  /// Tells the head unit the size of the view the projection is shown in, in physical
+  /// pixels.
   ///
-  /// Only the shape is used, so logical pixels are fine. Callable at any time, before
-  /// [start] included; the size last given is what a connecting phone is told. See
-  /// [AndroidAutoConfig.matchViewAspectRatio], which decides whether anything calls
-  /// this at all. `AndroidAutoView` does, on every layout.
+  /// Its shape decides the margins, see [AndroidAutoConfig.matchViewAspectRatio], and
+  /// its size the frame when [AndroidAutoConfig.width] is left to the head unit.
+  /// Callable at any time, before [start] included; the size last given is what a
+  /// connecting phone is told. `AndroidAutoView` calls it on every layout.
   void setViewSize(double width, double height) {}
 
   /// Tells the head unit how many physical pixels the texture is drawn across: the part

@@ -166,7 +166,9 @@ inside the margins and paints the rest black, and the head unit crops the black 
 again. The texture Flutter gets is exactly the view's shape.
 
 ```
-AndroidAutoView layout ─> aa_session_set_view_size ─> MarginsForView
+AndroidAutoView layout ─> aa_session_set_view_size (physical pixels)
+   ─> FrameSizeForView, unless the host app named a size
+   ─> MarginsForView
    ─> service discovery: width_margin, height_margin
    ─> decoder: crop stamped on every frame of the advertised size
    ─> gl_adapter: samples only the inside, output texture is the visible size

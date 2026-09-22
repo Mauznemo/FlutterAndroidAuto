@@ -332,24 +332,21 @@ void main() {
       expect(platform.viewSizes, ['1280x676', '832x720']);
     });
 
-    testWidgets('keeps its size to itself when the config says not to match it', (
-      tester,
-    ) async {
-      final letterboxed = AndroidAutoController(
-        config: const AndroidAutoConfig(matchViewAspectRatio: false),
-      );
-      addTearDown(letterboxed.dispose);
-      tester.view.physicalSize = const Size(1280, 676);
-      tester.view.devicePixelRatio = 1.0;
+    testWidgets('tells the head unit its size in physical pixels', (tester) async {
+      // The frame is chosen to cover the view's pixels, so logical ones would ask for
+      // half the frame a 2x screen needs.
+      tester.view.physicalSize = const Size(1920, 1016);
+      tester.view.devicePixelRatio = 2.0;
       addTearDown(tester.view.reset);
+      platform.texture = null;
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
-          child: AndroidAutoView(controller: letterboxed),
+          child: AndroidAutoView(controller: controller),
         ),
       );
 
-      expect(platform.viewSizes, isEmpty);
+      expect(platform.viewSizes, ['1920x1016']);
     });
 
     testWidgets('tells the head unit the size the texture is drawn at, in pixels', (

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace aa {
 namespace {
@@ -50,6 +51,32 @@ VideoMargins MarginsForView(int32_t frame_width, int32_t frame_height, double vi
   margins.top = vertical / 2;
   margins.bottom = vertical - margins.top;
   return margins;
+}
+
+FrameSize FrameSizeForView(double view_width, double view_height, bool match_view) {
+  static constexpr FrameSize kCandidates[] = {{800, 480}, {1280, 720}, {1920, 1080}};
+  // How much stretching is let through before a larger frame is worth its cost. Five
+  // percent is not visible; the next size up is more than twice the pixels to encode,
+  // carry and decode.
+  constexpr double kTolerance = 1.05;
+  if (!(view_width > 0.0) || !(view_height > 0.0) || !std::isfinite(view_width) ||
+      !std::isfinite(view_height)) {
+    return {1280, 720};
+  }
+  for (const FrameSize& size : kCandidates) {
+    const VideoMargins margins =
+        match_view ? MarginsForView(size.width, size.height, view_width, view_height)
+                   : VideoMargins{};
+    const double visible_width = size.width - margins.horizontal();
+    const double visible_height = size.height - margins.vertical();
+    // Fitted inside the view the way AndroidAutoView fits it, whole and centred.
+    const double scale =
+        std::min(view_width / visible_width, view_height / visible_height);
+    if (scale <= kTolerance) {
+      return size;
+    }
+  }
+  return kCandidates[std::size(kCandidates) - 1];
 }
 
 std::string DescribeMargins(int32_t frame_width, int32_t frame_height,

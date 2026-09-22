@@ -353,8 +353,16 @@ filtering, and an external texture has no mipmaps. So `AndroidAutoView` reports 
 size it draws at in physical pixels (`aa_session_set_display_size`), and the converter
 renders straight to that size, averaging every source pixel. Measured at 0.67x: a
 quarter less high frequency noise and visibly smooth text. A texture drawn *larger*
-than the video cannot be helped here; that takes a bigger frame from the phone, which
-is `AndroidAutoConfig.width` and `height`.
+than the video cannot be helped here; that takes a bigger frame from the phone.
+
+**So the frame size follows the view unless the host app names one.** With
+`AndroidAutoConfig.width` and `height` left null (0 in `AaConfig`), `FrameSizeForView`
+picks, per connection, the smallest of 800x480, 1280x720 and 1920x1080 whose visible
+picture covers the view's *physical* pixels to within five percent, which is why the
+view reports physical rather than logical pixels. It is settled in `AaSession::Describe`
+and cannot change mid session: a view made larger stays stretched until the phone
+reconnects, while a smaller one is handled by the shrink above. 1440p and 2160p are
+left to a named size, being untried and reportedly H.265 on the phone's side.
 
 ## Audio, and why the head unit is the thing that mixes
 
