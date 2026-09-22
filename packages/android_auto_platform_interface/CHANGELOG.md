@@ -1,3 +1,15 @@
+## 0.1.2
+
+### Added
+
+- fit the projection to a view of any shape
+- pick the frame size from the view
+
+### Fixed
+
+- projection looks grainy when drawn smaller
+- projection blurry after resizing the view
+
 ## 0.1.1
 
 ### Fixed
