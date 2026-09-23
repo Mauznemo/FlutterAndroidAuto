@@ -313,13 +313,15 @@ cat <<SUMMARY
 SUMMARY
 if [ "$PUBLISH_FROM_CI" = "1" ]; then
   cat <<SUMMARY
-    2. build   on CI, both architectures, and stop here if it fails
+    2. build   on CI, Linux on both architectures plus macOS and Windows, and stop
+               here if any of them fails
     3. tag     $TAG and push it
     4. release on GitHub, which triggers the publish workflow over OIDC
 SUMMARY
 else
   cat <<SUMMARY
-    2. build   on CI, both architectures, and stop here if it fails
+    2. build   on CI, Linux on both architectures plus macOS and Windows, and stop
+               here if any of them fails
     3. publish all three to pub.dev, in dependency order    <-- CANNOT BE UNDONE
     4. tag     $TAG and push it
     5. release on GitHub
@@ -348,7 +350,9 @@ fi
 # the remote too, rather than the other way round.
 # --------------------------------------------------------------------------------
 
-# The native build, on a machine that is not this one, before anything is published.
+# Every build, on machines that are not this one, before anything is published: the
+# native Linux build on both architectures, and the example on macOS and Windows, where
+# it runs the simulator. They are one workflow run, so one watch covers them all.
 #
 # This is the gate 0.1.0 did not have. The build used to be triggered *by* the GitHub
 # release, which this script creates after publishing, so it could only ever report on
@@ -395,13 +399,15 @@ ci_gate() {
          dev/release.sh --resume"
   fi
 
-  echo "  watching run $run. x86_64 takes about eight minutes, aarch64 longer."
+  echo "  watching run $run. x86_64 takes about eight minutes, aarch64 longer; macOS"
+  echo "  and Windows build alongside and finish sooner."
   echo "  https://github.com/Mauznemo/FlutterAndroidAuto/actions/runs/$run"
   # --exit-status fails the shell when the run failed, and a run succeeds only when
-  # every matrix leg did, which is what "both architectures" means here.
+  # every job and every matrix leg did: both Linux architectures, macOS and Windows.
   if ! gh run watch "$run" --exit-status; then
-    die "the native build failed. NOTHING has been published, there is no tag and no
-       GitHub release, so there is nothing to clean up.
+    die "a build failed (Linux, macOS or Windows, the run above says which).
+       NOTHING has been published, there is no tag and no GitHub release, so there
+       is nothing to clean up.
 
        The version bump is committed and pushed, which is harmless. Fix what broke,
        commit and push it, then run:
@@ -410,7 +416,7 @@ ci_gate() {
 
        which releases the same version once the build is green."
   fi
-  echo "  build passed on both architectures"
+  echo "  every build passed: Linux x86_64 and aarch64, macOS, Windows"
 }
 
 if [ "$RESUME" = "0" ]; then
@@ -427,10 +433,11 @@ if [ "$RESUME" = "1" ]; then
   echo
   echo "  --resume: the build gate already passed for this release, not rebuilding"
 elif [ "$SKIP_CI" = "1" ]; then
-  warn "skipping the native build on CI (--skip-ci). Publishing is permanent, and this
-       is the only check that compiles the code on a machine other than this one."
+  warn "skipping the builds on CI (--skip-ci). Publishing is permanent, and this is
+       the only check that compiles the code on a machine other than this one, and
+       the only one that compiles it for macOS and Windows at all."
 else
-  step "Native build on a clean machine"
+  step "Builds on clean machines"
   ci_gate "$(git rev-parse HEAD)"
 fi
 

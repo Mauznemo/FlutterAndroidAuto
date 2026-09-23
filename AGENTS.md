@@ -160,8 +160,9 @@ keep it honest:
   every host app test that connects the simulator. Cover art is encoded by hand in
   `simulated_art.dart` for that reason.
 
-CI builds the example on macOS and Windows runners (`desktop` job in `ci.yml`), which is
-the only proof it compiles there.
+`release.yml` builds the example on macOS and Windows runners (the `desktop` job), which
+is the only proof it compiles there. It is kept out of the per push CI on purpose, for
+cost, and `dev/release.sh` gates on it along with the Linux builds.
 
 ## Native build
 
@@ -211,8 +212,8 @@ instead of a rewrite, so prefer extending it over touching call sites.
 
 `dev/release.sh` cuts a release: it bumps the three packages in lockstep, generates a
 changelog per package from the `feat`, `fix` and `refactor` commits that touched it,
-builds both architectures on CI, and only then publishes to pub.dev in dependency order
-and opens a GitHub release. Never run it unless asked to. `--dry-run` does every check
+builds on CI (Linux on both architectures, macOS, Windows), and only then publishes to
+pub.dev in dependency order and opens a GitHub release. Never run it unless asked to. `--dry-run` does every check
 and pushes nothing.
 
 `release.yml` runs on `workflow_dispatch` only. It used to run on `release: published`,

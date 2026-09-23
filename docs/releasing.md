@@ -69,7 +69,8 @@ Nothing before step 8 touches the network except to read.
    warnings as a reason to stop, and this script has just rewritten six files. A
    failure here undoes the commit.
 9. **Asks you to type the version**, then pushes.
-10. **Builds on CI**, both architectures, and stops if it fails. See below.
+10. **Builds on CI**, Linux on both architectures plus the example on macOS and
+    Windows, and stops if any of them fails. See below.
 11. **Publishes** in dependency order, tags, pushes the tag, opens the GitHub release.
 
 ## The build gate, and its fast path
@@ -91,8 +92,14 @@ gh workflow run release.yml --ref main    # go and do something else
 ```
 
 If there is no such run, the script dispatches one and waits, which is about eight
-minutes for x86_64 and longer for aarch64. A run already in progress for that commit is
-joined rather than duplicated.
+minutes for x86_64 and longer for aarch64; macOS and Windows build alongside and finish
+sooner. The script watches the run as a whole, so every job has to pass, and a job added
+to `release.yml` later is gated without touching the script. A run already in progress
+for that commit is joined rather than duplicated.
+
+The macOS and Windows builds live here rather than in `ci.yml` on purpose: those runners
+cost several times a Linux one, and the example compiling there is a release question,
+not a per push one. The simulator's own tests still run on every push, on Linux.
 
 `--skip-ci` exists and should be used only when CI itself is down. It is the only check
 that compiles this code on a machine other than yours, which is precisely the class of

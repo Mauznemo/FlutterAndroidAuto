@@ -1217,8 +1217,8 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 
 The remaining boxes are ARM64, which needs the device and a Flutter installed from a git
 clone rather than from the x64 only prebuilt archives, and the two desktop platforms,
-which need a Mac and a Windows machine (CI's `desktop` job builds both, which proves it
-compiles and nothing more).
+which need a Mac and a Windows machine (the `desktop` job in `release.yml` builds both,
+which proves it compiles and nothing more).
 
 ### macOS and Windows, a simulator rather than a failure
 
