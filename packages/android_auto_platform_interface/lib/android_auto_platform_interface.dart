@@ -8,6 +8,7 @@ library;
 
 import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'src/metadata.dart';
@@ -802,7 +803,7 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
     if (instance == null) {
       throw UnsupportedError(
         'android_auto has no implementation for this platform yet. '
-        'Only Linux is supported today.',
+        'Linux runs a real head unit, macOS and Windows a simulated one.',
       );
     }
     return instance;
@@ -897,6 +898,17 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
 
   /// The size and decoder of the incoming video, or null before the first frame.
   Future<AndroidAutoVideoInfo?> get videoInfo async => null;
+
+  /// What `AndroidAutoView` draws for the projection once [textureId] is known.
+  ///
+  /// A [Texture], which is right for every implementation that decodes real video.
+  /// Overridden only by one that has no native video to show, such as the simulator
+  /// the `android_auto` package runs on macOS and Windows. The view places, sizes and
+  /// clips whatever this returns exactly as it would the texture, and touches on it
+  /// still arrive through [sendTouch] in projected video pixels, so the mapping is the
+  /// same code either way.
+  Widget buildProjection(BuildContext context, int textureId) =>
+      Texture(textureId: textureId);
 
   /// Tells the head unit the size of the view the projection is shown in, in physical
   /// pixels.

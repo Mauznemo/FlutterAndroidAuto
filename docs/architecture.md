@@ -16,6 +16,7 @@
 ┌───────────────────────────────▼──────────────────────────────────────┐
 │  android_auto                 (app facing, pure Dart, no aasdk)      │
 │    AndroidAutoView, AndroidAutoController                            │
+│    AndroidAutoSimulator       the implementation on macOS / Windows  │
 │                                                                      │
 │  android_auto_platform_interface  (pure Dart, no aasdk)              │
 │    AndroidAutoPlatform, config and event models                      │
@@ -220,6 +221,22 @@ What it buys is optionality. A future permissive implementation could be dropped
 without changing a line of host app code, and at that point relicensing the two pure
 Dart packages would be a matter of agreement among their contributors rather than of
 untangling anything.
+
+## The simulator on macOS and Windows
+
+Host apps are mostly written on machines that cannot run the head unit, so
+`android_auto` carries a second implementation of `AndroidAutoPlatform` for macOS and
+Windows: `AndroidAutoSimulator`, pure Dart, registered inline through `dartPluginClass`
+so neither platform ever sees aasdk or a C++ toolchain. It pretends a phone was plugged
+in and behaves like one in every way a host app can observe: the connection states, the
+picture size, touch, keys and the metadata streams.
+
+It needed one seam the texture path did not: `AndroidAutoPlatform.buildProjection`,
+which returns a `Texture` by default and the simulator's drawn screen here. The view
+places, clips and maps touches for it exactly as for the texture, and the touches still
+arrive at the platform through `sendTouch` in projected video pixels, where the
+simulator hit tests them against its own widget tree. So a mis-mapped tap shows up on a
+Mac the same way it would in the car.
 
 ## What makes this different from shelling out to the DHU
 

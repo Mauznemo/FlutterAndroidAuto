@@ -1211,9 +1211,32 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 - [x] `README.md` with a real screenshot, quick start, and the licence situation spelled out
 - [x] Dart API docs on every public member
 - [x] Example app polished enough to serve as the reference integration
+- [x] A pure Dart simulator for macOS and Windows, verified on Linux with `AA_SIMULATE=1`
+- [ ] The example builds and runs against the simulator on macOS
+- [ ] The example builds and runs against the simulator on Windows
 
-The remaining box is ARM64, which needs the device and a Flutter installed from a git
-clone rather than from the x64 only prebuilt archives.
+The remaining boxes are ARM64, which needs the device and a Flutter installed from a git
+clone rather than from the x64 only prebuilt archives, and the two desktop platforms,
+which need a Mac and a Windows machine (the `desktop` job in `release.yml` builds both,
+which proves it compiles and nothing more).
+
+### macOS and Windows, a simulator rather than a failure
+
+Most host apps are developed on a Mac or on Windows and only built for Linux to go into
+the car. Before this, the package had no implementation there at all, so an app using it
+threw on its first call. Now `android_auto` registers `AndroidAutoSimulator` for both,
+inline and pure Dart. Verified on this machine through the example app on 2026-09-23:
+
+- `start()` goes searching, handshaking, connected in about two seconds, and the picture
+  is the size `video_margins.cc` would have picked (1280x680 under the status bar, and
+  780x680 with the rail moved to the bottom once the window was narrowed).
+- Taps on the view reach the pretend phone through `sendTouch`, including the rail, the
+  player and the dialler, and an overlay drawn over the view still takes its own taps.
+- The example's own turn card, now playing bar (with the generated cover art) and call
+  banner all drew from the simulated metadata; Stop cleared them.
+
+The one change outside the simulator is `AndroidAutoPlatform.buildProjection`, which
+the view now calls instead of building a `Texture` itself.
 
 ### The example app, from test bench to reference integration
 

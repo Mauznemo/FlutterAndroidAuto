@@ -1,7 +1,8 @@
 name: CI
 
-# Analyze and test on everything. The native build is in release.yml, because it needs
-# a submodule, a C++ toolchain and two architectures, and none of that has to happen
+# Analyze and test on everything. The builds are in release.yml: the native Linux one
+# needs a submodule, a C++ toolchain and two architectures, and the macOS and Windows
+# ones need runners that cost several times a Linux one, and none of that has to happen
 # before a change to a Dart file is known to be sound.
 #
 # `push` is unfiltered, so a branch with no pull request still gets checked. A branch

@@ -84,6 +84,13 @@ file to read first.
 | Transports | USB (AOAP), and Wi-Fi with Bluetooth for the handshake |
 | Phone calls | over Bluetooth HFP, which is configuration rather than code, see [`docs/echo-cancellation.md`](docs/echo-cancellation.md) |
 
+**On macOS and Windows the package runs a simulator** rather than failing, because that
+is where most Flutter apps are written. `start()` connects a pretend phone that draws a
+labelled stand in for Android Auto, reacts to touches and keys through the same view and
+controller, and sends guidance, now playing and calls on the metadata streams. The whole
+of a host app can be built and tried there and only goes to Linux for the car. See the
+`AndroidAutoSimulator` docs; `AndroidAutoSimulator.registerWith()` puts it on Linux too.
+
 Not there yet: no ARM64 device tested (CI builds it, which is not the same thing), no
 Android implementation, and the notification and media browser channels are
 implemented against the schema but unverified, because the one phone tested never opens
@@ -93,7 +100,7 @@ them.
 
 ```
 packages/
-  android_auto                        app facing API, pure Dart
+  android_auto                        app facing API and the macOS/Windows simulator, pure Dart
   android_auto_platform_interface     the contract, pure Dart
   android_auto_linux                  Linux implementation, links aasdk
 example/                              the reference integration and test bench
@@ -165,7 +172,14 @@ others.
 Wireless is opt-in, with `transports: {AndroidAutoTransport.usb,
 AndroidAutoTransport.wireless}` and the Wi-Fi passphrase in `AndroidAutoWirelessConfig`.
 
-To build this repository and run the example, on Ubuntu or Debian:
+To run the example on macOS or Windows, where it uses the simulator, nothing but
+Flutter is needed:
+
+```bash
+cd example && flutter run -d macos
+```
+
+To build this repository and run the example against a real phone, on Ubuntu or Debian:
 
 ```bash
 git submodule update --init --recursive

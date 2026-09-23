@@ -1,8 +1,10 @@
 name: Release
 
-# The native build only. It needs the aasdk submodule, a C++ toolchain and two
-# architectures, so it is the expensive half of CI and it runs when it is worth paying
-# for: cutting a release, or asking for it by hand.
+# Every build, which is the expensive half of CI, so it runs when it is worth paying
+# for: cutting a release, or asking for it by hand. The native Linux build needs the
+# aasdk submodule, a C++ toolchain and two architectures; the macOS and Windows builds
+# need runners that cost several times a Linux one. dev/release.sh waits for the whole
+# run, so a failure in any job stops a release.
 #
 # `workflow_dispatch` and nothing else, which is deliberate. This used to also run on
 # `release: published`, and that is exactly backwards: dev/release.sh creates the
@@ -14,8 +16,8 @@ name: Release
 # if it fails. Triggering it on the release as well would only add a second, redundant
 # run after the decision had been made.
 #
-# Run it by hand on main after anything touching linux/CMakeLists.txt, the port patch
-# or the submodule pin. A green run on a commit is remembered: releasing that same
+# Run it by hand on main after anything touching linux/CMakeLists.txt, the port patch,
+# the submodule pin, or the simulator and the macOS or Windows runners. A green run on a commit is remembered: releasing that same
 # commit later skips the wait.
 on:
   workflow_dispatch:
@@ -167,3 +169,35 @@ jobs:
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats
+
+  # The real head unit only builds on Linux, but most host apps are written on macOS or
+  # Windows, where the package registers a pure Dart simulator instead. Nothing on a
+  # Linux runner can prove the example still builds there, so this does, before a
+  # release rather than on every push. No submodule: neither platform ever touches
+  # aasdk, and needing it would be the bug.
+  desktop:
+    name: build on ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos
+          - os: windows-latest
+            target: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build the example
+        working-directory: example
+        run: flutter build ${{ matrix.target }} --debug

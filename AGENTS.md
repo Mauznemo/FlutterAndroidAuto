@@ -128,6 +128,7 @@ Release build does not, so they will silently do nothing in a release build:
 | `AA_WIRELESS_FAKE_PHONE=/tmp/aaw.sock` | **debug only.** Listens on a Unix socket and treats a connection to it as the RFCOMM socket BlueZ would have handed over, so the whole wireless path can run with no phone. Drive it with `dev/fake-wireless-phone.py` |
 | `AA_WIRELESS_SSID`, `AA_WIRELESS_PASSPHRASE` | **debug only.** What to tell the phone to join, for a test that cannot stop to type into a text field. A real head unit gets these from its host app |
 | `AA_AUTOSTART=1` | the example app presses its own Start button. Example app only, not the plugin |
+| `AA_SIMULATE=1` | the example app registers `AndroidAutoSimulator` instead of the real head unit, the same pure Dart stand in macOS and Windows always get. Example app only |
 
 Built against Flutter 3.47.4 stable, which on this machine is the snap at
 `~/snap/flutter/common/flutter`. Nothing requires the snap; that is just where it is
@@ -139,6 +140,29 @@ verified no-op, there is no Skia fallback to retreat to. Impeller's Vulkan backe
 Linux desktop is in progress upstream, and the project has to be ready for it, so the
 video pipeline hands Flutter a **dmabuf**, never a raw GL texture. See
 `docs/architecture.md`.
+
+## macOS and Windows, which run a simulator
+
+Most host apps are written on a Mac or a Windows machine, so `android_auto` registers
+`AndroidAutoSimulator` there (inline `dartPluginClass` in its pubspec, no native code,
+aasdk never built). It lives in `packages/android_auto/lib/src/simulator/`. Three rules
+keep it honest:
+
+- **It goes through the same seams as a phone.** The view still maps touches and calls
+  `sendTouch` in projected video pixels; the simulator hit tests them against its own
+  widget tree via `MetaData` targets rather than taking Flutter gestures. The one seam it
+  added is `AndroidAutoPlatform.buildProjection`, which is a `Texture` everywhere else.
+- **Its picture size is `video_margins.cc` ported to Dart** (`frameForView`,
+  `visibleForView`). Change one and change the other, or a layout tried on a Mac is not
+  the layout the car gets.
+- **Nothing in it may need the engine to finish a future.** `Picture.toImage` never
+  completes under `flutter test`, and `package:test` then waits on it forever, which hangs
+  every host app test that connects the simulator. Cover art is encoded by hand in
+  `simulated_art.dart` for that reason.
+
+`release.yml` builds the example on macOS and Windows runners (the `desktop` job), which
+is the only proof it compiles there. It is kept out of the per push CI on purpose, for
+cost, and `dev/release.sh` gates on it along with the Linux builds.
 
 ## Native build
 
@@ -188,8 +212,8 @@ instead of a rewrite, so prefer extending it over touching call sites.
 
 `dev/release.sh` cuts a release: it bumps the three packages in lockstep, generates a
 changelog per package from the `feat`, `fix` and `refactor` commits that touched it,
-builds both architectures on CI, and only then publishes to pub.dev in dependency order
-and opens a GitHub release. Never run it unless asked to. `--dry-run` does every check
+builds on CI (Linux on both architectures, macOS, Windows), and only then publishes to
+pub.dev in dependency order and opens a GitHub release. Never run it unless asked to. `--dry-run` does every check
 and pushes nothing.
 
 `release.yml` runs on `workflow_dispatch` only. It used to run on `release: published`,

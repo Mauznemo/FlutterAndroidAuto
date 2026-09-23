@@ -74,6 +74,17 @@ Linux today, through `android_auto_linux`, over USB or over Wi-Fi. Built and tes
 x86_64; ARM64 is intended and not yet verified. The package layout is federated, so an
 Android implementation can be added without touching this API.
 
+**macOS and Windows run a simulator**, so an app can be developed on the machine most
+Flutter is written on and only built for Linux when it goes into the car. Nothing to set
+up: the same code builds and runs there, and `start()` connects a pretend phone after
+about two seconds. It draws a labelled stand in for Android Auto with a map, a player and
+a dialler, takes touches through `AndroidAutoView` exactly as a phone would, and sends
+turn by turn guidance, now playing with cover art and calls on the metadata streams, so a
+turn card or a call banner can be built against it. It makes no sound, records nothing
+and touches no hardware. `AndroidAutoSimulator.current` drives it from code, for instance
+`startRoute()` or `simulateIncomingCall()`, and a Linux app with no phone to hand can
+opt in by calling `AndroidAutoSimulator.registerWith()` before creating its controller.
+
 ## Setting up a Linux machine
 
 **To build** an app that uses this package, the machine needs the development packages,
