@@ -1,3 +1,9 @@
+## 0.1.3
+
+### Added
+
+- simulator for macos and windows
+
 ## 0.1.2
 
 ### Added
