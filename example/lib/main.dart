@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:io';
+
+import 'package:android_auto/android_auto.dart';
 import 'package:flutter/material.dart';
 
 import 'head_unit_page.dart';
 
-void main() => runApp(const HeadUnitApp());
+void main() {
+  // macOS and Windows get the simulator without asking. This puts it on Linux too, for
+  // working on the app with no phone to hand. An example app knob, not a plugin one.
+  if (Platform.environment['AA_SIMULATE'] == '1') {
+    AndroidAutoSimulator.registerWith();
+  }
+  runApp(const HeadUnitApp());
+}
 
 /// The reference integration for the android_auto plugin.
 ///

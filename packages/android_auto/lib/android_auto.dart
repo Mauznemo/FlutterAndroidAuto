@@ -52,3 +52,4 @@ export 'package:android_auto_platform_interface/android_auto_platform_interface.
 
 export 'src/android_auto_controller.dart';
 export 'src/android_auto_view.dart';
+export 'src/simulator/android_auto_simulator.dart';

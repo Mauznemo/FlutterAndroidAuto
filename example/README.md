@@ -13,6 +13,11 @@ cd example && flutter run -d linux
 
 Then plug a phone in and press **Start**.
 
+On macOS or Windows no submodule and no phone are needed: `flutter run -d macos` or
+`flutter run -d windows` from `example/`, press **Start**, and a simulated phone
+connects. Everything below works against it except the audio, which it does not make.
+`AA_SIMULATE=1` puts the simulator on Linux too.
+
 ## Where to start reading
 
 | File | What |

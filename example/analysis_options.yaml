@@ -2,6 +2,8 @@ analyzer:
   exclude:
     - build/**
     - linux/**
+    - windows/**
+    - macos/**
 include: ../analysis_options.yaml
 
 linter:

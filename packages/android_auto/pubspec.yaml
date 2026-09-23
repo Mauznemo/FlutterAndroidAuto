@@ -27,3 +27,9 @@ flutter:
     platforms:
       linux:
         default_package: android_auto_linux
+      # The real head unit only runs on Linux. These two get a pure Dart simulator, so
+      # a host app can be developed on the machines most people write Flutter on.
+      macos:
+        dartPluginClass: AndroidAutoSimulator
+      windows:
+        dartPluginClass: AndroidAutoSimulator

@@ -136,7 +136,12 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
               children: [
                 Positioned.fromRect(
                   rect: _projection,
-                  child: Texture(textureId: textureId),
+                  // A Texture, except where there is no native video to show:
+                  // the simulator on macOS and Windows draws its own screen here.
+                  child: AndroidAutoPlatform.instance.buildProjection(
+                    context,
+                    textureId,
+                  ),
                 ),
               ],
             ),

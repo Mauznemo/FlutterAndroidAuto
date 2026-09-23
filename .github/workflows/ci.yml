@@ -1,8 +1,9 @@
 name: CI
 
-# Analyze and test on everything. The native build is in release.yml, because it needs
-# a submodule, a C++ toolchain and two architectures, and none of that has to happen
-# before a change to a Dart file is known to be sound.
+# Analyze and test on everything, and build the example on macOS and Windows. The
+# native Linux build is in release.yml, because it needs a submodule, a C++ toolchain
+# and two architectures, and none of that has to happen before a change to a Dart file
+# is known to be sound.
 #
 # `push` is unfiltered, so a branch with no pull request still gets checked. A branch
 # that does have one is therefore checked twice, once for the push and once for the
@@ -75,3 +76,34 @@ jobs:
             fi
           done
           exit $failed
+
+  # The real head unit only builds on Linux, but most host apps are written on macOS or
+  # Windows, where the package registers a pure Dart simulator instead. Nothing on a
+  # Linux runner can prove the example still builds there, so this does. No submodule:
+  # neither platform ever touches aasdk, and needing it would be the bug.
+  desktop:
+    name: build on ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos
+          - os: windows-latest
+            target: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build the example
+        working-directory: example
+        run: flutter build ${{ matrix.target }} --debug
