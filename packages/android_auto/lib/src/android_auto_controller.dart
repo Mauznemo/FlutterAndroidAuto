@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import 'dart:async';
-import 'dart:ui' show Size;
+import 'dart:ui' show PlatformDispatcher, Size;
 
 import 'package:android_auto_platform_interface/android_auto_platform_interface.dart';
 import 'package:flutter/foundation.dart';
@@ -85,7 +85,22 @@ class AndroidAutoController extends ChangeNotifier {
   AndroidAutoVideoInfo? get videoInfo => _videoInfo;
 
   /// Begins looking for a phone.
+  ///
+  /// The phone is asked for a frame size when it connects, and keeps it for the whole
+  /// connection. So when no [AndroidAutoView] has been laid out yet, which is the case
+  /// for a head unit that starts on its own and only shows the view once a phone is
+  /// there, the window's size stands in for the view's. No view can be larger than its
+  /// window, so the frame chosen covers whatever view turns up. A view that is smaller
+  /// or another shape still makes the phone lay out again when it is first laid out,
+  /// so a host app that knows where the view will be should say so with [setViewSize]
+  /// before starting.
   Future<void> start() async {
+    if (_viewSize == null) {
+      final window = PlatformDispatcher.instance.implicitView?.physicalSize;
+      if (window != null && !window.isEmpty) {
+        setViewSize(window);
+      }
+    }
     await _platform.start(config);
     await _refreshVideoState();
   }

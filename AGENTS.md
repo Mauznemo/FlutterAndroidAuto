@@ -397,7 +397,10 @@ picks, per connection, the smallest of 800x480, 1280x720 and 1920x1080 whose vis
 picture covers the view's *physical* pixels to within five percent, which is why the
 view reports physical rather than logical pixels. It is settled in `AaSession::Describe`
 and cannot change mid session: a view made larger stays stretched until the phone
-reconnects, while a smaller one is handled by the shrink above. 1440p and 2160p are
+reconnects, while a smaller one is handled by the shrink above. That is why
+`AndroidAutoController.start` reports the window's size when no view has reported one:
+a head unit that shows the view only once a phone connects otherwise got 1280x720 on
+any screen for the whole connection. 1440p and 2160p are
 left to a named size, being untried and reportedly H.265 on the phone's side.
 
 ## Audio, and why the head unit is the thing that mixes

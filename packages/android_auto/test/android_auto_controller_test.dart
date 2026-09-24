@@ -5,6 +5,8 @@
 // widget that does not repaint on a state change is the failure a head unit shows as a
 // screen that never updates.
 
+import 'dart:ui' show PlatformDispatcher, Size;
+
 import 'package:android_auto/android_auto.dart';
 import 'package:android_auto_platform_interface/android_auto_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +49,33 @@ void main() {
 
     expect(platform.initializedWith, same(config));
     expect(platform.starts, 0);
+  });
+
+  test('start reports the window as the view when no view has reported', () async {
+    // A head unit that starts on its own and shows the view once a phone is there.
+    // The frame is chosen when the phone connects and kept for the connection, so
+    // without a stand in it was 1280x720 on any screen, until the phone reconnected.
+    final window = PlatformDispatcher.instance.implicitView!.physicalSize;
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+
+    await controller.start();
+
+    expect(platform.viewSizes, [
+      '${window.width.round()}x${window.height.round()}',
+    ]);
+  });
+
+  test('start leaves a size a view has reported alone', () async {
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+
+    controller.setViewSize(const Size(1920, 1016));
+    await controller.start();
+    await controller.stop();
+    await controller.start();
+
+    expect(platform.viewSizes, ['1920x1016']);
   });
 
   test('start and stop reach the platform once each', () async {

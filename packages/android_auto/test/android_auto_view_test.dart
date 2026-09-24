@@ -54,6 +54,9 @@ void main() {
     addTearDown(tester.view.reset);
     platform.texture = 7;
     await controller.start();
+    // What start reported for the window, which here is flutter_tester's own and not
+    // the surface above. The expectations are about what the view reports.
+    platform.viewSizes.clear();
     await tester.pumpWidget(
       Directionality(
         textDirection: TextDirection.ltr,
