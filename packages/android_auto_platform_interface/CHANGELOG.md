@@ -1,3 +1,7 @@
+## 0.1.6
+
+No changes. Released alongside the other android_auto packages.
+
 ## 0.1.5
 
 ### Added

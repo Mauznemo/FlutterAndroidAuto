@@ -1,3 +1,9 @@
+## 0.1.6
+
+### Fixed
+
+- 720p frame when no view has been laid out
+
 ## 0.1.5
 
 ### Added
