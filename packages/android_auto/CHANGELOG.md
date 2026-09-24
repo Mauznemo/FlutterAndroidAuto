@@ -1,3 +1,9 @@
+## 0.1.4
+
+### Fixed
+
+- wrong view size inside a scaled canvas
+
 ## 0.1.3
 
 ### Added
