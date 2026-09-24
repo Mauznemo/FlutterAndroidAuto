@@ -471,6 +471,16 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
       session->decoder, session->audio, session->microphone, session->sensors,
       session->metadata,
       [session, wireless](int state, const std::string& message) {
+        // News from a connection that is already being recovered from. Its channels
+        // report their failures on the connected state as the link comes down, a
+        // millisecond after the searching report below, and passing that on put the
+        // session back to connected for the whole of the recovery: a host app showed a
+        // phone as connected that had been unplugged. A new connection only reports
+        // once a device or a dial in has cleared the flag.
+        if (state == AA_STATE_CONNECTED && session->recovering) {
+          session->events.Emit(session->events.last_state(), message);
+          return;
+        }
         if (state == AA_STATE_CONNECTED) {
           session->reached_connected = true;
           session->recovery_attempts = 0;
