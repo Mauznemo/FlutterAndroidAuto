@@ -289,6 +289,19 @@ Goal: the phone's projected screen appears inside the Flutter app.
       one and indistinguishable from a fresh start. A window shrunk slightly likewise
       gets 1220x636 of 1280x720 rather than a resampled, softened picture. 2026-09-22.
 
+- [x] Say when the picture is on screen, not only when the phone is connected
+      (`hasVideo`, GitHub issues #5 and #6), and show the view's placeholder rather than
+      the texture whenever it is false. Verified 2026-09-24 on the cable with the Pixel
+      8 Pro: the picture went live about 700 ms after connected; stop went to the
+      placeholder instead of the frozen last frame coming back; a transport killed with
+      `AA_FAULT_TRANSPORT_AFTER` ended the picture within a millisecond, reported
+      searching for the whole recovery rather than bouncing back to connected, and the
+      picture returned on the new stream's first frame four seconds later.
+- [ ] The same over Wi-Fi, where the gap between connected and the first frame is about
+      twenty seconds. Also unwatched: the picture staying up through a mid session
+      resize (the flush keeps it by construction), and the test pattern going back to
+      the placeholder when stopped.
+
 **Checkpoint met.** Google Maps projected from a Pixel 8 Pro, 1280x720, inside the
 example app, with the Flutter status bar drawn over it and overlay clicks still counting.
 Stop and start resumes video. Measured wire to frame: **0.9 to 1.1 ms on VA-API**, 2.9 ms

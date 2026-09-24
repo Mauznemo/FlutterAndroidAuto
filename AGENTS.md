@@ -801,6 +801,12 @@ code ends at producing an `aasdk::transport::ITransport` and hands it to the sam
   context current first.
 - Texture *registration* must happen on the platform thread (so, from an FFI entry
   point). Only `mark_texture_frame_available` is safe from a producer thread.
+- **The texture outlives every connection, so its id never means there is a picture.**
+  `VideoDecoder::live()` does, and it is `hasVideo` in Dart and what `AndroidAutoView`
+  shows its placeholder by. Anything new that ends a picture goes through the decoder's
+  `Flush` or `Stop`, never straight to the ring, or the view goes on drawing a frozen
+  frame of a phone that has gone. See "When there is a picture" in
+  `docs/architecture.md`.
 - Flutter's `apply_standard_settings` pins C++14, but aasdk headers need C++17, so the
   plugin target raises it afterwards. Do not remove that line.
 - Clang on this machine targets the newest installed GCC. Without a matching
