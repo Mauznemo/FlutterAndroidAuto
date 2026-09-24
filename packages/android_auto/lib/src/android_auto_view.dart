@@ -40,7 +40,11 @@ class AndroidAutoView extends StatefulWidget {
   /// The session to render.
   final AndroidAutoController controller;
 
-  /// Shown while there is no video stream yet.
+  /// Shown whenever there is no live picture from the phone connected now: before the
+  /// first frame, after [AndroidAutoController.stop], and from the moment a connection
+  /// is lost until the next stream's first frame. See [AndroidAutoController.hasVideo].
+  ///
+  /// Nothing, so whatever is behind the view, when left null.
   final Widget? placeholder;
 
   /// How the projected surface is fitted into the available space.
@@ -107,7 +111,10 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
       listenable: widget.controller,
       builder: (context, _) {
         final textureId = widget.controller.textureId;
-        if (textureId == null) {
+        // Not the texture id alone: the texture outlives a connection, and drawing it
+        // then shows the last frame of a phone that has gone, frozen, which looks
+        // exactly like a head unit that has hung.
+        if (textureId == null || !widget.controller.hasVideo) {
           // The projection went away mid gesture, so the fingers it was tracking are
           // not coming back up. Forget them, or the next tap reports itself as a
           // second finger on a screen nothing is touching.

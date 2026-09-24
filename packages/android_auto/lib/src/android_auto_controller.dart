@@ -18,6 +18,7 @@ class AndroidAutoController extends ChangeNotifier {
   AndroidAutoConnectionState _state = AndroidAutoConnectionState.idle;
   String? _message;
   int? _textureId;
+  bool _hasVideo = false;
   AndroidAutoVideoInfo? _videoInfo;
   Size? _viewSize;
   Size? _displaySize;
@@ -60,9 +61,24 @@ class AndroidAutoController extends ChangeNotifier {
   String? get message => _message;
 
   /// Id of the texture carrying the projected video, or null while there is none.
+  ///
+  /// The texture can outlive a connection, so an id is no promise of a picture. Check
+  /// [hasVideo] before showing it, as [AndroidAutoView] does.
   int? get textureId => _textureId;
 
-  /// The size and decoder of the incoming video, or null before the first frame.
+  /// Whether the phone's picture is on screen, which is later than
+  /// [AndroidAutoConnectionState.connected]: a phone connects a few seconds before its
+  /// first frame over a cable, and about twenty over Wi-Fi.
+  ///
+  /// True from the first decoded frame of the current video stream. False before it,
+  /// and again from the moment the phone stops the stream, the connection ends (a lost
+  /// phone, reported as [AndroidAutoConnectionState.searching], included) or [stop] is
+  /// called, until the next stream's first frame. Notifies on every change. This is the
+  /// signal to hide a "connecting" screen on, and the one [AndroidAutoView] shows its
+  /// placeholder by.
+  bool get hasVideo => _hasVideo;
+
+  /// The size and decoder of the incoming video, or null while [hasVideo] is false.
   ///
   /// Prefer this over [config] when laying the projection out: the config is what was
   /// asked for, this is what arrived.
@@ -78,6 +94,7 @@ class AndroidAutoController extends ChangeNotifier {
   Future<void> stop() async {
     await _platform.stop();
     _textureId = null;
+    _hasVideo = false;
     _videoInfo = null;
     notifyListeners();
   }
@@ -136,7 +153,10 @@ class AndroidAutoController extends ChangeNotifier {
   }
 
   /// Stops the pattern started by [startTestPattern].
-  Future<void> stopTestPattern() => _platform.stopTestPattern();
+  Future<void> stopTestPattern() async {
+    await _platform.stopTestPattern();
+    await _refreshVideoState();
+  }
 
   /// Tells the head unit the size of the view the projection is shown in, in physical
   /// pixels, so the phone can lay its interface out in that shape and be asked for a
@@ -470,12 +490,15 @@ class AndroidAutoController extends ChangeNotifier {
   /// Updates received on one metadata channel since the session was created.
   int metadataUpdates(AndroidAutoMetadata kind) => _platform.metadataUpdates(kind);
 
-  /// Re-reads the texture id and the incoming video description from the platform.
+  /// Re-reads the texture id, whether it holds a picture and the incoming video
+  /// description from the platform.
   Future<void> _refreshVideoState() async {
     final id = await _platform.textureId;
+    final live = await _platform.hasVideo;
     final info = await _platform.videoInfo;
-    if (id != _textureId || info != _videoInfo) {
+    if (id != _textureId || live != _hasVideo || info != _videoInfo) {
       _textureId = id;
+      _hasVideo = live;
       _videoInfo = info;
       notifyListeners();
     }
@@ -485,9 +508,10 @@ class AndroidAutoController extends ChangeNotifier {
     _state = event.state;
     _message = event.message;
     notifyListeners();
-    // The texture is registered natively the moment video starts, so an event is the
-    // earliest point at which asking for the id is worthwhile. The video size arrives
-    // later still, on the event the decoder raises once it has a frame.
+    // The texture is registered natively when the session starts, so an event is the
+    // earliest point at which asking for the id is worthwhile. The picture and its size
+    // arrive later still, on the event the decoder raises once it has a frame, and go
+    // on the one it raises when the picture ends.
     _refreshVideoState();
   }
 

@@ -62,6 +62,10 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   /// What [videoInfo] answers.
   AndroidAutoVideoInfo? video;
 
+  /// What [hasVideo] answers, or null to answer whether there is a [texture], so a
+  /// test that only sets the texture sees a picture.
+  bool? live;
+
   final StreamController<AndroidAutoEvent> _events =
       StreamController<AndroidAutoEvent>.broadcast();
 
@@ -89,6 +93,9 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
 
   @override
   Future<int?> get textureId async => texture;
+
+  @override
+  Future<bool> get hasVideo async => live ?? texture != null;
 
   @override
   Future<AndroidAutoVideoInfo?> get videoInfo async => video;

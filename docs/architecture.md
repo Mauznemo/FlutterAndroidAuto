@@ -194,7 +194,35 @@ ones it took; focus is taken again and a new stream starts, laid out for them fr
 first frame. The focus round trip matters. Sent alone, the update re-lays out the
 phone's launcher but leaves the app in front drawn for the old margins, and the stream
 freezes until something else on screen changes. The restart is also what makes the crop
-exact, since the decoder is told the new margins while no frame is in flight.
+exact, since the decoder is told the new margins while no frame is in flight. It is also
+the one stopped stream that does not end the picture, see below.
+
+## When there is a picture
+
+The texture is registered by `aa_session_start` and lives until the session is
+destroyed, across every connection, so its id says nothing about whether it holds
+anything. Connected does not either: the phone reports it at service discovery, a few
+seconds before its first frame over a cable and about twenty over Wi-Fi.
+
+What does is `VideoDecoder::live()`, exposed as `aa_session_video_active` and in Dart as
+`AndroidAutoController.hasVideo`. It goes true when the first frame of a stream is
+published and false on every way a picture can end: the phone stopping the stream, the
+video channel failing, a connection ending (`ProtocolSession::Stop` flushes the
+decoder, and that includes a lost transport reported as searching), and
+`aa_session_stop`. Each change raises an event, which is what makes the Dart side read
+it again, and an end also empties the ring and has `GlAdapter::Clear` put the texture
+back to one transparent pixel, for a host app that draws the texture itself.
+`AndroidAutoView` shows its placeholder whenever it is false, which is what stops it
+drawing a frozen frame of a phone that has gone.
+
+The exception is the stream `VideoChannel::Resize` stops on purpose: the phone restarts
+it within a second or so, and the placeholder flashing up in between would look like a
+dropped connection, so that flush keeps the picture.
+
+A frame decoded from a stream that has since been flushed is dropped rather than
+published. The decoder compares a generation counter, bumped by every flush, with the
+one the packet was taken off the queue under, and publishing and ending the picture hold
+the same lock, so a stale frame cannot land in the ring after it was emptied.
 
 ## Coordinate mapping
 

@@ -134,8 +134,8 @@ int64_t NowMicros() {
       .count();
 }
 
-VideoDecoder::VideoDecoder(FramePublisher publish, LogHandler log)
-    : publish_(std::move(publish)), log_(std::move(log)) {}
+VideoDecoder::VideoDecoder(FramePublisher publish, LogHandler log, LiveHandler on_live)
+    : publish_(std::move(publish)), log_(std::move(log)), on_live_(std::move(on_live)) {}
 
 VideoDecoder::~VideoDecoder() { Stop(); }
 
@@ -181,6 +181,8 @@ void VideoDecoder::Stop() {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.clear();
   }
+  // After the join, so no frame can be published behind it.
+  EndPicture();
 }
 
 void VideoDecoder::SubmitCodecConfig(const uint8_t* data, size_t size) {
@@ -229,14 +231,35 @@ void VideoDecoder::Submit(const uint8_t* data, size_t size, int64_t received_us)
   cv_.notify_one();
 }
 
-void VideoDecoder::Flush() {
+void VideoDecoder::Flush(bool keep_picture) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.clear();
     flush_requested_ = true;
     awaiting_keyframe_ = true;
+    // Whatever the decoder thread is in the middle of belongs to the stream being
+    // flushed, and is dropped when it comes out.
+    generation_.fetch_add(1);
   }
   cv_.notify_one();
+  if (!keep_picture) {
+    EndPicture();
+  }
+}
+
+void VideoDecoder::EndPicture() {
+  bool was_live = false;
+  {
+    std::lock_guard<std::mutex> lock(picture_mutex_);
+    was_live = live_.exchange(false);
+    // The size of a picture that is not there. Left standing, it said a phone was
+    // sending video for as long as the process lived after the first connection.
+    frame_width_.store(0);
+    frame_height_.store(0);
+  }
+  if (was_live && on_live_) {
+    on_live_(false);
+  }
 }
 
 void VideoDecoder::SetMargins(int32_t frame_width, int32_t frame_height,
@@ -286,6 +309,7 @@ void VideoDecoder::Run() {
       } else {
         packet = std::move(queue_.front());
         queue_.pop_front();
+        decoding_generation_ = generation_.load();
       }
     }
 
@@ -483,22 +507,6 @@ void VideoDecoder::DrainFrames() {
     const VideoMargins margins = MarginsFor(frame_->width, frame_->height);
     const int32_t visible_width = frame_->width - margins.horizontal();
     const int32_t visible_height = frame_->height - margins.vertical();
-    // A size change mid stream is legal and does not disturb anything downstream: the
-    // ring carries the size per frame and the output texture is reallocated in place,
-    // so the texture id Flutter holds stays the same. Worth saying out loud, though,
-    // because the host app lays its overlay out from it. New margins on a frame of the
-    // same size count too, since what is shown changes shape.
-    const int32_t previous_width = frame_width_.exchange(visible_width);
-    const int32_t previous_height = frame_height_.exchange(visible_height);
-    const bool resized =
-        previous_width != visible_width || previous_height != visible_height;
-    if (resized) {
-      const std::string size =
-          margins.empty() ? std::to_string(frame_->width) + "x" +
-                                std::to_string(frame_->height)
-                          : DescribeMargins(frame_->width, frame_->height, margins);
-      Log("Video: " + size + ", decoded by the " + backend_name() + " backend.");
-    }
     // What the frame actually is, not what the context was configured for. libavcodec
     // drops to a software format on its own when the hardware decoder will not take the
     // stream, and reporting VA-API in that case would be a lie in the one place someone
@@ -508,21 +516,53 @@ void VideoDecoder::DrainFrames() {
       Log(std::string("The H.264 stream is being decoded by the ") +
           (decoded_in_hardware ? "VA-API" : "software") + " backend.");
     }
-    if (decoded_in_hardware) {
-      PublishHardware(frame_, margins);
-    } else {
-      PublishSoftware(frame_, margins);
+    bool published = false;
+    bool resized = false;
+    bool became_live = false;
+    {
+      std::lock_guard<std::mutex> lock(picture_mutex_);
+      // A frame of a stream flushed while it was being decoded. Publishing it would
+      // put a picture back that the flush has just taken down.
+      if (generation_.load() == decoding_generation_) {
+        published = decoded_in_hardware ? PublishHardware(frame_, margins)
+                                        : PublishSoftware(frame_, margins);
+      }
+      if (published) {
+        // A size change mid stream is legal and does not disturb anything downstream:
+        // the ring carries the size per frame and the output texture is reallocated in
+        // place, so the texture id Flutter holds stays the same. Worth saying out loud,
+        // though, because the host app lays its overlay out from it. New margins on a
+        // frame of the same size count too, since what is shown changes shape, and so
+        // does the first frame of a stream, since the size was cleared when the last
+        // one ended.
+        const int32_t previous_width = frame_width_.exchange(visible_width);
+        const int32_t previous_height = frame_height_.exchange(visible_height);
+        resized = previous_width != visible_width || previous_height != visible_height;
+        became_live = !live_.exchange(true);
+      }
     }
-    frames_decoded_.fetch_add(1);
-    NoteLatency(received_us);
+    if (resized) {
+      const std::string size =
+          margins.empty() ? std::to_string(frame_->width) + "x" +
+                                std::to_string(frame_->height)
+                          : DescribeMargins(frame_->width, frame_->height, margins);
+      Log("Video: " + size + ", decoded by the " + backend_name() + " backend.");
+    }
+    if (became_live && on_live_) {
+      on_live_(true);
+    }
+    if (published) {
+      frames_decoded_.fetch_add(1);
+      NoteLatency(received_us);
+    }
     av_frame_unref(frame_);
   }
 }
 
-void VideoDecoder::PublishHardware(AVFrame* frame, const VideoMargins& margins) {
+bool VideoDecoder::PublishHardware(AVFrame* frame, const VideoMargins& margins) {
   AVFrame* drm = av_frame_alloc();
   if (drm == nullptr) {
-    return;
+    return false;
   }
   drm->format = AV_PIX_FMT_DRM_PRIME;
   // MAP_DIRECT asks for the decoder's own surface rather than a copy. Without it
@@ -535,7 +575,7 @@ void VideoDecoder::PublishHardware(AVFrame* frame, const VideoMargins& margins) 
       Log("VA-API would not export the decoded surface as a dmabuf. Frames will be "
           "dropped until the decoder is reopened on the software backend.");
     }
-    return;
+    return false;
   }
 
   const auto* descriptor = reinterpret_cast<const AVDRMFrameDescriptor*>(drm->data[0]);
@@ -591,7 +631,7 @@ void VideoDecoder::PublishHardware(AVFrame* frame, const VideoMargins& margins) 
       Log("The decoded surface is not a two layer NV12 dmabuf, which the present "
           "adapter cannot import.");
     }
-    return;
+    return false;
   }
 
   // The mapped frame owns the exported file descriptors and holds a reference to the
@@ -601,6 +641,7 @@ void VideoDecoder::PublishHardware(AVFrame* frame, const VideoMargins& margins) 
     av_frame_free(&owned);
   });
   publish_(out, std::move(keepalive));
+  return true;
 }
 
 std::shared_ptr<std::vector<uint8_t>> VideoDecoder::TakeRgbaBuffer(size_t bytes) {
@@ -619,7 +660,7 @@ std::shared_ptr<std::vector<uint8_t>> VideoDecoder::TakeRgbaBuffer(size_t bytes)
   return buffer;
 }
 
-void VideoDecoder::PublishSoftware(AVFrame* frame, const VideoMargins& margins) {
+bool VideoDecoder::PublishSoftware(AVFrame* frame, const VideoMargins& margins) {
   const auto source_format = static_cast<AVPixelFormat>(frame->format);
   if (scaler_ == nullptr || scaler_src_format_ != frame->format ||
       scaler_width_ != frame->width || scaler_height_ != frame->height) {
@@ -637,7 +678,7 @@ void VideoDecoder::PublishSoftware(AVFrame* frame, const VideoMargins& margins) 
     if (scaler_ == nullptr) {
       Log(std::string("Cannot convert ") + av_get_pix_fmt_name(source_format) +
           " frames to RGBA.");
-      return;
+      return false;
     }
   }
 
@@ -656,6 +697,7 @@ void VideoDecoder::PublishSoftware(AVFrame* frame, const VideoMargins& margins) 
   out.pixels = buffer->data();
   out.stride = stride;
   publish_(out, std::shared_ptr<void>(buffer, buffer.get()));
+  return true;
 }
 
 void VideoDecoder::NoteLatency(int64_t received_us) {

@@ -263,7 +263,11 @@ void VideoChannel::onMediaChannelStopIndication(const media_pb::Stop& indication
   session_id_ = -1;
   streaming_ = false;
   if (decoder_) {
-    decoder_->Flush();
+    // A stream stopped because this head unit asked the phone to lay out again keeps
+    // its picture: the next one follows within a second or so, and the view flashing
+    // its placeholder in between would look like a dropped connection. Any other stop
+    // is the phone taking its picture away, and the view should say so.
+    decoder_->Flush(resize_step_ == ResizeStep::kReleasing);
   }
   Log("The phone stopped the video stream.");
   if (resize_step_ == ResizeStep::kReleasing) {
@@ -468,6 +472,11 @@ void VideoChannel::onChannelError(const aasdk::error::Error& error) {
   }
   Log(std::string("Video channel error: ") + error.what());
   Stop();
+  // A channel that has failed sends no more frames, so the picture it was showing is
+  // over even if the rest of the connection carries on.
+  if (decoder_) {
+    decoder_->Flush();
+  }
 }
 
 }  // namespace aa

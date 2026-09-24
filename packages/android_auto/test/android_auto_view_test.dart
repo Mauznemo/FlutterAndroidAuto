@@ -279,6 +279,15 @@ void main() {
   });
 
   group('the view itself', () {
+    /// Lets the controller read the platform after an event, then draws what it found.
+    ///
+    /// The controller was made in setUp, outside the test's fake clock, so the event
+    /// reaches it on the real one and a pump alone never delivers it.
+    Future<void> settle(WidgetTester tester) async {
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+    }
+
     testWidgets('shows the placeholder until there is a texture', (tester) async {
       platform.texture = null;
       await tester.pumpWidget(
@@ -291,6 +300,40 @@ void main() {
         ),
       );
 
+      expect(find.text('waiting for a phone'), findsOneWidget);
+      expect(find.byType(Texture), findsNothing);
+    });
+
+    testWidgets('shows the placeholder while the texture holds no picture', (
+      tester,
+    ) async {
+      // A texture outlives its connection, so an id alone is the last frame of a
+      // phone that has gone.
+      platform
+        ..texture = 7
+        ..live = false;
+      await controller.start();
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: AndroidAutoView(
+            controller: controller,
+            placeholder: const Text('waiting for a phone'),
+          ),
+        ),
+      );
+
+      expect(find.text('waiting for a phone'), findsOneWidget);
+      expect(find.byType(Texture), findsNothing);
+
+      platform.live = true;
+      platform.emit(AndroidAutoConnectionState.connected, 'first frame');
+      await settle(tester);
+      expect(find.byType(Texture), findsOneWidget);
+
+      platform.live = false;
+      platform.emit(AndroidAutoConnectionState.searching, 'lost the link');
+      await settle(tester);
       expect(find.text('waiting for a phone'), findsOneWidget);
       expect(find.byType(Texture), findsNothing);
     });

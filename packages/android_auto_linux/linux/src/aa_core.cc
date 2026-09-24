@@ -471,6 +471,16 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
       session->decoder, session->audio, session->microphone, session->sensors,
       session->metadata,
       [session, wireless](int state, const std::string& message) {
+        // News from a connection that is already being recovered from. Its channels
+        // report their failures on the connected state as the link comes down, a
+        // millisecond after the searching report below, and passing that on put the
+        // session back to connected for the whole of the recovery: a host app showed a
+        // phone as connected that had been unplugged. A new connection only reports
+        // once a device or a dial in has cleared the flag.
+        if (state == AA_STATE_CONNECTED && session->recovering) {
+          session->events.Emit(session->events.last_state(), message);
+          return;
+        }
         if (state == AA_STATE_CONNECTED) {
           session->reached_connected = true;
           session->recovery_attempts = 0;
@@ -739,6 +749,20 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
         // Video news is not a lifecycle change, so it keeps whatever state the session
         // is already in rather than inventing one.
         session->events.Emit(session->events.last_state(), message);
+      },
+      [session](bool live) {
+        if (!live && !session->pattern->running()) {
+          // A picture that has ended is taken off the texture as well as reported, for
+          // a host app that draws the texture itself rather than through the view.
+          session->ring.Reset();
+          session->gl->Clear();
+        }
+        // The event is what makes the Dart side read aa_session_video_active again, so
+        // it goes out whatever the message. The words are for a person reading the log;
+        // nothing should match on them.
+        session->events.Emit(session->events.last_state(),
+                             live ? "The phone's picture is on screen."
+                                  : "The phone's picture has ended.");
       });
   // The present adapter is the only thing that knows whether a dmabuf can be imported,
   // and it only knows once Flutter has drawn once. Asking it lazily, per open, is what
@@ -1021,8 +1045,11 @@ int32_t aa_session_stop(AaSession* session) {
   session->io_context.restart();
   session->running = false;
   session->recovering = false;
-  // Nothing is left to draw, and the last frame is holding a dmabuf open. Let go of it.
+  // Nothing is left to draw, and the last frame is holding a dmabuf open. Let go of it,
+  // and of the picture in the texture, which the decoder has already done if a phone
+  // was projecting but nothing has if it was the test pattern.
   session->ring.Reset();
+  session->gl->Clear();
 
   session->events.Emit(AA_STATE_IDLE);
   return 0;
@@ -1033,6 +1060,16 @@ int64_t aa_session_texture_id(AaSession* session) {
     return -1;
   }
   return session->gl->texture_id();
+}
+
+int32_t aa_session_video_active(AaSession* session) {
+  if (session == nullptr) {
+    return 0;
+  }
+  return (session->decoder && session->decoder->live()) ||
+                 (session->pattern && session->pattern->running())
+             ? 1
+             : 0;
 }
 
 int32_t aa_session_video_width(AaSession* session) {
@@ -1609,7 +1646,16 @@ int32_t aa_session_stop_test_pattern(AaSession* session) {
   if (session == nullptr || !session->pattern) {
     return -1;
   }
+  if (!session->pattern->running()) {
+    return 0;
+  }
   session->pattern->Stop();
+  // Only when the pattern is all there is: a phone whose video superseded it owns the
+  // texture now.
+  if (!session->decoder->live()) {
+    session->ring.Reset();
+    session->gl->Clear();
+  }
   return 0;
 }
 

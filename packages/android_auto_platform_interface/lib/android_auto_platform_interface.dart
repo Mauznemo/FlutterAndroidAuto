@@ -893,13 +893,29 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   Stream<AndroidAutoEvent> get events;
 
   /// Id of the texture the projected video is rendered into, or null while there is
-  /// no video stream.
+  /// none.
+  ///
+  /// A texture that exists is not a texture showing anything: an implementation may
+  /// keep one across connections, as the Linux one does. Whether it holds a picture is
+  /// [hasVideo].
   Future<int?> get textureId;
 
-  /// The size and decoder of the incoming video, or null before the first frame.
+  /// Whether [textureId] holds a live picture from the phone connected now.
+  ///
+  /// True from the first decoded frame of the current video stream, and false before
+  /// it, from the moment the phone stops the stream or the connection ends (a lost
+  /// phone reported as [AndroidAutoConnectionState.searching] included), and after
+  /// [stop], until the next stream's first frame. The test pattern counts as a picture.
+  ///
+  /// Every change must be followed by an event on [events], which is when a caller
+  /// reads this again. The default is right for an implementation whose texture only
+  /// exists while there is video.
+  Future<bool> get hasVideo async => await textureId != null;
+
+  /// The size and decoder of the incoming video, or null while [hasVideo] is false.
   Future<AndroidAutoVideoInfo?> get videoInfo async => null;
 
-  /// What `AndroidAutoView` draws for the projection once [textureId] is known.
+  /// What `AndroidAutoView` draws for the projection once [hasVideo] is true.
   ///
   /// A [Texture], which is right for every implementation that decodes real video.
   /// Overridden only by one that has no native video to show, such as the simulator

@@ -53,6 +53,7 @@ void main() {
       simulator = AndroidAutoSimulator(
         searchTime: const Duration(milliseconds: 10),
         handshakeTime: const Duration(milliseconds: 10),
+        firstFrameTime: const Duration(milliseconds: 10),
       );
       AndroidAutoPlatform.instance = simulator;
       controller = AndroidAutoController(config: config);
@@ -66,7 +67,7 @@ void main() {
 
     Future<void> connect(WidgetTester tester) async {
       await controller.start();
-      await tester.pump(const Duration(milliseconds: 30));
+      await tester.pump(const Duration(milliseconds: 40));
       await tester.pump();
     }
 
@@ -88,8 +89,11 @@ void main() {
         AndroidAutoConnectionState.searching,
         AndroidAutoConnectionState.handshaking,
         AndroidAutoConnectionState.connected,
+        // The first frame, which is news on the connected state rather than a new one.
+        AndroidAutoConnectionState.connected,
       ]);
       expect(controller.textureId, isNotNull);
+      expect(controller.hasVideo, isTrue);
       expect(controller.videoInfo?.width, 1280);
       expect(controller.videoInfo?.height, 680);
       expect(find.text('Simulated phone'), findsOneWidget);
@@ -100,6 +104,28 @@ void main() {
       await tearDownSession(tester);
       expect(controller.state, AndroidAutoConnectionState.idle);
       expect(controller.textureId, isNull);
+      expect(controller.hasVideo, isFalse);
+    });
+
+    testWidgets('the picture comes a moment after connected, as a phone\'s does', (
+      tester,
+    ) async {
+      await pumpView(tester);
+      await controller.start();
+      // Searching and handshaking are done, the first frame is not.
+      await tester.pump(const Duration(milliseconds: 25));
+      await tester.pump();
+
+      expect(controller.state, AndroidAutoConnectionState.connected);
+      expect(controller.hasVideo, isFalse);
+      expect(controller.videoInfo, isNull);
+      expect(find.text('Simulated phone'), findsNothing);
+
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump();
+      expect(controller.hasVideo, isTrue);
+      expect(find.text('Simulated phone'), findsOneWidget);
+      await tearDownSession(tester);
     });
 
     testWidgets('a tap reaches the pretend phone through sendTouch', (tester) async {

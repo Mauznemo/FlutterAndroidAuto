@@ -27,6 +27,7 @@ void main() {
 
     expect(controller.state, AndroidAutoConnectionState.idle);
     expect(controller.textureId, isNull);
+    expect(controller.hasVideo, isFalse);
     expect(controller.videoInfo, isNull);
     expect(controller.message, isNull);
   });
@@ -113,7 +114,72 @@ void main() {
     await controller.stop();
 
     expect(controller.textureId, isNull);
+    expect(controller.hasVideo, isFalse);
     expect(controller.videoInfo, isNull);
+  });
+
+  test('connected is not a picture, the first frame is', () async {
+    // The texture exists from the start of the session and the phone reports
+    // connected well before its first frame, twenty seconds before over Wi-Fi. A host
+    // app hiding its "connecting" screen on either would show an empty one.
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+
+    platform
+      ..texture = 42
+      ..live = false;
+    await controller.start();
+    platform.emit(AndroidAutoConnectionState.connected);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.textureId, 42);
+    expect(controller.hasVideo, isFalse);
+
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    platform.live = true;
+    platform.emit(AndroidAutoConnectionState.connected, 'first frame');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.hasVideo, isTrue);
+    expect(notifications, greaterThan(0));
+  });
+
+  test('a lost phone takes the picture away while the texture stays', () async {
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+
+    platform
+      ..texture = 42
+      ..live = true;
+    await controller.start();
+    expect(controller.hasVideo, isTrue);
+
+    platform.live = false;
+    platform.emit(AndroidAutoConnectionState.searching, 'lost the link');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.textureId, 42);
+    expect(controller.hasVideo, isFalse);
+  });
+
+  test('the event after a stop does not bring the picture back', () async {
+    // The texture outlives the session, so the idle event that follows a stop reads
+    // its id straight back. Only hasVideo says there is nothing in it.
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+
+    platform
+      ..texture = 42
+      ..live = true;
+    await controller.start();
+
+    platform.live = false;
+    await controller.stop();
+    platform.emit(AndroidAutoConnectionState.idle);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.textureId, 42);
+    expect(controller.hasVideo, isFalse);
   });
 
   test('a key press is a down and an up, in that order', () {

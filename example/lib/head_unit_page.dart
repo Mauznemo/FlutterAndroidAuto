@@ -141,7 +141,7 @@ class _HeadUnitPageState extends State<HeadUnitPage> {
               children: [
                 AndroidAutoView(
                   controller: _controller,
-                  placeholder: const ProjectionPlaceholder(),
+                  placeholder: ProjectionPlaceholder(state: _controller.state),
                 ),
                 Column(
                   children: [

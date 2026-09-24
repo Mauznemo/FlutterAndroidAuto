@@ -19,7 +19,9 @@ import 'simulated_screen.dart';
 /// What it does, so the app has something honest to react to:
 ///
 /// * [start] walks through `searching` and `handshaking` to `connected` in about two
-///   seconds, as plugging a phone in would, and [stop] takes it back to `idle`.
+///   seconds, as plugging a phone in would, and [stop] takes it back to `idle`. The
+///   picture follows a moment after `connected`, as a real phone's first frame does,
+///   so an app that hides its "connecting" screen too early finds out here.
 /// * The projection is a drawn stand in for Android Auto: a rail of apps, a map, a
 ///   player and a dialler, laid out for the view's size the way a phone would lay
 ///   out. It is labelled as simulated on screen.
@@ -48,6 +50,9 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
   /// How long the pretend handshake takes.
   final Duration handshakeTime;
 
+  /// How long after connecting the pretend phone's picture appears, see [hasVideo].
+  final Duration firstFrameTime;
+
   final _events = StreamController<AndroidAutoEvent>.broadcast();
   final _navigation = StreamController<AndroidAutoNavigation>.broadcast();
   final _mediaPlayback = StreamController<AndroidAutoMediaInfo>.broadcast();
@@ -63,6 +68,7 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
   final List<Timer> _pending = [];
   Timer? _relayout;
   bool _testPattern = false;
+  bool _streaming = false;
 
   Size _view = Size.zero;
   Size? _frame;
@@ -89,6 +95,7 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
   AndroidAutoSimulator({
     this.searchTime = const Duration(milliseconds: 1200),
     this.handshakeTime = const Duration(milliseconds: 800),
+    this.firstFrameTime = const Duration(milliseconds: 600),
   });
 
   /// Called by the Flutter tooling through `dartPluginClass` on macOS and Windows.
@@ -155,6 +162,10 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
     _state = AndroidAutoConnectionState.connected;
     _phone.connect();
     _emit(AndroidAutoConnectionState.connected, 'Simulated phone projecting at $_size');
+    _after(firstFrameTime, () {
+      _streaming = true;
+      _emit(AndroidAutoConnectionState.connected, 'Simulated: first frame');
+    });
   }
 
   @override
@@ -165,6 +176,7 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
     _pending.clear();
     _relayout?.cancel();
     _testPattern = false;
+    _streaming = false;
     _phone.disconnect();
     _lastNavigation = null;
     _lastMediaInfo = null;
@@ -213,8 +225,13 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
       _connected || _testPattern ? _textureId : null;
 
   @override
+  Future<bool> get hasVideo async => _connected ? _streaming : _testPattern;
+
+  @override
   Future<AndroidAutoVideoInfo?> get videoInfo async {
-    final picture = _connected ? _picture : (_testPattern ? _patternSize : null);
+    final picture = _connected
+        ? (_streaming ? _picture : null)
+        : (_testPattern ? _patternSize : null);
     if (picture == null) {
       return null;
     }
