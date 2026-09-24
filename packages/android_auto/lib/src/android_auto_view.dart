@@ -30,6 +30,12 @@ import 'android_auto_controller.dart';
 /// beside a panel or in any other space the host app has left, and fill it. Put
 /// widgets *beside* the view to take space from the phone, and *over* it to cover part
 /// of what the phone draws.
+///
+/// Sizes are measured in physical pixels with [MediaQuery.devicePixelRatioOf]. A host
+/// app that draws on a fixed design canvas and scales it to the screen (a [FittedBox]
+/// or [Transform.scale] near the root) should publish the ratio inside that canvas in a
+/// [MediaQuery], or the phone is asked for a picture of the wrong size and it is drawn
+/// resampled rather than one to one.
 class AndroidAutoView extends StatefulWidget {
   /// The session to render.
   final AndroidAutoController controller;
@@ -89,7 +95,7 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
         // the frame size is chosen to cover them.
         final size = constraints.biggest;
         if (size.isFinite && !size.isEmpty) {
-          widget.controller.setViewSize(size * View.of(context).devicePixelRatio);
+          widget.controller.setViewSize(size * _pixelRatio(context));
         }
         return _buildProjection(constraints);
       },
@@ -116,7 +122,7 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
           (info?.width ?? widget.controller.config.width ?? 1280).toDouble(),
           (info?.height ?? widget.controller.config.height ?? 720).toDouble(),
         );
-        final pixelRatio = View.of(context).devicePixelRatio;
+        final pixelRatio = _pixelRatio(context);
         _source = source;
         _projection = _snapToPixels(
           _fitProjection(source, constraints.biggest, widget.fit),
@@ -165,6 +171,19 @@ class _AndroidAutoViewState extends State<AndroidAutoView> {
       },
     );
   }
+
+  /// Physical pixels per logical pixel, in this widget's own coordinate space.
+  ///
+  /// From [MediaQuery] rather than [View], because the window's ratio is only this
+  /// widget's ratio when nothing between the two scales the tree. A host app that lays
+  /// out on a fixed design canvas and scales it to the screen, which is common on head
+  /// units with odd screen sizes, publishes the ratio inside its canvas in MediaQuery.
+  /// Reading the window's instead measured a view drawn at 0.948 as if it were 1.0: a
+  /// frame chosen for a picture too big, and a texture shrunk by the converter to one
+  /// size and then resampled by Flutter to another. Where nothing overrides it the two
+  /// are the same number.
+  static double _pixelRatio(BuildContext context) =>
+      MediaQuery.maybeDevicePixelRatioOf(context) ?? View.of(context).devicePixelRatio;
 
   /// [rect] moved and sized onto whole physical pixels.
   ///

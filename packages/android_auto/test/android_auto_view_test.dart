@@ -393,6 +393,72 @@ void main() {
       expect(platform.touches.first.subject.y, 50);
     });
 
+    group('inside a scaled canvas', () {
+      // A host app that lays out on a 1080 wide design canvas and scales it onto a
+      // 1024 wide screen, publishing the ratio inside the canvas in MediaQuery. The
+      // window's own ratio stays 1.0, which is the number the view used to read.
+      const canvas = Size(1080, 607.5);
+      const ratio = 1024 / 1080;
+
+      Future<void> pumpScaled(WidgetTester tester, {int? texture}) async {
+        tester.view.physicalSize = const Size(1024, 576);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        platform.texture = texture;
+        if (texture != null) {
+          await controller.start();
+        }
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: FittedBox(
+              child: SizedBox.fromSize(
+                size: canvas,
+                child: Builder(
+                  builder: (context) => MediaQuery(
+                    data: MediaQuery.of(context).copyWith(devicePixelRatio: ratio),
+                    child: AndroidAutoView(controller: controller),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+      }
+
+      testWidgets('tells the head unit the size it really covers on screen', (
+        tester,
+      ) async {
+        await pumpScaled(tester);
+
+        expect(platform.viewSizes, ['1024x576']);
+      });
+
+      testWidgets('tells the head unit the size the texture is really drawn at', (
+        tester,
+      ) async {
+        await pumpScaled(tester, texture: 7);
+
+        expect(platform.displaySizes.last, '1024x576');
+        // On the screen's pixel grid, not the canvas's.
+        expect(
+          tester.getRect(find.byType(Texture)),
+          const Rect.fromLTWH(0, 0, 1024, 576),
+        );
+      });
+
+      testWidgets('still maps taps into video pixels', (tester) async {
+        await pumpScaled(tester, texture: 7);
+
+        await tester.tapAt(const Offset(512, 288));
+        await tester.pump();
+
+        expect(platform.touches.first.subject.x, 640);
+        expect(platform.touches.first.subject.y, 360);
+      });
+    });
+
     testWidgets('sends nothing when touch is turned off', (tester) async {
       await pumpView(tester, enableTouch: false);
 
