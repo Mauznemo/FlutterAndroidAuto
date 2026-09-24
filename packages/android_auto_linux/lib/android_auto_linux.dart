@@ -107,6 +107,14 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  Future<bool> get hasVideo async {
+    if (_session == nullptr) {
+      return false;
+    }
+    return _bindings.aa_session_video_active(_session) != 0;
+  }
+
+  @override
   Future<AndroidAutoVideoInfo?> get videoInfo async {
     if (_session == nullptr) {
       return null;

@@ -48,8 +48,11 @@ class VideoDecoder {
   using FramePublisher = std::function<void(const Frame&, std::shared_ptr<void>)>;
   // Human readable progress and problems, for the Dart event stream.
   using LogHandler = std::function<void(const std::string&)>;
+  // Told when the picture starts and when it ends, see live(). Called on whichever
+  // thread made the change, never with the decoder's locks held.
+  using LiveHandler = std::function<void(bool live)>;
 
-  VideoDecoder(FramePublisher publish, LogHandler log);
+  VideoDecoder(FramePublisher publish, LogHandler log, LiveHandler on_live);
   ~VideoDecoder();
 
   VideoDecoder(const VideoDecoder&) = delete;
@@ -63,8 +66,9 @@ class VideoDecoder {
   // Starts the decoder thread. Idempotent.
   void Start();
 
-  // Stops the thread and releases the codec. Idempotent, and safe to call from the
-  // platform thread: it never waits on anything but the decoder's own loop.
+  // Stops the thread and releases the codec, which ends the picture. Idempotent, and
+  // safe to call from the platform thread: it never waits on anything but the
+  // decoder's own loop.
   void Stop();
 
   // The phone's SPS/PPS, which arrive out of band before the first frame. Kept so the
@@ -77,8 +81,12 @@ class VideoDecoder {
   void Submit(const uint8_t* data, size_t size, int64_t received_us);
 
   // Throws away everything queued and resets the codec, so the next keyframe starts
-  // clean. Called when the phone stops the stream.
-  void Flush();
+  // clean. Called when the phone stops the stream and when a connection ends.
+  //
+  // Ends the picture too, unless `keep_picture` is set, which is for a stream the head
+  // unit stopped itself to have the phone lay out again: the old picture stays up for
+  // the second that takes rather than the view flashing its placeholder.
+  void Flush(bool keep_picture = false);
 
   // The black the phone was asked to leave round a `frame_width` by `frame_height`
   // frame, cropped off every frame of exactly that size from now on. A frame of any
@@ -90,7 +98,14 @@ class VideoDecoder {
   // "VA-API" or "software", or "none" before the first open.
   std::string backend_name() const;
 
-  // The size of what is shown, which is the decoded frame less its margins.
+  // Whether a frame of the current stream has been handed on, so the texture holds a
+  // picture from the phone that is connected now. False before the first frame, and
+  // again from the moment the stream stops, the connection ends or the decoder stops,
+  // until the next stream's first frame.
+  bool live() const { return live_.load(); }
+
+  // The size of what is shown, which is the decoded frame less its margins. 0 whenever
+  // live() is false.
   int32_t frame_width() const { return frame_width_.load(); }
   int32_t frame_height() const { return frame_height_.load(); }
   uint64_t frames_decoded() const { return frames_decoded_.load(); }
@@ -107,10 +122,13 @@ class VideoDecoder {
   void Close();
   void DecodePacket(const Packet& packet);
   void DrainFrames();
+  // Clears live() and the frame size, and says so if that is news.
+  void EndPicture();
   // The margins to crop off a frame of this size. Decoder thread.
   VideoMargins MarginsFor(int32_t width, int32_t height) const;
-  void PublishHardware(AVFrame* frame, const VideoMargins& margins);
-  void PublishSoftware(AVFrame* frame, const VideoMargins& margins);
+  // Both return whether a frame was actually handed on.
+  bool PublishHardware(AVFrame* frame, const VideoMargins& margins);
+  bool PublishSoftware(AVFrame* frame, const VideoMargins& margins);
   void NoteLatency(int64_t received_us);
   // Recycles one of a handful of RGBA buffers rather than allocating three megabytes
   // per frame. A buffer is free when the ring has let go of the frame that used it.
@@ -119,6 +137,7 @@ class VideoDecoder {
 
   FramePublisher publish_;
   LogHandler log_;
+  LiveHandler on_live_;
   std::function<bool()> dmabuf_probe_;
 
   std::thread thread_;
@@ -129,6 +148,10 @@ class VideoDecoder {
   std::deque<Packet> queue_;
   std::vector<uint8_t> codec_config_;
   bool flush_requested_ = false;
+  // Bumped by every flush and read with the packet that is being decoded, so a frame
+  // of a stream that has since been flushed is dropped rather than published. Written
+  // under mutex_, alongside flush_requested_.
+  std::atomic<uint64_t> generation_{0};
   // Set when the queue overflowed. Everything is discarded until a keyframe arrives,
   // because feeding a decoder half a GOP produces a screen of green blocks rather than
   // a dropped frame.
@@ -151,8 +174,15 @@ class VideoDecoder {
   int32_t scaler_height_ = 0;
   bool hardware_ = false;
   bool open_ = false;
+  // What generation_ was when the packet being decoded was taken off the queue.
+  uint64_t decoding_generation_ = 0;
   std::vector<std::shared_ptr<std::vector<uint8_t>>> rgba_pool_;
 
+  // Held across publishing a frame and across ending the picture, so the two cannot
+  // interleave: a frame of a finished stream landing after the ring has been emptied
+  // would put the old picture straight back.
+  std::mutex picture_mutex_;
+  std::atomic<bool> live_{false};
   std::atomic<int32_t> frame_width_{0};
   std::atomic<int32_t> frame_height_{0};
   std::atomic<uint64_t> frames_decoded_{0};

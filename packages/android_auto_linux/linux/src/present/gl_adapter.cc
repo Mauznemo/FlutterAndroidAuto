@@ -245,6 +245,8 @@ struct _AaVideoTexture {
   // How big the texture is drawn, from GlAdapter::SetDisplaySize, packed as width in the
   // high half and height in the low. Zero while nobody has said.
   const std::atomic<uint64_t>* display_size;
+  // GlAdapter::Clear's request, taken on the next populate.
+  std::atomic<bool>* clear_requested;
   GLuint name;
   // Dimensions the output texture was last allocated at. A change means glTexImage2D
   // instead of the cheaper glTexSubImage2D.
@@ -726,6 +728,14 @@ static gboolean aa_video_texture_populate(FlTextureGL* texture,
   AaVideoTexture* self = AA_VIDEO_TEXTURE(texture);
   aa_video_texture_probe(self);
 
+  // Before the ring is read, so a frame published after the clear was asked for is
+  // drawn rather than wiped.
+  if (self->clear_requested != nullptr && self->clear_requested->exchange(false) &&
+      self->name != 0) {
+    const uint8_t transparent[4] = {0, 0, 0, 0};
+    aa_video_texture_resize_output(self, 1, 1, transparent);
+  }
+
   aa::Frame frame;
   if (self->ring != nullptr && self->ring->AcquireRead(&frame)) {
     if (frame.kind == aa::FrameKind::kDmabuf) {
@@ -767,6 +777,7 @@ static void aa_video_texture_dispose(GObject* object) {
   self->converter_ready = FALSE;
   self->ring = nullptr;
   self->display_size = nullptr;
+  self->clear_requested = nullptr;
   G_OBJECT_CLASS(aa_video_texture_parent_class)->dispose(object);
 }
 
@@ -799,14 +810,17 @@ static void aa_video_texture_init(AaVideoTexture* self) {
   self->rgb_source_width = 0;
   self->rgb_source_height = 0;
   self->display_size = nullptr;
+  self->clear_requested = nullptr;
 }
 
 static AaVideoTexture* aa_video_texture_new(aa::FrameRing* ring,
-                                            const std::atomic<uint64_t>* display_size) {
+                                            const std::atomic<uint64_t>* display_size,
+                                            std::atomic<bool>* clear_requested) {
   AaVideoTexture* self =
       AA_VIDEO_TEXTURE(g_object_new(aa_video_texture_get_type(), nullptr));
   self->ring = ring;
   self->display_size = display_size;
+  self->clear_requested = clear_requested;
   return self;
 }
 
@@ -829,7 +843,8 @@ bool GlAdapter::Register() {
     return false;
   }
 
-  AaVideoTexture* texture = aa_video_texture_new(ring_, &display_size_);
+  AaVideoTexture* texture =
+      aa_video_texture_new(ring_, &display_size_, &clear_requested_);
   if (!fl_texture_registrar_register_texture(registrar, FL_TEXTURE(texture))) {
     g_object_unref(texture);
     return false;
@@ -860,6 +875,11 @@ void GlAdapter::SetDisplaySize(int32_t width, int32_t height) {
     return;
   }
   display_size_.store((static_cast<uint64_t>(width) << 32) | static_cast<uint32_t>(height));
+}
+
+void GlAdapter::Clear() {
+  clear_requested_.store(true);
+  NotifyFrameAvailable();
 }
 
 void GlAdapter::Shutdown() {

@@ -148,8 +148,9 @@ class AaCoreBindings {
   late final _aa_session_stop = _aa_session_stopPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
-  /// The Flutter texture id carrying the projected video, or -1 while there is no video.
-  /// The texture is registered lazily on the first frame.
+  /// The Flutter texture id carrying the projected video, or -1 before the session has
+  /// ever started. Registered by aa_session_start and kept until aa_session_destroy, so it
+  /// outlives every connection: whether it holds a picture is aa_session_video_active.
   int aa_session_texture_id(ffi.Pointer<AaSession> session) {
     return _aa_session_texture_id(session);
   }
@@ -161,8 +162,29 @@ class AaCoreBindings {
   late final _aa_session_texture_id = _aa_session_texture_idPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
+  /// Whether the texture holds a live picture, 1 or 0. 1 from the first decoded frame of
+  /// the current video stream, or while the test pattern runs. 0 before that, and again
+  /// from the moment the phone stops the stream, the connection ends (a transport lost and
+  /// reported as searching included) or the session is stopped, until the next stream's
+  /// first frame. A stream the head unit stops itself, to have the phone lay out again for
+  /// a new view size, does not count as an end.
+  ///
+  /// Every change is announced with an event, so a caller that re-reads this on every
+  /// event is never out of date. When it goes to 0 the texture is emptied too.
+  int aa_session_video_active(ffi.Pointer<AaSession> session) {
+    return _aa_session_video_active(session);
+  }
+
+  late final _aa_session_video_activePtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function(ffi.Pointer<AaSession>)>>(
+        'aa_session_video_active',
+      );
+  late final _aa_session_video_active = _aa_session_video_activePtr
+      .asFunction<int Function(ffi.Pointer<AaSession>)>();
+
   /// Size of the video the phone is actually sending, less the margins it was asked to
-  /// leave, so the size of the texture. 0 before the first frame.
+  /// leave, so the size of the texture. 0 while there is no picture from a phone, so
+  /// before the first frame and from the moment one ends.
   ///
   /// This is not necessarily the size asked for in AaConfig. The phone picks from the
   /// video configurations service discovery advertised, and it may change mid session

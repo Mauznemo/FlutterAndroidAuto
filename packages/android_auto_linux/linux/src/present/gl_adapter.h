@@ -46,6 +46,12 @@ class GlAdapter {
   // the next frame is drawn at the new size.
   void SetDisplaySize(int32_t width, int32_t height);
 
+  // Empties the texture back to what it held before the first frame, one transparent
+  // pixel, the next time Flutter draws it. Called when a picture ends, so a host app
+  // that draws the texture itself is not left showing a frozen frame of a phone that
+  // has gone. Safe from any thread. A frame published after this still wins.
+  void Clear();
+
   // Unregisters the texture. Must run on the platform thread.
   void Shutdown();
 
@@ -65,6 +71,8 @@ class GlAdapter {
   int64_t texture_id_ = -1;
   // Width in the high half, height in the low, so the raster thread reads both at once.
   std::atomic<uint64_t> display_size_{0};
+  // Set by Clear, taken by the raster thread.
+  std::atomic<bool> clear_requested_{false};
 };
 
 }  // namespace aa
