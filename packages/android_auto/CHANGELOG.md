@@ -1,3 +1,13 @@
+## 0.1.5
+
+### Added
+
+- tell when the phone's picture is live
+
+### Fixed
+
+- view shows last frame after stop or lost phone
+
 ## 0.1.4
 
 ### Fixed

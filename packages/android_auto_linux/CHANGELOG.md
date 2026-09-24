@@ -1,3 +1,13 @@
+## 0.1.5
+
+### Added
+
+- tell when the phone's picture is live
+
+### Fixed
+
+- connected state while recovering a lost phone
+
 ## 0.1.4
 
 No changes. Released alongside the other android_auto packages.
