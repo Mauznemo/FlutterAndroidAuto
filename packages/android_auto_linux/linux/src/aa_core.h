@@ -178,13 +178,16 @@ typedef struct {
   int32_t width;
   int32_t height;
   int32_t fps;
+  // The screen density the phone lays out for. Zero or less is read as 140.
+  // aa_session_set_dpi changes it afterwards.
   int32_t dpi;
   const char* head_unit_name;
   const char* car_model;
   const char* car_year;
-  // Which sensors to advertise, an OR of AaSensor bits. Zero is read as the two that
-  // are not optional, AA_SENSOR_NIGHT_MODE and AA_SENSOR_DRIVING_STATUS: a head unit
-  // that answers neither leaves the phone with most of its interface locked.
+  // Which sensors to advertise, an OR of AaSensor bits. AA_SENSOR_NIGHT_MODE and
+  // AA_SENSOR_DRIVING_STATUS are always added, so zero advertises those two: a head
+  // unit that answers neither leaves the phone with most of its interface locked.
+  // aa_session_set_sensors changes it afterwards.
   int32_t sensors;
   // Which metadata channels to advertise, an OR of `1 << AaMetadata`. Negative means
   // the host app did not ask, and is read as navigation, media and telephony: the three
@@ -358,6 +361,23 @@ AA_EXPORT int32_t aa_session_video_height(AaSession* session);
 // frame itself does not change until the next connection.
 // Callable at any time, including before aa_session_start.
 AA_EXPORT void aa_session_set_view_size(AaSession* session, double width, double height);
+
+// Changes the screen density the phone lays out for, as AaConfig::dpi. Zero or less is
+// read as 140.
+//
+// Read when a phone connects, so it applies from the next connection. A phone that is
+// connected now keeps the density it was given. Callable at any time, including before
+// aa_session_start.
+AA_EXPORT void aa_session_set_dpi(AaSession* session, int32_t dpi);
+
+// Changes which sensors the head unit advertises, an OR of AaSensor bits read as
+// AaConfig::sensors is, so the two that are not optional are always added.
+//
+// Read when a phone connects, so it applies from the next connection. A phone that is
+// connected now keeps the sensors it was offered, and a sensor taken out of the set can
+// still be written to; the values are kept and go nowhere until it is offered again.
+// Callable at any time, including before aa_session_start.
+AA_EXPORT void aa_session_set_sensors(AaSession* session, int32_t sensors);
 
 // Tells the head unit how many physical pixels the texture is drawn across, 0 by 0 when
 // unknown. Not the view's size: the part of it the texture covers after fitting.

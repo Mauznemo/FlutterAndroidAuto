@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 
 /// The test bench panels, one open at a time.
-enum BenchPanel { audio, sensors, metadata, wireless }
+enum BenchPanel { audio, display, sensors, metadata, wireless }
 
 /// What every bench panel is drawn in: a title, a close button, and a body that
 /// scrolls when the window is too short to show it whole.

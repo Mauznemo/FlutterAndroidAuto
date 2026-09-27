@@ -10,7 +10,10 @@ import 'package:flutter/foundation.dart';
 /// A host app normally creates one of these for the lifetime of the app and hands it
 /// to an [AndroidAutoView].
 class AndroidAutoController extends ChangeNotifier {
-  /// How the head unit describes itself to the phone.
+  /// How the head unit describes itself to the phone, as the controller was made with.
+  ///
+  /// Stays as it was given: [setDpi] and [setSensors] change what the next phone is
+  /// told without changing this, and [dpi] and [sensors] are what is in effect.
   final AndroidAutoConfig config;
 
   late final StreamSubscription<AndroidAutoEvent> _subscription;
@@ -22,6 +25,8 @@ class AndroidAutoController extends ChangeNotifier {
   AndroidAutoVideoInfo? _videoInfo;
   Size? _viewSize;
   Size? _displaySize;
+  late int _dpi = config.dpi;
+  late Set<AndroidAutoSensor> _sensors = config.sensors;
 
   /// Creates a controller. Nothing is projected until [start] is called.
   ///
@@ -187,6 +192,51 @@ class AndroidAutoController extends ChangeNotifier {
     }
     _viewSize = physicalSize;
     _platform.setViewSize(physicalSize.width, physicalSize.height);
+  }
+
+  /// The screen density the next phone to connect is told to lay out for.
+  ///
+  /// [AndroidAutoConfig.dpi] until [setDpi] changes it. Not necessarily the density of
+  /// the phone connected now, which keeps the one it connected with.
+  int get dpi => _dpi;
+
+  /// Changes the screen density the phone lays out for, which decides how big its text
+  /// and buttons are on the car's screen.
+  ///
+  /// Applies from the next time a phone connects: a phone connected now keeps the
+  /// density it was given. Meant for a setting the driver changes, since only they can
+  /// judge what looks right in their car, without remaking the controller.
+  /// [config] keeps the density the controller was made with.
+  void setDpi(int dpi) {
+    if (dpi == _dpi) {
+      return;
+    }
+    _dpi = dpi;
+    _platform.setDpi(dpi);
+    notifyListeners();
+  }
+
+  /// Which sensors the next phone to connect is told the car has.
+  ///
+  /// [AndroidAutoConfig.sensors] until [setSensors] changes it. Not necessarily what the
+  /// phone connected now was offered, which keeps the set it connected with.
+  Set<AndroidAutoSensor> get sensors => _sensors;
+
+  /// Changes which sensors the head unit tells the phone the car has, for example to
+  /// offer [AndroidAutoSensor.location] only while the driver wants the car's position
+  /// used rather than the phone's.
+  ///
+  /// Applies from the next time a phone connects: a phone connected now keeps the
+  /// sensors it was offered. Night mode and driving status are offered whether named or
+  /// not. Readings set for a sensor that is not offered are kept and go nowhere.
+  /// [config] keeps the sensors the controller was made with.
+  void setSensors(Set<AndroidAutoSensor> sensors) {
+    if (setEquals(sensors, _sensors)) {
+      return;
+    }
+    _sensors = Set.unmodifiable(sensors);
+    _platform.setSensors(_sensors);
+    notifyListeners();
   }
 
   /// Tells the head unit how many physical pixels the texture is drawn across, so a
@@ -382,9 +432,9 @@ class AndroidAutoController extends ChangeNotifier {
 
   /// Reports where the car is.
   ///
-  /// Only meaningful when [AndroidAutoSensor.location] is in
-  /// [AndroidAutoConfig.sensors], and then it matters: the phone has stopped using its
-  /// own receiver and is navigating from these.
+  /// Only meaningful when [AndroidAutoSensor.location] is in [sensors], and then it
+  /// matters: the phone has stopped using its own receiver and is navigating from
+  /// these.
   void setLocation(AndroidAutoLocation location) {
     _platform.setLocation(location);
     notifyListeners();
@@ -434,9 +484,9 @@ class AndroidAutoController extends ChangeNotifier {
 
   /// Which sensors the phone has subscribed to, empty when none is connected.
   ///
-  /// Never the same as [AndroidAutoConfig.sensors]: a phone takes what it wants from
-  /// what was offered, and the gap between the two is the first thing to check when a
-  /// value is being set and nothing on the phone changes.
+  /// Never the same as [sensors]: a phone takes what it wants from what was offered,
+  /// and the gap between the two is the first thing to check when a value is being set
+  /// and nothing on the phone changes.
   Set<AndroidAutoSensor> get sensorSubscriptions => _platform.sensorSubscriptions;
 
   /// Sensor readings written to the phone since the session was created.

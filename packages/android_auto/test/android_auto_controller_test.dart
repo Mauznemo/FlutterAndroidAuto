@@ -78,6 +78,43 @@ void main() {
     expect(platform.viewSizes, ['1920x1016']);
   });
 
+  test('setDpi reaches the platform once per change and leaves config alone', () {
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+
+    controller
+      ..setDpi(140)
+      ..setDpi(180)
+      ..setDpi(180);
+
+    // 140 is what the config already says, so only the change is passed on.
+    expect(platform.dpis, [180]);
+    expect(controller.dpi, 180);
+    expect(controller.config.dpi, 140);
+    expect(notifications, 1);
+  });
+
+  test('setSensors reaches the platform once per change and leaves config alone', () {
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+    const withLocation = {
+      AndroidAutoSensor.nightMode,
+      AndroidAutoSensor.drivingStatus,
+      AndroidAutoSensor.location,
+    };
+
+    controller
+      ..setSensors(controller.config.sensors.toSet())
+      ..setSensors(withLocation)
+      ..setSensors(withLocation.toSet());
+
+    expect(platform.sensorSets, [withLocation]);
+    expect(controller.sensors, withLocation);
+    expect(controller.config.sensors, isNot(contains(AndroidAutoSensor.location)));
+  });
+
   test('start and stop reach the platform once each', () async {
     final controller = AndroidAutoController();
     addTearDown(controller.dispose);

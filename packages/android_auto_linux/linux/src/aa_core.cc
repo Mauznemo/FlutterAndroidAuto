@@ -230,6 +230,18 @@ void ApplyAasdkLogLevel() {
       aasdk::common::ModernLogger::stringToLevel(upper));
 }
 
+// The density to advertise for what the host app asked for. Zero or less is a host app
+// that did not ask.
+int32_t DpiOrDefault(int32_t dpi) { return dpi > 0 ? dpi : 140; }
+
+// The sensors to advertise for what the host app asked for. Zero is a host app that did
+// not ask, not one that wants no sensors at all, and a head unit that does not answer
+// night mode and driving status is one Android Auto will not finish opening its
+// interface for. So those two are the floor, whatever else is asked for.
+aa::SensorMask AdvertisedSensors(int32_t mask) {
+  return static_cast<aa::SensorMask>(mask) | aa::kRequiredSensors;
+}
+
 }  // namespace
 
 // A head unit session.
@@ -246,11 +258,14 @@ struct AaSession {
     // the view.
     bool letterbox = false;
     int32_t fps = 30;
-    int32_t dpi = 140;
+    // The density and the sensors can change after the session is made, from Flutter's
+    // platform thread, and Describe reads them on an io thread. Everything else here is
+    // written once, before either thread exists.
+    std::atomic<int32_t> dpi{140};
     std::string head_unit_name;
     std::string car_model;
     std::string car_year;
-    aa::SensorMask sensors = aa::kRequiredSensors;
+    std::atomic<aa::SensorMask> sensors{aa::kRequiredSensors};
     aa::MetadataMask metadata = aa::kDefaultMetadata;
     // A cable only, until the host app asks for more. Wireless costs a Bluetooth
     // service and an open port, and no head unit should acquire either by accident.
@@ -707,16 +722,11 @@ AaSession* aa_session_create(const AaConfig* config, AaEventCallback on_event) {
     session->config.height = named ? config->height : 0;
     session->config.letterbox = config->letterbox != 0;
     session->config.fps = config->fps > 0 ? config->fps : 30;
-    session->config.dpi = config->dpi > 0 ? config->dpi : 140;
+    session->config.dpi = DpiOrDefault(config->dpi);
     session->config.head_unit_name = CopyOrEmpty(config->head_unit_name);
     session->config.car_model = CopyOrEmpty(config->car_model);
     session->config.car_year = CopyOrEmpty(config->car_year);
-    // Zero is a host app that did not ask, not one that wants no sensors at all. A head
-    // unit with no sensor channel is one Android Auto will not finish opening its
-    // interface for, so the two that are not optional are the floor.
-    session->config.sensors = config->sensors == 0
-                                  ? aa::kRequiredSensors
-                                  : static_cast<aa::SensorMask>(config->sensors);
+    session->config.sensors = AdvertisedSensors(config->sensors);
     // Negative is a host app that did not ask, so it gets the three the phone pushes on
     // its own. Zero is a host app that wants none of them, which is a real choice and
     // not the same thing: unlike the sensors, there is no metadata channel a phone
@@ -1103,6 +1113,25 @@ void aa_session_set_view_size(AaSession* session, double width, double height) {
   if (auto protocol = session->Protocol()) {
     protocol->ResizeVideo(session->Margins());
   }
+}
+
+void aa_session_set_dpi(AaSession* session, int32_t dpi) {
+  if (session == nullptr) {
+    return;
+  }
+  // Read by Describe when the next phone connects. A phone that is projecting keeps the
+  // density it laid out for: telling it mid session would mean a relayout the protocol
+  // has only been seen to do for margins.
+  session->config.dpi = DpiOrDefault(dpi);
+}
+
+void aa_session_set_sensors(AaSession* session, int32_t sensors) {
+  if (session == nullptr) {
+    return;
+  }
+  // The same: service discovery is once per connection, and the sensor channel of the
+  // phone connected now was opened with the set it was offered.
+  session->config.sensors = AdvertisedSensors(sensors);
 }
 
 void aa_session_set_display_size(AaSession* session, int32_t width, int32_t height) {

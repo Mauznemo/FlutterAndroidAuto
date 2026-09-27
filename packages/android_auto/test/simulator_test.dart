@@ -9,6 +9,8 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:android_auto/android_auto.dart';
+// Not exported, and read here only to see the density the pretend phone laid out at.
+import 'package:android_auto/src/simulator/simulated_screen.dart';
 import 'package:android_auto_platform_interface/android_auto_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -125,6 +127,48 @@ void main() {
       await tester.pump();
       expect(controller.hasVideo, isTrue);
       expect(find.text('Simulated phone'), findsOneWidget);
+      await tearDownSession(tester);
+    });
+
+    testWidgets('a new sensor set applies from the next connection', (tester) async {
+      await pumpView(tester);
+      await connect(tester);
+      expect(controller.sensorSubscriptions, {
+        AndroidAutoSensor.nightMode,
+        AndroidAutoSensor.drivingStatus,
+      });
+
+      // Night mode and driving status are offered whether named or not.
+      controller.setSensors({AndroidAutoSensor.location});
+      expect(
+        controller.sensorSubscriptions,
+        isNot(contains(AndroidAutoSensor.location)),
+      );
+
+      await controller.stop();
+      await connect(tester);
+      expect(controller.sensorSubscriptions, {
+        AndroidAutoSensor.nightMode,
+        AndroidAutoSensor.drivingStatus,
+        AndroidAutoSensor.location,
+      });
+      await tearDownSession(tester);
+    });
+
+    testWidgets('a new density applies from the next connection', (tester) async {
+      await pumpView(tester);
+      await connect(tester);
+      int screenDpi() =>
+          tester.widget<SimulatedScreen>(find.byType(SimulatedScreen)).dpi;
+      expect(screenDpi(), 140);
+
+      controller.setDpi(200);
+      await tester.pump();
+      expect(screenDpi(), 140);
+
+      await controller.stop();
+      await connect(tester);
+      expect(screenDpi(), 200);
       await tearDownSession(tester);
     });
 

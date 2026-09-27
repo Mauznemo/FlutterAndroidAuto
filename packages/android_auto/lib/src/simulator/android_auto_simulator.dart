@@ -74,6 +74,15 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
   Size? _frame;
   Size? _picture;
 
+  /// What [setDpi] and [setSensors] last asked for, or null to follow the config.
+  int? _dpi;
+  Set<AndroidAutoSensor>? _sensors;
+
+  /// What the pretend phone was given when it connected, which is what it keeps until
+  /// the next connection whatever is asked for meanwhile, as a real phone does.
+  int _connectionDpi = const AndroidAutoConfig().dpi;
+  Set<AndroidAutoSensor> _connectionSensors = const {};
+
   AndroidAutoNavigation? _lastNavigation;
   AndroidAutoMediaInfo? _lastMediaInfo;
   AndroidAutoPhoneStatus? _lastPhoneStatus;
@@ -158,6 +167,16 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
         ? Size(width.toDouble(), height.toDouble())
         : frameForView(_view, _config.matchViewAspectRatio);
     _picture = _pictureFor(_frame!);
+    // Zero or less is a head unit that did not say, read as 140 as the real one does.
+    final dpi = _dpi ?? _config.dpi;
+    _connectionDpi = dpi > 0 ? dpi : 140;
+    // Night mode and driving status are offered whether named or not, as by the real
+    // head unit.
+    _connectionSensors = {
+      AndroidAutoSensor.nightMode,
+      AndroidAutoSensor.drivingStatus,
+      ...(_sensors ?? _config.sensors),
+    };
     _phone.night = nightMode;
     _state = AndroidAutoConnectionState.connected;
     _phone.connect();
@@ -253,8 +272,14 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
     if (!_connected || picture == null) {
       return const SimulatedTestPattern();
     }
-    return SimulatedScreen(phone: _phone, picture: picture, dpi: _config.dpi);
+    return SimulatedScreen(phone: _phone, picture: picture, dpi: _connectionDpi);
   }
+
+  @override
+  void setDpi(int dpi) => _dpi = dpi;
+
+  @override
+  void setSensors(Set<AndroidAutoSensor> sensors) => _sensors = Set.of(sensors);
 
   @override
   void setViewSize(double width, double height) {
@@ -361,7 +386,7 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
     if (!_connected || pointers.isEmpty) {
       return;
     }
-    final scale = SimulatedScreen.layoutScale(_config.dpi);
+    final scale = SimulatedScreen.layoutScale(_connectionDpi);
     final fingers = {
       for (final point in pointers)
         point.id: Offset(point.x * scale, point.y * scale),
@@ -504,7 +529,7 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
   /// The pretend phone takes everything it is offered.
   @override
   Set<AndroidAutoSensor> get sensorSubscriptions =>
-      _connected ? _config.sensors : const <AndroidAutoSensor>{};
+      _connected ? _connectionSensors : const <AndroidAutoSensor>{};
 
   @override
   int get sensorBatches => _sensorBatches;

@@ -47,6 +47,12 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   /// Every display size the head unit was told, oldest first, as `widthxheight`.
   final List<String> displaySizes = [];
 
+  /// Every density the head unit was told after it was made, oldest first.
+  final List<int> dpis = [];
+
+  /// Every sensor set the head unit was told after it was made, oldest first.
+  final List<Set<AndroidAutoSensor>> sensorSets = [];
+
   /// How many times [start] has been called.
   int starts = 0;
 
@@ -106,6 +112,12 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
 
   @override
   void setDisplaySize(int width, int height) => displaySizes.add('${width}x$height');
+
+  @override
+  void setDpi(int dpi) => dpis.add(dpi);
+
+  @override
+  void setSensors(Set<AndroidAutoSensor> sensors) => sensorSets.add(sensors);
 
   @override
   void sendTouch(
