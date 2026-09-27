@@ -6,6 +6,7 @@ import 'package:android_auto/android_auto.dart';
 import 'package:flutter/material.dart';
 
 import 'bench/audio_panel.dart';
+import 'bench/display_panel.dart';
 import 'bench/dock.dart';
 import 'bench/location_feed.dart';
 import 'bench/metadata_panel.dart';
@@ -207,6 +208,8 @@ class _HeadUnitPageState extends State<HeadUnitPage> {
           pcmTap: _pcmTap,
           onClose: onClose,
         );
+      case BenchPanel.display:
+        return DisplayPanel(controller: _controller, onClose: onClose);
       case BenchPanel.sensors:
         return SensorPanel(
           controller: _controller,

@@ -114,6 +114,7 @@ class Dock extends StatelessWidget {
                 onPressed: onTogglePattern,
               ),
               _panelButton(BenchPanel.audio, 'Audio', Icons.tune),
+              _panelButton(BenchPanel.display, 'Display', Icons.aspect_ratio),
               _panelButton(BenchPanel.sensors, 'Sensors', Icons.sensors),
               _panelButton(BenchPanel.metadata, 'Metadata', Icons.info_outline),
               _panelButton(

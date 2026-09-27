@@ -87,6 +87,16 @@ class _SensorPanelState extends State<SensorPanel> {
             onChanged: (value) => widget.location.enabled = value,
           ),
         ),
+        PanelSwitch(
+          title: 'Offer GPS',
+          subtitle: 'Advertise the location sensor, from the next connection',
+          value: _controller.sensors.contains(AndroidAutoSensor.location),
+          onChanged: (offer) => _controller.setSensors(
+            offer
+                ? {..._controller.sensors, AndroidAutoSensor.location}
+                : _controller.sensors.difference({AndroidAutoSensor.location}),
+          ),
+        ),
         Row(
           spacing: 10,
           children: [
@@ -96,7 +106,8 @@ class _SensorPanelState extends State<SensorPanel> {
         ),
         const PanelSection('What the phone sees'),
         PanelNote(
-          'Advertised: ${_controller.config.sensors.map((s) => s.name).join(", ")}',
+          'Advertised next connection: '
+          '${_controller.sensors.map((s) => s.name).join(", ")}',
         ),
         PanelNote(
           'Subscribed: '
