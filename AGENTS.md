@@ -493,9 +493,10 @@ turns those values into protobuf.
   The phone subscribes to what is offered and then waits. For location it is worse than
   waiting: it **stops using its own receiver** the moment the head unit claims a
   position, so advertising it without feeding it takes navigation away from a phone that
-  was managing perfectly well. The advertised set is `AndroidAutoConfig.sensors`, read
-  once at service discovery, defaulting to night mode and driving status. A subscription
-  to anything outside it is answered `STATUS_INVALID_SENSOR` rather than accepted.
+  was managing perfectly well. The advertised set is `AndroidAutoConfig.sensors` until
+  `setSensors` replaces it, read once per connection at service discovery, and night
+  mode and driving status are always in it. A subscription to anything outside it is
+  answered `STATUS_INVALID_SENSOR` rather than accepted.
 - **A sensor the host app has never set is not sent at all.** Not sent as zero: the
   difference between a car with no fix yet and a car in the Atlantic. Same inside a
   reading, where an unknown altitude is an absent field rather than sea level. Dart

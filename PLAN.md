@@ -301,6 +301,10 @@ Goal: the phone's projected screen appears inside the Flutter app.
       twenty seconds. Also unwatched: the picture staying up through a mid session
       resize (the flush keeps it by construction), and the test pattern going back to
       the placeholder when stopped.
+- [x] Change the density on a live controller (`setDpi`, GitHub issue #8), from the next
+      connection. Verified 2026-09-27 on the cable with the Pixel 8 Pro: moved from 140
+      to 200 while projecting, the phone kept its layout; after a stop and a start service
+      discovery said 200 and the phone's interface came back visibly larger.
 
 **Checkpoint met.** Google Maps projected from a Pixel 8 Pro, 1280x720, inside the
 example app, with the Flutter status bar drawn over it and overlay clicks still counting.
@@ -858,6 +862,12 @@ host app says what the car is doing and the phone acts on it.
 - [x] Dart API to push sensor values, with sensible defaults if the app pushes nothing
 - [ ] Confirm what a phone does when an advertised sensor is never fed. Reasoned about
       at length and designed against, never actually measured.
+- [x] Change the advertised sensors on a live controller (`setSensors`, GitHub issue #9),
+      from the next connection. Verified 2026-09-27 on the cable with the Pixel 8 Pro:
+      location taken out while projecting left the phone subscribed to it; after a stop
+      and a start it was gone from service discovery, the phone subscribed to night mode
+      and driving status only, and its map went back to its own receiver while the
+      bench went on feeding a fix nothing asked for.
 
 **Checkpoint met.** Night mode flips the phone's map between its light and dark themes.
 Moving puts "Während der Fahrt nur Spracheingabe" in the Maps search bar and takes the
@@ -919,8 +929,9 @@ Not "prefers": stops. So a head unit that advertises `SENSOR_LOCATION` and then 
 sends a fix has taken navigation away from a phone that was managing perfectly well, and
 it has done it silently.
 
-Which is why the advertised set is `AndroidAutoConfig.sensors`, read once at service
-discovery, and why it defaults to the two that are not optional rather than to
+Which is why the advertised set is `AndroidAutoConfig.sensors`, or whatever
+`setSensors` last replaced it with, read once per connection at service discovery, and
+why it defaults to the two that are not optional rather than to
 everything. It is the host app declaring what the car has. A subscription to anything
 outside that set is answered with `STATUS_INVALID_SENSOR` rather than accepted, because
 a phone told no falls back to what it can do itself and a phone told yes waits.
