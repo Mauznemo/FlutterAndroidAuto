@@ -51,6 +51,12 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   int _displayWidth = 0;
   int _displayHeight = 0;
 
+  /// The density and the sensors the host app changed after making its config, or null
+  /// while it has not. Held for the same reason again, and preferred to the config's
+  /// when the session is made.
+  int? _dpi;
+  Set<AndroidAutoSensor>? _advertisedSensors;
+
   /// What the car is doing, held here for the same reason the audio settings are: a
   /// host app that sets the parking brake before it ever starts a session should not
   /// lose it, and the core only exists from [start] onwards. Replayed into each new
@@ -154,6 +160,25 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  void setDpi(int dpi) {
+    _dpi = dpi;
+    if (_session != nullptr) {
+      _bindings.aa_session_set_dpi(_session, dpi);
+    }
+  }
+
+  @override
+  void setSensors(Set<AndroidAutoSensor> sensors) {
+    _advertisedSensors = Set.of(sensors);
+    if (_session != nullptr) {
+      _bindings.aa_session_set_sensors(_session, _sensorMask(sensors));
+    }
+  }
+
+  static int _sensorMask(Set<AndroidAutoSensor> sensors) =>
+      sensors.fold(0, (mask, sensor) => mask | sensor.bit);
+
+  @override
   Future<void> initialize(AndroidAutoConfig config) async {
     _createSession(config);
     if (_session == nullptr) {
@@ -223,11 +248,11 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
         ..height = config.height ?? 0
         ..letterbox = config.matchViewAspectRatio ? 0 : 1
         ..fps = config.fps
-        ..dpi = config.dpi
+        ..dpi = _dpi ?? config.dpi
         ..head_unit_name = headUnitName.cast()
         ..car_model = carModel.cast()
         ..car_year = carYear.cast()
-        ..sensors = config.sensors.fold(0, (mask, sensor) => mask | sensor.bit)
+        ..sensors = _sensorMask(_advertisedSensors ?? config.sensors)
         ..metadata = config.metadata.fold(0, (mask, kind) => mask | kind.bit)
         ..transports = config.transports.fold(0, (mask, one) => mask | one.bit);
 

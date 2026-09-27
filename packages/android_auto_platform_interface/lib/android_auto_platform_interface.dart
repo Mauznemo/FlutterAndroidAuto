@@ -66,7 +66,11 @@ class AndroidAutoConfig {
   /// Target frame rate the head unit advertises. 30 or 60.
   final int fps;
 
-  /// Screen density the phone should lay out for.
+  /// Screen density the phone should lay out for, which decides how big its text and
+  /// buttons are on the car's screen.
+  ///
+  /// Read when a phone connects. [AndroidAutoPlatform.setDpi] changes it afterwards,
+  /// from the next connection.
   final int dpi;
 
   /// Whether the phone lays its interface out to fit the view it is shown in.
@@ -97,10 +101,11 @@ class AndroidAutoConfig {
 
   /// Which sensors this head unit tells the phone the car has.
   ///
-  /// Read once, when the session starts, because service discovery happens once per
-  /// connection. The two defaults are the ones that are not optional: a head unit that
-  /// cannot answer the driving status subscription leaves the phone with most of its
-  /// interface locked.
+  /// Read when a phone connects, because service discovery happens once per connection.
+  /// [AndroidAutoPlatform.setSensors] changes it afterwards, from the next connection.
+  /// The two defaults are the ones that are not optional, and are offered even when
+  /// left out: a head unit that cannot answer the driving status subscription leaves
+  /// the phone with most of its interface locked.
   ///
   /// Add to it only for sensors the app will actually feed, through
   /// [AndroidAutoPlatform.setLocation] and its neighbours. Offering one and then never
@@ -944,6 +949,23 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// small text and compression noise look grainy. `AndroidAutoView` calls this on every
   /// layout.
   void setDisplaySize(int width, int height) {}
+
+  /// Changes the screen density the phone lays out for, as [AndroidAutoConfig.dpi] does.
+  ///
+  /// Applies from the next time a phone connects: a phone connected now keeps the
+  /// density it was given. Callable at any time, before [start] included, and the value
+  /// last given replaces the config's.
+  void setDpi(int dpi) {}
+
+  /// Changes which sensors the head unit tells the phone the car has, as
+  /// [AndroidAutoConfig.sensors] does, night mode and driving status included whether
+  /// named or not.
+  ///
+  /// Applies from the next time a phone connects: a phone connected now keeps the
+  /// sensors it was offered. Readings for a sensor taken out of the set are kept and
+  /// go nowhere until it is offered again. Callable at any time, before [start]
+  /// included, and the set last given replaces the config's.
+  void setSensors(Set<AndroidAutoSensor> sensors) {}
 
   /// Feeds the video path from a generated pattern instead of a phone.
   ///
