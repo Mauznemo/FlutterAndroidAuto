@@ -2,6 +2,12 @@
 package io.github.mauznemo.android_auto;
 
 import android.app.PendingIntent;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothClass;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothServerSocket;
+import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -11,18 +17,40 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.MacAddress;
+import android.net.wifi.SoftApConfiguration;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
 
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -36,7 +64,8 @@ import io.flutter.view.TextureRegistry;
  * this class has no method channel. It exists for the things only Java can reach: loading
  * the library early enough that the core can find this class, Flutter's texture registry,
  * which hands out the {@link Surface} the projected picture is drawn into, and {@link
- * UsbManager}, which is the only way an app gets at a phone on the cable.
+ * UsbManager}, which is the only way an app gets at a phone on the cable, and Bluetooth and
+ * Wi-Fi, which wireless projection needs and which are only reachable from Java.
  *
  * <p>The native side calls the static methods below through JNI and is called back
  * through the {@code native} ones. A {@code handle} is the address of the native present
@@ -472,6 +501,593 @@ public class AndroidAutoPlugin implements FlutterPlugin {
         device.getProductId(),
         device.getDeviceName());
   }
+
+  // Bluetooth. The server socket and the phones connected to it.
+  private static BluetoothServerSocket rfcommServer;
+  private static final Set<BluetoothSocket> rfcommSockets = new HashSet<>();
+  // The phone's headset gateway, which a head unit with no hands free profile of its own
+  // connects to so that the phone treats it as something to project to. See nudgePhone.
+  private static final UUID HEADSET_GATEWAY = UUID.fromString("00001112-0000-1000-8000-00805f9b34fb");
+  private static BluetoothSocket headsetLink;
+  // Phones with a Bluetooth link up, most recent last, from ACL broadcasts, because
+  // Android has no public way to ask whether a bonded device is connected.
+  private static final java.util.LinkedHashSet<String> linkedPhones = new java.util.LinkedHashSet<>();
+  private static BroadcastReceiver aclReceiver;
+
+  private static BluetoothAdapter bluetoothAdapter() {
+    synchronized (lock) {
+      if (context == null) {
+        return null;
+      }
+      final BluetoothManager manager =
+          (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+      return manager == null ? null : manager.getAdapter();
+    }
+  }
+
+  /**
+   * Publishes an RFCOMM service and accepts phones on it until {@link #stopRfcomm}.
+   * Returns an empty string, or why it could not.
+   *
+   * <p>Android writes the SDP record itself, RFCOMM channel included, which on Linux has
+   * to be asked for by hand. Each phone that connects is bridged to a socket the native
+   * side owns, so the handshake there runs on a descriptor exactly as it does on BlueZ's.
+   */
+  @SuppressWarnings("unused") // Called from native code.
+  static String startRfcomm(String uuid, String name) {
+    final BluetoothAdapter adapter = bluetoothAdapter();
+    if (adapter == null) {
+      return "This device has no Bluetooth.";
+    }
+    synchronized (rfcommSockets) {
+      if (rfcommServer != null) {
+        return "";
+      }
+      try {
+        if (!adapter.isEnabled()) {
+          return "Bluetooth is turned off.";
+        }
+        rfcommServer =
+            adapter.listenUsingRfcommWithServiceRecord(name, UUID.fromString(uuid));
+      } catch (SecurityException e) {
+        return "The app does not hold the BLUETOOTH_CONNECT permission.";
+      } catch (IOException e) {
+        return "Could not publish the Bluetooth service: " + e.getMessage();
+      }
+    }
+    watchLinks();
+    final BluetoothServerSocket server = rfcommServer;
+    final Thread acceptor =
+        new Thread(
+            () -> {
+              for (; ; ) {
+                final BluetoothSocket socket;
+                try {
+                  socket = server.accept();
+                } catch (IOException e) {
+                  return; // Closed by stopRfcomm.
+                }
+                bridgeRfcomm(socket);
+              }
+            },
+            "AndroidAuto RFCOMM");
+    acceptor.setDaemon(true);
+    acceptor.start();
+    return "";
+  }
+
+  /** Withdraws the service and drops every phone connected to it. */
+  @SuppressWarnings("unused") // Called from native code.
+  static void stopRfcomm() {
+    synchronized (rfcommSockets) {
+      if (rfcommServer != null) {
+        try {
+          rfcommServer.close();
+        } catch (IOException ignored) {
+          // Closing is all that is wanted.
+        }
+        rfcommServer = null;
+      }
+      for (BluetoothSocket socket : rfcommSockets) {
+        closeQuietly(socket);
+      }
+      rfcommSockets.clear();
+    }
+    dropHeadsetLink();
+  }
+
+  // Keeps linkedPhones current.
+  private static void watchLinks() {
+    final Context app;
+    synchronized (lock) {
+      app = context;
+    }
+    if (app == null) {
+      return;
+    }
+    main.post(
+        () -> {
+          if (aclReceiver != null) {
+            return;
+          }
+          aclReceiver =
+              new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context ignored, Intent intent) {
+                  final BluetoothDevice device =
+                      intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                  if (device == null) {
+                    return;
+                  }
+                  synchronized (linkedPhones) {
+                    linkedPhones.remove(device.getAddress());
+                    if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(intent.getAction())) {
+                      linkedPhones.add(device.getAddress());
+                    }
+                  }
+                }
+              };
+          final IntentFilter filter = new IntentFilter();
+          filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
+          filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+          if (Build.VERSION.SDK_INT >= 33) {
+            app.registerReceiver(aclReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+          } else {
+            app.registerReceiver(aclReceiver, filter);
+          }
+        });
+  }
+
+  /**
+   * The bonded phone whose Bluetooth link came up most recently, or empty. Links that
+   * were up before the service was published are not seen, except through
+   * BluetoothDevice.isConnected, which is hidden and tried for what it is worth.
+   */
+  @SuppressWarnings("unused") // Called from native code.
+  static String connectedPhone() {
+    synchronized (linkedPhones) {
+      String last = "";
+      for (String address : linkedPhones) {
+        last = address;
+      }
+      if (!last.isEmpty()) {
+        return last;
+      }
+    }
+    final BluetoothAdapter adapter = bluetoothAdapter();
+    if (adapter == null) {
+      return "";
+    }
+    try {
+      for (BluetoothDevice device : adapter.getBondedDevices()) {
+        final BluetoothClass type = device.getBluetoothClass();
+        if (type == null || type.getMajorDeviceClass() != BluetoothClass.Device.Major.PHONE) {
+          continue;
+        }
+        final Object connected = BluetoothDevice.class.getMethod("isConnected").invoke(device);
+        if (Boolean.TRUE.equals(connected)) {
+          return device.getAddress();
+        }
+      }
+    } catch (ReflectiveOperationException | SecurityException e) {
+      // Not available to this app; the broadcasts are all there is.
+    }
+    return "";
+  }
+
+  /**
+   * Connects to the phone's headset gateway, the way a Bluetooth headset does, and keeps
+   * the link until wireless is withdrawn.
+   *
+   * <p>A phone only starts wireless Android Auto towards a device it has a hands free
+   * style link with. A car has one of its own; a phone or a tablet running the head unit
+   * has its hands free role switched off, so the phone pairs, reads the service list and
+   * then does nothing. Opening the headset profile from this end is what a wireless
+   * adapter does in the same position. Headset rather than hands free, because a headset
+   * link is up as soon as the socket is, with no AT negotiation to carry through.
+   */
+  @SuppressWarnings("unused") // Called from native code.
+  static void nudgePhone(String address) {
+    final BluetoothAdapter adapter = bluetoothAdapter();
+    if (adapter == null) {
+      return;
+    }
+    final Thread worker =
+        new Thread(
+            () -> {
+              dropHeadsetLink();
+              final BluetoothSocket socket;
+              try {
+                final BluetoothDevice device = adapter.getRemoteDevice(address);
+                socket = device.createRfcommSocketToServiceRecord(HEADSET_GATEWAY);
+                socket.connect();
+              } catch (IOException | SecurityException | IllegalArgumentException e) {
+                Log.w(TAG, "Could not open the headset link to " + address + ": " + e.getMessage());
+                return;
+              }
+              Log.i(TAG, "Headset link to " + address + " is up");
+              synchronized (rfcommSockets) {
+                headsetLink = socket;
+              }
+              // Whatever the gateway says is read and dropped, which keeps the link
+              // alive and answers nothing a headset would have to.
+              final byte[] buffer = new byte[256];
+              try {
+                final InputStream in = socket.getInputStream();
+                while (in.read(buffer) >= 0) {
+                  // Nothing to do with it.
+                }
+              } catch (IOException ignored) {
+                // The link went away.
+              }
+              Log.i(TAG, "Headset link to " + address + " ended");
+            },
+            "AndroidAuto headset link");
+    worker.setDaemon(true);
+    worker.start();
+  }
+
+  private static void dropHeadsetLink() {
+    final BluetoothSocket socket;
+    synchronized (rfcommSockets) {
+      socket = headsetLink;
+      headsetLink = null;
+    }
+    if (socket != null) {
+      closeQuietly(socket);
+    }
+  }
+
+  // Copies bytes both ways between the phone and a descriptor the native side reads,
+  // until either end goes away, then closes both.
+  private static void bridgeRfcomm(BluetoothSocket socket) {
+    final String address = socket.getRemoteDevice().getAddress();
+    final int fd = nativeRfcommConnection(address);
+    if (fd < 0) {
+      closeQuietly(socket);
+      return;
+    }
+    synchronized (rfcommSockets) {
+      rfcommSockets.add(socket);
+    }
+    final ParcelFileDescriptor local = ParcelFileDescriptor.adoptFd(fd);
+    final Runnable finish =
+        () -> {
+          closeQuietly(socket);
+          try {
+            local.close();
+          } catch (IOException ignored) {
+            // Already gone.
+          }
+          synchronized (rfcommSockets) {
+            rfcommSockets.remove(socket);
+          }
+        };
+    try {
+      final InputStream fromPhone = socket.getInputStream();
+      final OutputStream toPhone = socket.getOutputStream();
+      final InputStream fromNative = new FileInputStream(local.getFileDescriptor());
+      final OutputStream toNative = new FileOutputStream(local.getFileDescriptor());
+      startPump("AndroidAuto RFCOMM in", fromPhone, toNative, finish);
+      startPump("AndroidAuto RFCOMM out", fromNative, toPhone, finish);
+    } catch (IOException e) {
+      finish.run();
+    }
+  }
+
+  private static void startPump(
+      String name, InputStream from, OutputStream to, Runnable finish) {
+    final Thread pump =
+        new Thread(
+            () -> {
+              final byte[] buffer = new byte[4096];
+              try {
+                for (; ; ) {
+                  final int read = from.read(buffer);
+                  if (read < 0) {
+                    break;
+                  }
+                  to.write(buffer, 0, read);
+                  to.flush();
+                }
+              } catch (IOException ignored) {
+                // Either end closing ends the conversation.
+              }
+              finish.run();
+            },
+            name);
+    pump.setDaemon(true);
+    pump.start();
+  }
+
+  private static void closeQuietly(BluetoothSocket socket) {
+    try {
+      socket.close();
+    } catch (IOException ignored) {
+      // Closing is all that is wanted.
+    }
+  }
+
+  /**
+   * Every bonded device, one per line: address, name, "0" (Android does not say whether
+   * a device is connected without a profile to ask through), and "1" if its class says
+   * it is a phone. Empty without Bluetooth or the permission to ask.
+   */
+  @SuppressWarnings("unused") // Called from native code.
+  static String pairedDevices() {
+    final BluetoothAdapter adapter = bluetoothAdapter();
+    if (adapter == null) {
+      return "";
+    }
+    final StringBuilder listing = new StringBuilder();
+    try {
+      for (BluetoothDevice device : adapter.getBondedDevices()) {
+        final BluetoothClass type = device.getBluetoothClass();
+        final boolean phone =
+            type != null && type.getMajorDeviceClass() == BluetoothClass.Device.Major.PHONE;
+        final String name = device.getName();
+        listing
+            .append(device.getAddress())
+            .append('\t')
+            .append(name == null ? "" : name.replace('\t', ' ').replace('\n', ' '))
+            .append("\t0\t")
+            .append(phone ? '1' : '0')
+            .append('\n');
+      }
+    } catch (SecurityException e) {
+      return "";
+    }
+    return listing.toString();
+  }
+
+  /**
+   * The Wi-Fi network this device is joined to, as one line: interface, SSID, BSSID,
+   * IPv4 address, frequency in MHz, tab separated, any of them empty or 0 when unknown.
+   *
+   * <p>Android hides the SSID and BSSID from an app that does not hold
+   * ACCESS_FINE_LOCATION while location is on, and answers with placeholders, which come
+   * back as empty: an empty BSSID is the host app's cue to name one itself, a placeholder
+   * one would be sent to the phone and silently fail.
+   */
+  @SuppressWarnings({"unused", "deprecation"}) // Called from native code. getConnectionInfo
+  // is deprecated for its callback replacement, and is the one that answers at once.
+  static String wifiNetwork() {
+    final Context app;
+    synchronized (lock) {
+      app = context;
+    }
+    if (app == null) {
+      return "";
+    }
+    final WifiManager wifi = (WifiManager) app.getSystemService(Context.WIFI_SERVICE);
+    final ConnectivityManager connectivity =
+        (ConnectivityManager) app.getSystemService(Context.CONNECTIVITY_SERVICE);
+    String interfaceName = "";
+    if (connectivity != null) {
+      for (Network network : connectivity.getAllNetworks()) {
+        final NetworkCapabilities caps = connectivity.getNetworkCapabilities(network);
+        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+          final LinkProperties link = connectivity.getLinkProperties(network);
+          if (link != null && link.getInterfaceName() != null) {
+            interfaceName = link.getInterfaceName();
+          }
+        }
+      }
+    }
+    if (wifi == null) {
+      return interfaceName + "\t\t\t\t0";
+    }
+    final WifiInfo info = wifi.getConnectionInfo();
+    if (info == null || info.getNetworkId() == -1 && info.getIpAddress() == 0) {
+      return interfaceName + "\t\t\t\t0";
+    }
+    String ssid = info.getSSID();
+    if (ssid == null || ssid.equals(WifiManager.UNKNOWN_SSID)) {
+      ssid = "";
+    } else if (ssid.length() >= 2 && ssid.startsWith("\"") && ssid.endsWith("\"")) {
+      ssid = ssid.substring(1, ssid.length() - 1);
+    }
+    String bssid = info.getBSSID();
+    if (bssid == null || bssid.equals("02:00:00:00:00:00")) {
+      bssid = "";
+    }
+    final int ip = info.getIpAddress();
+    final String address =
+        ip == 0
+            ? ""
+            : String.format(
+                "%d.%d.%d.%d", ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, (ip >> 24) & 0xff);
+    return interfaceName + "\t" + ssid + "\t" + bssid + "\t" + address + "\t"
+        + Math.max(0, info.getFrequency());
+  }
+
+  // The hotspot a head unit brings up for the phone, and the thread its callbacks run
+  // on, which is not the main thread so that hostWifiNetwork can wait for it there.
+  //
+  // The callbacks only write the volatile field and never take hotspotLock: the caller
+  // holds that lock while it waits for them, and a callback that took it too waited for
+  // the caller in turn, until the five seconds ran out.
+  private static final Object hotspotLock = new Object();
+  private static volatile WifiManager.LocalOnlyHotspotReservation hotspot;
+  private static HandlerThread hotspotThread;
+
+  /**
+   * Brings up a LocalOnlyHotspot, or keeps the one already up, and describes it as one
+   * line: interface, SSID, BSSID, IPv4, passphrase, frequency in MHz (0 when the band is
+   * not pinned to one). Empty when it will not start.
+   *
+   * <p>Android picks the SSID and passphrase itself, which is the point: a head unit with
+   * no network to join has one without anybody typing a password, as a car does. It
+   * needs the host app to hold ACCESS_FINE_LOCATION, and NEARBY_WIFI_DEVICES from
+   * Android 13, with location turned on.
+   *
+   * <p>Called from the platform thread, which is the main thread, and waits there for up
+   * to five seconds the first time. The callbacks go to a thread of their own so that
+   * the wait cannot deadlock them.
+   */
+  @SuppressWarnings({"unused", "deprecation"}) // Called from native code. getSsid is
+  // deprecated for getWifiSsid, which is 33 and returns the same name.
+  static String hostWifiNetwork() {
+    final Context app;
+    synchronized (lock) {
+      app = context;
+    }
+    if (app == null || Build.VERSION.SDK_INT < 30) {
+      return "";
+    }
+    final WifiManager wifi = (WifiManager) app.getSystemService(Context.WIFI_SERVICE);
+    if (wifi == null) {
+      return "";
+    }
+    synchronized (hotspotLock) {
+      if (hotspot == null) {
+        if (hotspotThread == null) {
+          hotspotThread = new HandlerThread("AndroidAuto hotspot");
+          hotspotThread.start();
+        }
+        final CountDownLatch started = new CountDownLatch(1);
+        try {
+          wifi.startLocalOnlyHotspot(
+              new WifiManager.LocalOnlyHotspotCallback() {
+                @Override
+                public void onStarted(WifiManager.LocalOnlyHotspotReservation reservation) {
+                  hotspot = reservation;
+                  started.countDown();
+                }
+
+                @Override
+                public void onStopped() {
+                  hotspot = null;
+                }
+
+                @Override
+                public void onFailed(int reason) {
+                  Log.w(TAG, "The hotspot would not start, reason " + reason);
+                  started.countDown();
+                }
+              },
+              new Handler(hotspotThread.getLooper()));
+        } catch (SecurityException e) {
+          Log.w(TAG, "No permission to start a hotspot: " + e.getMessage());
+          return "";
+        } catch (IllegalStateException e) {
+          // A hotspot this app asked for is already up, or one is being started.
+          Log.w(TAG, "The hotspot would not start: " + e.getMessage());
+        }
+        try {
+          started.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        if (hotspot == null) {
+          return "";
+        }
+      }
+      final WifiManager.LocalOnlyHotspotReservation reservation = hotspot;
+      if (reservation == null) {
+        return "";
+      }
+      final SoftApConfiguration config = reservation.getSoftApConfiguration();
+      final String ssid = config.getSsid() == null ? "" : config.getSsid();
+      final String passphrase = config.getPassphrase() == null ? "" : config.getPassphrase();
+      final NetworkInterface face = hotspotInterface();
+      final String name = face == null ? "" : face.getName();
+      final String address = face == null ? "" : ipv4(face);
+      String bssid = "";
+      final MacAddress mac = config.getBssid();
+      if (mac != null) {
+        bssid = mac.toString();
+      } else if (!name.isEmpty()) {
+        bssid = readMac(name);
+      }
+      Log.i(
+          TAG,
+          "Hosting " + ssid + " on " + name + " at " + address + ", bssid "
+              + (bssid.isEmpty() ? "unknown" : bssid));
+      final int frequency = hotspotFrequency(config);
+      return name + "\t" + ssid + "\t" + bssid + "\t" + address + "\t" + passphrase
+          + "\t" + frequency;
+    }
+  }
+
+  // The band the hotspot was configured for, as a frequency: the channel's when one is
+  // fixed, the band's first otherwise, 0 when it may use several or Android will not say.
+  // Not the channel it got, which only a privileged app may ask for.
+  private static int hotspotFrequency(SoftApConfiguration config) {
+    if (Build.VERSION.SDK_INT < 31) {
+      return 0;
+    }
+    final android.util.SparseIntArray channels = config.getChannels();
+    if (channels == null || channels.size() != 1) {
+      return 0;
+    }
+    final int band = channels.keyAt(0);
+    final int channel = channels.valueAt(0);
+    if (band == SoftApConfiguration.BAND_2GHZ) {
+      return channel > 0 ? 2407 + 5 * channel : 2412;
+    }
+    if (band == SoftApConfiguration.BAND_5GHZ) {
+      return channel > 0 ? 5000 + 5 * channel : 5180;
+    }
+    return 0;
+  }
+
+  /** Takes the hotspot down. */
+  @SuppressWarnings("unused") // Called from native code.
+  static void releaseWifiNetwork() {
+    synchronized (hotspotLock) {
+      final WifiManager.LocalOnlyHotspotReservation reservation = hotspot;
+      hotspot = null;
+      if (reservation != null) {
+        reservation.close();
+      }
+    }
+  }
+
+  // The interface the hotspot runs on. Android names it differently per device
+  // (swlan0, wlan1, ap0), so it is found by what it is: up, with a private IPv4 address,
+  // and not the interface a joined network or mobile data uses.
+  private static NetworkInterface hotspotInterface() {
+    try {
+      for (NetworkInterface face : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+        final String name = face.getName();
+        if (!face.isUp() || face.isLoopback() || name.equals("wlan0")
+            || name.startsWith("rmnet") || name.startsWith("dummy")) {
+          continue;
+        }
+        if (!ipv4(face).isEmpty()
+            && (name.startsWith("swlan") || name.startsWith("wlan") || name.startsWith("ap"))) {
+          return face;
+        }
+      }
+    } catch (java.net.SocketException ignored) {
+      // No interfaces to look at.
+    }
+    return null;
+  }
+
+  private static String ipv4(NetworkInterface face) {
+    for (InetAddress address : Collections.list(face.getInetAddresses())) {
+      if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
+        return address.getHostAddress();
+      }
+    }
+    return "";
+  }
+
+  // An access point's BSSID is its interface's MAC. Apps are not told MACs any more, so
+  // this is the fallback for when the hotspot's own configuration does not say.
+  private static String readMac(String interfaceName) {
+    try (BufferedReader reader =
+        new BufferedReader(new FileReader("/sys/class/net/" + interfaceName + "/address"))) {
+      final String line = reader.readLine();
+      return line == null ? "" : line.trim();
+    } catch (IOException | SecurityException e) {
+      return "";
+    }
+  }
+
+  private static native int nativeRfcommConnection(String address);
 
   private static native void nativeUsbDevice(int fd, boolean accessory, String name);
 

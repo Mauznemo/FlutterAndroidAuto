@@ -74,6 +74,44 @@ void RescanUsb();
 // Closes a descriptor StartUsbDiscovery handed over. Safe from any thread.
 void ReleaseUsbDevice(int fd);
 
+// A phone that opened the RFCOMM service. Returns a descriptor for Java to pump the
+// phone's bytes through, which it then owns, or -1 to have the phone dropped. Called on
+// Java's accept thread.
+using RfcommHandler = std::function<int(const std::string& address)>;
+
+// Publishes an RFCOMM service under `uuid` and hands every phone that connects to
+// `handler`. Returns an empty string, or why it could not.
+std::string StartRfcomm(const std::string& uuid, const std::string& name,
+                        RfcommHandler handler);
+
+// Withdraws the service and drops the phones on it. Once this returns the handler is
+// not called again.
+void StopRfcomm();
+
+// The bonded Bluetooth devices, one per line, tab separated: address, name, "1" if
+// connected, "1" if a phone.
+std::string PairedDevices();
+
+// The phone whose Bluetooth link came up last, or empty.
+std::string ConnectedPhone();
+
+// Opens a headset link to `address`, which is what gets a phone to dial a head unit
+// that has no hands free profile of its own. Returns at once.
+void NudgePhone(const std::string& address);
+
+// The Wi-Fi network this device is on, tab separated: interface, SSID, BSSID, IPv4,
+// frequency in MHz or 0.
+std::string WifiNetwork();
+
+// Brings up a LocalOnlyHotspot if it is not up, and describes it, tab separated:
+// interface, SSID, BSSID, IPv4, passphrase, frequency in MHz or 0. Empty if it would
+// not start. Blocks for up
+// to a few seconds the first time.
+std::string HostWifiNetwork();
+
+// Takes the hotspot down.
+void ReleaseWifiNetwork();
+
 }  // namespace android
 }  // namespace aa
 

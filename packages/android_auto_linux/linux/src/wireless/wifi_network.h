@@ -15,6 +15,7 @@
 #ifndef ANDROID_AUTO_LINUX_WIRELESS_WIFI_NETWORK_H_
 #define ANDROID_AUTO_LINUX_WIRELESS_WIFI_NETWORK_H_
 
+#include <cstdint>
 #include <string>
 
 namespace aa {
@@ -36,6 +37,12 @@ struct WifiNetwork {
   // access point that nobody joins is a configuration problem on this machine, and a
   // joined network the phone cannot see is a problem at the phone's end.
   bool hosting = false;
+  // Only ever known for a network this head unit brought up itself, see
+  // HostWifiNetwork. A network it merely joined keeps its passphrase to itself.
+  std::string passphrase;
+  // The channel's centre frequency, or 0 when it is not known. Android Auto will not
+  // send 1080p over 2.4 GHz, so this decides how large a frame to ask for.
+  int32_t frequency_mhz = 0;
 };
 
 // Reads the current state of `interface`, or of the first wireless interface that has
@@ -57,6 +64,16 @@ std::string InterfaceAddress(const std::string& interface);
 // off it would hand the phone nothing. Only the SSID has to be supplied by hand then,
 // because a machine on Ethernet genuinely cannot know what the phone is connected to.
 std::string PrimaryAddress();
+
+// Brings up a network of the head unit's own for the phone to join, which is what a car
+// does, and describes it, passphrase included. Idempotent: a network already up is
+// described again. Returns an empty description where the platform cannot, which on
+// Linux is always: bringing up an access point is the system's business there, see
+// tools/wireless-ap.sh. On Android it is a LocalOnlyHotspot, the one an app may start.
+WifiNetwork HostWifiNetwork();
+
+// Takes down whatever HostWifiNetwork brought up. Nothing to do on Linux.
+void ReleaseWifiNetwork();
 
 }  // namespace aa
 

@@ -29,6 +29,14 @@ jmethodID g_start_usb = nullptr;
 jmethodID g_stop_usb = nullptr;
 jmethodID g_rescan_usb = nullptr;
 jmethodID g_release_usb = nullptr;
+jmethodID g_start_rfcomm = nullptr;
+jmethodID g_stop_rfcomm = nullptr;
+jmethodID g_paired_devices = nullptr;
+jmethodID g_wifi_network = nullptr;
+jmethodID g_host_wifi = nullptr;
+jmethodID g_connected_phone = nullptr;
+jmethodID g_nudge_phone = nullptr;
+jmethodID g_release_wifi = nullptr;
 jobject g_context = nullptr;
 
 // Which listeners are live. Java posts resizes to the main thread, so a surface can
@@ -39,6 +47,11 @@ std::set<SurfaceListener*> g_listeners;
 
 std::mutex g_usb_mutex;
 UsbDeviceHandler g_usb_handler;
+
+// Held while the handler runs, so StopRfcomm cannot return with a call still in flight
+// into an object that is about to go.
+std::mutex g_rfcomm_mutex;
+RfcommHandler g_rfcomm_handler;
 
 pthread_key_t g_detach_key;
 
@@ -72,6 +85,34 @@ void ClearException(JNIEnv* env, const char* what) {
     env->ExceptionDescribe();
     env->ExceptionClear();
   }
+}
+
+// A Java string, copied.
+std::string FromJava(JNIEnv* env, jstring value) {
+  if (value == nullptr) {
+    return std::string();
+  }
+  const char* chars = env->GetStringUTFChars(value, nullptr);
+  std::string copy = chars == nullptr ? "" : chars;
+  if (chars != nullptr) {
+    env->ReleaseStringUTFChars(value, chars);
+  }
+  return copy;
+}
+
+// Calls a static String method taking no arguments.
+std::string CallString(jmethodID method, const char* what) {
+  JNIEnv* env = Env();
+  if (env == nullptr || g_plugin == nullptr || method == nullptr) {
+    return std::string();
+  }
+  auto result = static_cast<jstring>(env->CallStaticObjectMethod(g_plugin, method));
+  ClearException(env, what);
+  std::string copy = FromJava(env, result);
+  if (result != nullptr) {
+    env->DeleteLocalRef(result);
+  }
+  return copy;
 }
 
 SurfaceListener* Live(jlong handle) {
@@ -198,6 +239,80 @@ void ReleaseUsbDevice(int fd) {
   ClearException(env, "releaseUsb");
 }
 
+std::string StartRfcomm(const std::string& uuid, const std::string& name,
+                        RfcommHandler handler) {
+  JNIEnv* env = Env();
+  if (env == nullptr || g_plugin == nullptr) {
+    return "The plugin's Java side is not loaded.";
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_rfcomm_mutex);
+    g_rfcomm_handler = std::move(handler);
+  }
+  jstring java_uuid = env->NewStringUTF(uuid.c_str());
+  jstring java_name = env->NewStringUTF(name.c_str());
+  auto result = static_cast<jstring>(
+      env->CallStaticObjectMethod(g_plugin, g_start_rfcomm, java_uuid, java_name));
+  ClearException(env, "startRfcomm");
+  std::string error = FromJava(env, result);
+  env->DeleteLocalRef(java_uuid);
+  env->DeleteLocalRef(java_name);
+  if (result != nullptr) {
+    env->DeleteLocalRef(result);
+  }
+  if (!error.empty()) {
+    std::lock_guard<std::mutex> lock(g_rfcomm_mutex);
+    g_rfcomm_handler = nullptr;
+  }
+  return error;
+}
+
+void StopRfcomm() {
+  {
+    std::lock_guard<std::mutex> lock(g_rfcomm_mutex);
+    g_rfcomm_handler = nullptr;
+  }
+  JNIEnv* env = Env();
+  if (env == nullptr || g_plugin == nullptr) {
+    return;
+  }
+  env->CallStaticVoidMethod(g_plugin, g_stop_rfcomm);
+  ClearException(env, "stopRfcomm");
+}
+
+std::string PairedDevices() { return CallString(g_paired_devices, "pairedDevices"); }
+
+std::string WifiNetwork() { return CallString(g_wifi_network, "wifiNetwork"); }
+
+std::string HostWifiNetwork() { return CallString(g_host_wifi, "hostWifiNetwork"); }
+
+std::string ConnectedPhone() { return CallString(g_connected_phone, "connectedPhone"); }
+
+void NudgePhone(const std::string& address) {
+  JNIEnv* env = Env();
+  if (env == nullptr || g_plugin == nullptr || g_nudge_phone == nullptr) {
+    return;
+  }
+  jstring java_address = env->NewStringUTF(address.c_str());
+  env->CallStaticVoidMethod(g_plugin, g_nudge_phone, java_address);
+  ClearException(env, "nudgePhone");
+  env->DeleteLocalRef(java_address);
+}
+
+void ReleaseWifiNetwork() {
+  JNIEnv* env = Env();
+  if (env == nullptr || g_plugin == nullptr || g_release_wifi == nullptr) {
+    return;
+  }
+  env->CallStaticVoidMethod(g_plugin, g_release_wifi);
+  ClearException(env, "releaseWifiNetwork");
+}
+
+int OfferRfcomm(const std::string& address) {
+  std::lock_guard<std::mutex> lock(g_rfcomm_mutex);
+  return g_rfcomm_handler ? g_rfcomm_handler(address) : -1;
+}
+
 // Called by Java with a device it has opened.
 void OfferUsbDevice(int fd, bool accessory, const std::string& name) {
   UsbDeviceHandler handler;
@@ -220,7 +335,15 @@ using aa::android::g_context;
 using aa::android::g_create_surface;
 using aa::android::g_plugin;
 using aa::android::g_release_surface;
+using aa::android::g_paired_devices;
 using aa::android::g_release_usb;
+using aa::android::g_start_rfcomm;
+using aa::android::g_stop_rfcomm;
+using aa::android::g_connected_phone;
+using aa::android::g_host_wifi;
+using aa::android::g_nudge_phone;
+using aa::android::g_release_wifi;
+using aa::android::g_wifi_network;
 using aa::android::g_rescan_usb;
 using aa::android::g_resize_surface;
 using aa::android::g_start_usb;
@@ -257,6 +380,16 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
   g_stop_usb = env->GetStaticMethodID(g_plugin, "stopUsb", "()V");
   g_rescan_usb = env->GetStaticMethodID(g_plugin, "rescanUsb", "()V");
   g_release_usb = env->GetStaticMethodID(g_plugin, "releaseUsb", "(I)V");
+  g_start_rfcomm = env->GetStaticMethodID(g_plugin, "startRfcomm",
+                                          "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+  g_stop_rfcomm = env->GetStaticMethodID(g_plugin, "stopRfcomm", "()V");
+  g_paired_devices = env->GetStaticMethodID(g_plugin, "pairedDevices", "()Ljava/lang/String;");
+  g_wifi_network = env->GetStaticMethodID(g_plugin, "wifiNetwork", "()Ljava/lang/String;");
+  g_host_wifi = env->GetStaticMethodID(g_plugin, "hostWifiNetwork", "()Ljava/lang/String;");
+  g_release_wifi = env->GetStaticMethodID(g_plugin, "releaseWifiNetwork", "()V");
+  g_connected_phone =
+      env->GetStaticMethodID(g_plugin, "connectedPhone", "()Ljava/lang/String;");
+  g_nudge_phone = env->GetStaticMethodID(g_plugin, "nudgePhone", "(Ljava/lang/String;)V");
   return JNI_VERSION_1_6;
 }
 
@@ -292,15 +425,14 @@ Java_io_github_mauznemo_android_1auto_AndroidAutoPlugin_nativeSurfaceCleanup(JNI
 
 JNIEXPORT void JNICALL Java_io_github_mauznemo_android_1auto_AndroidAutoPlugin_nativeUsbDevice(
     JNIEnv* env, jclass, jint fd, jboolean accessory, jstring name) {
-  std::string label;
-  if (name != nullptr) {
-    const char* chars = env->GetStringUTFChars(name, nullptr);
-    label = chars == nullptr ? "" : chars;
-    if (chars != nullptr) {
-      env->ReleaseStringUTFChars(name, chars);
-    }
-  }
-  aa::android::OfferUsbDevice(fd, accessory == JNI_TRUE, label);
+  aa::android::OfferUsbDevice(fd, accessory == JNI_TRUE, aa::android::FromJava(env, name));
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_mauznemo_android_1auto_AndroidAutoPlugin_nativeRfcommConnection(JNIEnv* env,
+                                                                               jclass,
+                                                                               jstring address) {
+  return aa::android::OfferRfcomm(aa::android::FromJava(env, address));
 }
 
 }  // extern "C"

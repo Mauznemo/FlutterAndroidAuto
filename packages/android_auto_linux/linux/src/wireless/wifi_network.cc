@@ -271,4 +271,8 @@ WifiNetwork DetectWifiNetwork(const std::string& interface) {
   return network;
 }
 
+WifiNetwork HostWifiNetwork() { return WifiNetwork{}; }
+
+void ReleaseWifiNetwork() {}
+
 }  // namespace aa

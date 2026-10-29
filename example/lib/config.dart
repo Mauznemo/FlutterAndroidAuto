@@ -47,9 +47,14 @@ AndroidAutoConfig headUnitConfig() => AndroidAutoConfig(
   // passphrase but a reminder. A real head unit gets this from whatever brought its
   // network up; a plausible looking literal in an example is a literal that ends up in
   // somebody's product.
+  //
+  // On Android it is left empty, which has the head unit bring up a hotspot of its own
+  // and offer that, the way a car does, with a passphrase Android chose. A phone has no
+  // environment to read one from anyway.
   wireless: AndroidAutoWirelessConfig(
-    passphrase:
-        Platform.environment['AA_WIRELESS_PASSPHRASE'] ??
-        'set-AA_WIRELESS_PASSPHRASE',
+    passphrase: Platform.isAndroid
+        ? ''
+        : Platform.environment['AA_WIRELESS_PASSPHRASE'] ??
+              'set-AA_WIRELESS_PASSPHRASE',
   ),
 );

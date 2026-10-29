@@ -78,6 +78,8 @@ struct WirelessSummary {
   bool hosting = false;
   bool bluetooth_ready = false;
   bool phone_linked = false;
+  // The network's frequency, 0 when unknown. See WifiNetwork::frequency_mhz.
+  int32_t frequency_mhz = 0;
 };
 
 class WirelessConnector {

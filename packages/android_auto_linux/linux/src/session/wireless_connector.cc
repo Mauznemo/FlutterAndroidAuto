@@ -45,9 +45,21 @@ std::string WirelessConnector::Start(const WirelessSettings& settings,
   on_state_ = std::move(on_state);
 
   // What the machine says about itself, then whatever the host app overrode. The
-  // passphrase is the one field that can only come from the host app: nothing here can
-  // read one, see wifi_network.h.
-  const WifiNetwork network = DetectWifiNetwork(settings.interface);
+  // passphrase is the one field that can only come from the host app for a network the
+  // head unit joined: nothing here can read one, see wifi_network.h.
+  //
+  // A host app that names neither a network nor a passphrase gets one of the head
+  // unit's own, where the platform can bring one up, which is what a car does. On Linux
+  // it cannot, and this is the machine's own network as before.
+  WifiNetwork network;
+  if (settings.ssid.empty() && settings.passphrase.empty()) {
+    network = HostWifiNetwork();
+  }
+  if (network.ssid.empty()) {
+    network = DetectWifiNetwork(settings.interface);
+  }
+  const std::string passphrase =
+      settings.passphrase.empty() ? network.passphrase : settings.passphrase;
   WirelessSummary resolved;
   resolved.interface =
       settings.interface.empty() ? network.interface : settings.interface;
@@ -64,6 +76,7 @@ std::string WirelessConnector::Start(const WirelessSettings& settings,
   }
   resolved.port = settings.port == 0 ? 5288 : settings.port;
   resolved.hosting = network.hosting;
+  resolved.frequency_mhz = network.frequency_mhz;
 
   if (resolved.ssid.empty()) {
     return "No Wi-Fi network to offer the phone. This machine is not on one, and the "
@@ -73,6 +86,14 @@ std::string WirelessConnector::Start(const WirelessSettings& settings,
   if (resolved.ip.empty()) {
     return "This machine has no address on any network, so there is nothing to tell "
            "the phone to connect to.";
+  }
+  if (resolved.bssid.empty() && network.hosting) {
+    // Android brings a hotspot up for an app and will not say what its BSSID is: MAC
+    // addresses are hidden from apps, and only a privileged one may ask for the
+    // hotspot's details. A head unit maker knows it, or the host app is privileged.
+    return "Hosting " + resolved.ssid + ", but Android does not tell an app the "
+           "BSSID of a hotspot it started, and a phone rejects an offer without one. "
+           "Name it in the wireless configuration.";
   }
   if (resolved.bssid.empty()) {
     // Worth stopping for rather than trying anyway. A phone given an offer with no
@@ -91,13 +112,13 @@ std::string WirelessConnector::Start(const WirelessSettings& settings,
   }
   // An open network is a real configuration and a passphrase would be wrong on one, so
   // this is a warning in the log rather than a refusal.
-  if (settings.passphrase.empty() && settings.security != 1) {
+  if (passphrase.empty() && settings.security != 1) {
     AASDK_LOG(warning) << "[Wireless] no Wi-Fi passphrase was given, so the phone will "
                           "be told to join " << resolved.ssid << " with an empty one";
   }
 
   offer_.ssid = resolved.ssid;
-  offer_.passphrase = settings.passphrase;
+  offer_.passphrase = passphrase;
   offer_.bssid = resolved.bssid;
   offer_.ip = resolved.ip;
   offer_.port = resolved.port;
@@ -464,6 +485,9 @@ void WirelessConnector::Stop() {
     }
   }
   bluetooth_.Stop();
+  // Not in Decline: a phone already projecting over the network keeps it when the
+  // offer is withdrawn, and taking the network away would end that too.
+  ReleaseWifiNetwork();
   boost::system::error_code ignored;
   acceptor_.close(ignored);
   if (fake_phone_) {

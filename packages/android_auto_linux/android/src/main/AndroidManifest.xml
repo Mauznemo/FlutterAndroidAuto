@@ -8,4 +8,15 @@
   <!-- A phone on the cable needs USB host mode, which a head unit has and a phone may
        not. Not required, so the app still installs where only TCP will work. -->
   <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+  <!-- Wireless projection starts over Bluetooth: an RFCOMM service the phone connects
+       to, and the paired phone list. CONNECT is the runtime permission from Android 12,
+       which the host app asks for; BLUETOOTH covers the versions before it. -->
+  <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+  <!-- Which Wi-Fi network to send the phone to. Android also wants location for the
+       SSID and BSSID; that is left to the host app, which can name both instead. -->
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <!-- Bringing up a hotspot of the head unit's own for the phone to join. -->
+  <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 </manifest>

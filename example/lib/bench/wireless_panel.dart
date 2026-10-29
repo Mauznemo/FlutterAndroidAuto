@@ -42,6 +42,9 @@ class _WirelessPanelState extends State<WirelessPanel> {
   late final TextEditingController _passphrase = TextEditingController(
     text: widget.config.passphrase,
   );
+  late final TextEditingController _bssid = TextEditingController(
+    text: widget.config.bssid,
+  );
   late final TextEditingController _server = TextEditingController(
     text: '127.0.0.1:5277',
   );
@@ -84,6 +87,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
     _ssid.dispose();
     _passphrase.dispose();
     _server.dispose();
+    _bssid.dispose();
     super.dispose();
   }
 
@@ -95,7 +99,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
       ssid: _ssid.text,
       passphrase: _passphrase.text,
       phoneAddress: _phone,
-      bssid: base.bssid,
+      bssid: _bssid.text.trim(),
       interfaceName: base.interfaceName,
       ipAddress: base.ipAddress,
       port: base.port,
@@ -182,7 +186,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
           obscureText: !_showPassphrase,
           decoration: InputDecoration(
             labelText: 'Wi-Fi passphrase',
-            helperText: 'The one thing nothing here can read off the machine',
+            helperText: 'Empty on Android: the head unit hosts its own hotspot',
             isDense: true,
             suffixIcon: IconButton(
               tooltip: _showPassphrase ? 'Hide' : 'Show',
@@ -192,6 +196,18 @@ class _WirelessPanelState extends State<WirelessPanel> {
                 size: 18,
               ),
             ),
+          ),
+          style: const TextStyle(fontSize: 13),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _bssid,
+          onChanged: (_) => _publish(),
+          decoration: const InputDecoration(
+            labelText: 'BSSID',
+            helperText:
+                'Empty reads it off the interface. Android hides a hotspot\'s, name it',
+            isDense: true,
           ),
           style: const TextStyle(fontSize: 13),
         ),

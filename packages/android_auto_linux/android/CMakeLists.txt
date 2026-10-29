@@ -6,7 +6,8 @@
 #   video/libav_decoder.cc        video/mediacodec_decoder.cc     MediaCodec, AHardwareBuffer
 #   audio/pulse_sink.cc           audio/aaudio_sink.cc
 #   audio/pulse_source.cc         audio/aaudio_source.cc
-#   bluetooth/bluez_client.cc     bluetooth/bluez_client_android.cc  (not implemented yet)
+#   bluetooth/bluez_client.cc     bluetooth/bluez_client_android.cc  RFCOMM through Java
+#   wireless/wifi_network.cc      wireless/wifi_network_android.cc   WifiManager through Java
 #   session/usb_connector.cc      session/usb_connector_android.cc   devices from UsbManager
 #   android_auto_linux_plugin.cc  platform/android_jni.cc         the plugin's entry point
 #
@@ -123,7 +124,7 @@ add_library(android_auto_native SHARED
   "${AA_SRC}/video/mediacodec_decoder.cc"
   "${AA_SRC}/video/video_margins.cc"
   "${AA_SRC}/wireless/aaw_handshake.cc"
-  "${AA_SRC}/wireless/wifi_network.cc"
+  "${AA_SRC}/wireless/wifi_network_android.cc"
 )
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")

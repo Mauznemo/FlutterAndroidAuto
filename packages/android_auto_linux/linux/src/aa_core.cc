@@ -290,9 +290,10 @@ struct AaSession {
 
   // How this head unit describes itself during service discovery. Called once per
   // connection, and it is where an automatic frame size is settled for that connection.
-  aa::HeadUnitDescription Describe() {
+  // `wireless` is whether that connection is over Wi-Fi, which limits the frame.
+  aa::HeadUnitDescription Describe(bool wireless) {
     aa::HeadUnitDescription description;
-    const aa::FrameSize frame = ChooseFrameSize();
+    const aa::FrameSize frame = ChooseFrameSize(wireless);
     frame_width = frame.width;
     frame_height = frame.height;
     // A size the host app named goes through as named, so that service discovery can
@@ -334,14 +335,30 @@ struct AaSession {
   bool automatic_frame() const { return config.width <= 0 || config.height <= 0; }
 
   // The frame to ask a connecting phone for.
-  aa::FrameSize ChooseFrameSize() const {
+  //
+  // Over 2.4 GHz Wi-Fi an automatic frame stops at 1280x720. Android Auto will not
+  // encode 1080p on that band ("VideoCodecResolutionType 3 is not allowed due wireless
+  // frequency" in the phone's log), service discovery offers it one frame size, and a
+  // phone offered nothing it may use hangs up a second after opening its channels. A
+  // hotspot Android brings up for an app is 2.4 GHz. Only a band that is known caps the
+  // frame: on Linux it is not read, and 1080p there works over a 5 GHz access point. A
+  // size the host app named is its own business and is sent as named.
+  aa::FrameSize ChooseFrameSize(bool wireless) const {
     if (!automatic_frame()) {
       aa::FrameSize frame;
       aa::AdvertisedFrameSize(config.width, config.height, &frame.width, &frame.height);
       return frame;
     }
     std::lock_guard<std::mutex> lock(view_mutex);
-    return aa::FrameSizeForView(view_width, view_height, !config.letterbox);
+    aa::FrameSize frame = aa::FrameSizeForView(view_width, view_height, !config.letterbox);
+    const int32_t frequency =
+        wireless && this->wireless ? this->wireless->summary().frequency_mhz : 0;
+    if (frequency > 0 && frequency < 4900 && frame.width > 1280) {
+      AASDK_LOG(info) << "[Wireless] the network is on " << frequency
+                      << " MHz, where Android Auto will not send more than 1280x720";
+      frame = aa::FrameSize{1280, 720};
+    }
+    return frame;
   }
 
   // What the phone should leave clear round its interface, in the frame of the current
@@ -496,7 +513,7 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session, Link
   }
   session->reached_connected = false;
 
-  aa::HeadUnitDescription description = session->Describe();
+  aa::HeadUnitDescription description = session->Describe(link == Link::kWireless);
   if (session->automatic_frame()) {
     double view_width = 0.0;
     double view_height = 0.0;
