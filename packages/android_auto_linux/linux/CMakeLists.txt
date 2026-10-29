@@ -66,7 +66,7 @@ list(APPEND PLUGIN_SOURCES
   "src/session/protocol_session.cc"
   "src/session/sensor_channel.cc"
   "src/session/video_channel.cc"
-  "src/video/video_decoder.cc"
+  "src/video/libav_decoder.cc"
   "src/video/video_margins.cc"
   "src/wireless/aaw_handshake.cc"
   "src/wireless/wifi_network.cc"
