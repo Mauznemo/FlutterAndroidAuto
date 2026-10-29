@@ -208,7 +208,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends protobuf-compiler ninja-build
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null
+          # yes ends on a broken pipe once sdkmanager stops reading, which pipefail
+          # would otherwise report as a failure of the whole step.
+          { yes || true; } | "$sdkmanager" --licenses > /dev/null
           "$sdkmanager" "ndk;28.2.13676358" "cmake;3.31.6" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
