@@ -280,6 +280,11 @@ The same connector, with Java behind both of its platform pieces; see
   hotspot interface's IPv6 link-local address, which Android builds EUI-64: the MAC with
   `ff:fe` in the middle and one bit flipped. Where that is a privacy address instead,
   the host app has to name it.
+- **The hotspot lives only as long as it is used.** `stop()` takes it down, and so does
+  `stopWireless()` unless a phone is projecting over it, in which case it goes when that
+  phone does. `start(transports: {usb})` on a controller made with both brings none up
+  at all, while Bluetooth goes on refusing. Left up, it was a second radio running for
+  nothing and a hotspot name in every passing Wi-Fi list.
 - **A phone or tablet running the head unit has to prod the phone.** It has no hands
   free profile, and a phone pairs, reads the service list and then does nothing.
   `Reconnect` therefore opens a headset link to the phone, which is what gets it to

@@ -272,7 +272,9 @@ included, because Flutter ships one in every APK.
   will not tell an app that hotspot's BSSID, and a phone rejects an offer without one,
   so it is read back out of the interface's EUI-64 link-local address; a host app has
   to name it only where that is a privacy address. Bluetooth is a `BluetoothServerSocket` in Java bridged
-  to the native handshake over a socket pair.
+  to the native handshake over a socket pair. **The hotspot is up only while wireless is
+  offered or a phone projects over it** (`ReleaseIdleNetwork` in `aa_core.cc`): stop
+  takes it down, and so does declining once no phone is on it.
 - **A phone or tablet as head unit has no hands free profile**, and a phone only dials
   wireless Android Auto towards a device that connects like one. So the nudge opens a
   headset link to the phone (`nudgePhone` in Java). A real Android car stereo has the
@@ -640,6 +642,11 @@ the link comes down, and `aa_core.cc` read those as a phone gone wrong: it bounc
 device a second time in the middle of the user's stop, which is what left the next start
 unable to enumerate the phone for tens of seconds. The goodbye itself still goes out, and
 so does every other state.
+
+**A stop clears everything the stopped connection said about itself.** `reached_connected`
+left up by a stop had the next start turn away every phone dialling in over Wi-Fi, and
+every head unit server dial, as though the old connection were still live. Start clears
+it too.
 
 Losing the cable mid session is a separate path: it reports `searching`, not `error`, and
 resumes on its own. That needs discovery to be re-armed after **every** handover, because

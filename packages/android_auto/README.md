@@ -56,7 +56,7 @@ else is advertised as 1280x720 with a warning.
 
 | | |
 |---|---|
-| Session | `start`, `stop`, `state`, `events`, and `startWireless` / `stopWireless` |
+| Session | `start`, `stop`, `state`, `events`, `startWireless` / `stopWireless`, and `phoneOnUsb` / `phoneOnUsbChanges`, which work with no session running |
 | Input | `sendTouch`, `sendKey`, `sendRotary`, all in projected video pixels |
 | Audio | per-stream `volume`, `setVolume`, `muted`, `setMuted`, device selection, statistics, and a raw PCM tap |
 | Microphone | `microphoneActive`, `microphoneLevel`, device selection. Capture happens only while the phone asks for it |
@@ -76,8 +76,11 @@ x86_64; ARM64 is intended and not yet verified.
 **Android is in progress**, through the same package and the same native core: the
 Android device is the head unit, and a phone projects over its USB port or over Wi-Fi,
 with video, touch and audio. Over Wi-Fi the head unit hosts its own hotspot and finds
-everything the phone needs about it by itself on the device tested. It needs `minSdk = 28`, the host app asks for
-`RECORD_AUDIO` itself, and its activity should declare a `USB_DEVICE_ATTACHED` filter
+everything the phone needs about it by itself on the device tested; the hotspot is up only
+while wireless is on offer or a phone projects over it. It needs `minSdk = 28`, the host
+app asks at runtime for `RECORD_AUDIO`, and for `BLUETOOTH_CONNECT` and
+`NEARBY_WIFI_DEVICES` when it uses wireless (the plugin declares all three), and its
+activity should declare a `USB_DEVICE_ATTACHED` filter
 so the driver can allow the phone once rather than on every connect; the example app
 shows both.
 
