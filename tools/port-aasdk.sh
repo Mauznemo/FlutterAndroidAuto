@@ -27,10 +27,10 @@
 #
 #   tools/port-aasdk.sh apply     redo the port in the working tree, from the patch
 #   tools/port-aasdk.sh regen     redo it from the transforms below, for a new aasdk pin
-#   tools/port-aasdk.sh patch     regenerate linux/patches/ from the working tree
+#   tools/port-aasdk.sh patch     regenerate patches/ from the working tree
 #   tools/port-aasdk.sh reset     throw the working tree away, back to the pinned commit
 #
-# The patch under linux/patches/ is the committed source of truth, and the submodule is
+# The patch under patches/ is the committed source of truth, and the submodule is
 # never committed dirty.
 #
 # `apply` and `regen` are not the same thing, and the difference matters. Parts of the
@@ -43,8 +43,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AASDK="$REPO/packages/android_auto_linux/linux/third_party/aasdk"
-PATCHES="$REPO/packages/android_auto_linux/linux/patches"
+AASDK="$REPO/packages/android_auto_native/third_party/aasdk"
+PATCHES="$REPO/packages/android_auto_native/patches"
 
 [ -d "$AASDK/src" ] || {
   echo "aasdk submodule is not checked out. Run: git submodule update --init --recursive" >&2

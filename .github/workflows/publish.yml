@@ -34,7 +34,7 @@ permissions:
 jobs:
   # In dependency order, serialised with `needs`, because pub.dev will not accept a
   # package whose dependencies it has never heard of. The versions are in lockstep, so
-  # android_auto's constraint on android_auto_linux is satisfied only once the latter
+  # android_auto's constraint on android_auto_native is satisfied only once the latter
   # is actually up.
   platform_interface:
     if: vars.PUBLISH_FROM_CI == 'true'
@@ -42,12 +42,53 @@ jobs:
     with:
       working-directory: packages/android_auto_platform_interface
 
+  # Not the reusable workflow the other two use. That one publishes a bare checkout, and
+  # this package ships the prebuilt Android dependencies, which are kept out of git and
+  # published through android/.pubignore. They are built here first, on the same cache
+  # the release build fills, and the publish refuses to go ahead without all three.
   linux:
     needs: platform_interface
     if: vars.PUBLISH_FROM_CI == 'true'
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@main
-    with:
-      working-directory: packages/android_auto_linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Configures the OIDC token pub.dev accepts, as the reusable workflow does.
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Install the NDK and the host tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends protobuf-compiler ninja-build
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # yes ends on a broken pipe once sdkmanager stops reading, which pipefail
+          # would otherwise report as a failure of the whole step.
+          { yes || true; } | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "ndk;28.2.13676358" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Restore the Android dependencies
+        uses: actions/cache@v4
+        with:
+          path: packages/android_auto_native/android/deps
+          key: android-deps-${{ hashFiles('tools/build-android-deps.sh') }}
+
+      - name: Build the Android dependencies
+        run: tools/build-android-deps.sh
+
+      - name: Publish
+        working-directory: packages/android_auto_native
+        run: |
+          set -euo pipefail
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            [ -f "android/deps/$abi/lib/libboost_log.a" ] \
+              || { echo "::error::no Android dependencies for $abi"; exit 1; }
+          done
+          dart pub get
+          dart pub publish --force
 
   app:
     needs: linux

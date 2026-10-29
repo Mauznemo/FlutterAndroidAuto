@@ -2,7 +2,7 @@
 /// Platform interface for the `android_auto` plugin.
 ///
 /// Contains no native code and no aasdk derived code, so a future permissive
-/// implementation could replace `android_auto_linux` without any host app change. This
+/// implementation could replace `android_auto_native` without any host app change. This
 /// package is itself GPL-3.0-or-later, like the rest of the repository.
 library;
 
@@ -887,6 +887,22 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// out of [AndroidAutoConfig.transports]. A phone paired while it is out never learns
   /// this machine can project, so it never asks in the first place.
   Future<void> stopWireless() async {}
+
+  /// Dials a phone running Android Auto's head unit server and projects from it.
+  ///
+  /// The head unit server is a developer option in Android Auto ("Start head unit
+  /// server" in its developer settings) that makes the phone listen on TCP [port]
+  /// for Google's desktop head unit. Connecting to it needs no cable and no Bluetooth
+  /// pairing: from the phone itself over `127.0.0.1`, or from a computer through
+  /// `adb forward tcp:5277 tcp:5277`. That makes it the quickest way to try a host
+  /// app on real Android Auto, and nothing a car should ship with.
+  ///
+  /// [host] is a numeric address. Call after [start]; whether it worked arrives on
+  /// [events], like every other connection.
+  Future<void> connectHeadUnitServer({
+    String host = '127.0.0.1',
+    int port = 5277,
+  }) async {}
 
   /// Whether wireless is being offered right now.
   bool get wirelessActive => false;

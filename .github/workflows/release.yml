@@ -104,9 +104,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_linux/linux/patches/*.patch') }}-${{ github.sha }}
+          key: ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_native/patches/*.patch') }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_linux/linux/patches/*.patch') }}-
+            ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_native/patches/*.patch') }}-
             ccache-${{ matrix.arch }}-
 
       - name: Configure ccache
@@ -160,7 +160,7 @@ jobs:
           fi
           # And with the build tree gone, every dependency still resolves.
           mv example/build /tmp/build-moved-away
-          if ldd /tmp/relocated/lib/libandroid_auto_linux_plugin.so | grep 'not found'; then
+          if ldd /tmp/relocated/lib/libandroid_auto_native_plugin.so | grep 'not found'; then
             echo "::error::the bundle only loads on the machine that built it"
             exit 1
           fi
@@ -175,6 +175,87 @@ jobs:
   # Linux runner can prove the example still builds there, so this does, before a
   # release rather than on every push. No submodule: neither platform ever touches
   # aasdk, and needing it would be the bug.
+  # Android, the same native core cross compiled with the NDK, for the three ABIs the
+  # plugin ships. What aasdk links against is built from pinned sources by
+  # tools/build-android-deps.sh, about ten minutes an ABI, so it is cached on the
+  # script's own hash: a change to a version or a flag misses, anything else hits. This
+  # is also what proves the archives a release publishes can be rebuilt from nothing.
+  android:
+    name: build android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # protoc runs on the host and has to be 3.21, the release the Android libprotobuf
+      # is built from; Ubuntu 24.04's is 3.21.12. The NDK version is Flutter's default,
+      # which the script and the plugin's build.gradle.kts both pin.
+      - name: Install the NDK and the host tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends protobuf-compiler ninja-build
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          # yes ends on a broken pipe once sdkmanager stops reading, which pipefail
+          # would otherwise report as a failure of the whole step.
+          { yes || true; } | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "ndk;28.2.13676358" "cmake;3.31.6" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Restore the Android dependencies
+        uses: actions/cache@v4
+        with:
+          path: packages/android_auto_native/android/deps
+          key: android-deps-${{ hashFiles('tools/build-android-deps.sh') }}
+
+      - name: Build the Android dependencies
+        run: tools/build-android-deps.sh
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build the example, debug
+        working-directory: example
+        run: flutter build apk --debug
+
+      - name: Build the example, release
+        working-directory: example
+        run: flutter build apk --release
+
+      # The same promise the Linux bundle check makes: every ABI is there, and the
+      # library exports its interface and nothing that came in with aasdk.
+      - name: Check the APK
+        run: |
+          set -euo pipefail
+          apk=example/build/app/outputs/flutter-apk/app-release.apk
+          nm="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          work=$(mktemp -d)
+          unzip -q "$apk" 'lib/*/libandroid_auto_native.so' -d "$work"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            lib="$work/lib/$abi/libandroid_auto_native.so"
+            [ -f "$lib" ] || { echo "::error::no core for $abi in the APK"; exit 1; }
+            leaked=$("$nm" -D --defined-only "$lib" | awk '{print $3}' \
+              | grep -vE '^(aa_|JNI_OnLoad$|Java_)' || true)
+            if [ -n "$leaked" ]; then
+              echo "::error::$abi exports more than its interface:"
+              echo "$leaked" | head
+              exit 1
+            fi
+            echo "$abi: $(du -h "$lib" | cut -f1)"
+          done
+
   desktop:
     name: build on ${{ matrix.target }}
     strategy:

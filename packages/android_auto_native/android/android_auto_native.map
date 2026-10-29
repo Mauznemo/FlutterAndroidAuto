@@ -1,0 +1,15 @@
+# What libandroid_auto_native.so exports, and nothing else. The same reasoning as
+# linux/android_auto_native_plugin.map: aasdk, protobuf, Boost and OpenSSL are linked in
+# statically and must not leak into a process other plugins share.
+#
+#   aa_*        the flat C ABI, which Dart resolves with dlsym
+#   JNI_OnLoad  run by Java's System.loadLibrary
+#   Java_*      the native methods of AndroidAutoPlugin
+{
+  global:
+    aa_*;
+    JNI_OnLoad;
+    Java_*;
+  local:
+    *;
+};

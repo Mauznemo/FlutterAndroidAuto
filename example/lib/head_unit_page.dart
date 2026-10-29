@@ -74,6 +74,20 @@ class _HeadUnitPageState extends State<HeadUnitPage> {
     if (Platform.environment['AA_AUTOSTART'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _controller.start());
     }
+    // The same idea for a phone, which cannot be handed an environment: build with
+    // --dart-define=AA_HEAD_UNIT_SERVER=127.0.0.1:5277 to start and dial Android
+    // Auto's head unit server as soon as the app is up.
+    const server = String.fromEnvironment('AA_HEAD_UNIT_SERVER');
+    if (server.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final parts = server.split(':');
+        await _controller.start();
+        await _controller.connectHeadUnitServer(
+          host: parts.first,
+          port: parts.length > 1 ? int.tryParse(parts[1]) ?? 5277 : 5277,
+        );
+      });
+    }
   }
 
   void _onChanged() => setState(() {});

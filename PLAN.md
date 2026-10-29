@@ -4,8 +4,8 @@ A Flutter plugin that runs a real Android Auto head unit **inside** the Flutter 
 rendering the projected phone screen into a Flutter `Texture` so the host app can
 draw its own widgets on top of it.
 
-Linux first (x86_64 and ARM64). The package layout is federated so an Android
-implementation can be added later without touching the app-facing API.
+Linux first (x86_64 and ARM64), Android second. The package layout is federated, and
+Android turned out to need no change to the app-facing API beyond one optional call.
 
 > Working agreement: every box below is a checkpoint. Tick it only when the thing is
 > actually verified on this machine, not when the code merely compiles. Sessions are
@@ -30,7 +30,7 @@ implementation can be added later without touching the app-facing API.
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
 | M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
 | M11 | Packaging, ARM64, CI, docs | **in progress**, bar running it on an ARM64 device |
-| M12 | Android implementation package | not started |
+| M12 | Android implementation | **in progress**, projecting over USB and Wi-Fi, packaged and built in CI, bar a release |
 
 ---
 
@@ -56,7 +56,7 @@ Goal: `libaasdk.a` builds from source inside this repo on Ubuntu 26.04 and links
 against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
 
 - [x] Install host build dependencies (`tools/setup-dev-machine.sh --build-deps`)
-- [x] Add `opencardev/aasdk` as a git submodule under `packages/android_auto_linux/linux/third_party/aasdk`, pinned to `9bf6adf`
+- [x] Add `opencardev/aasdk` as a git submodule under `packages/android_auto_native/third_party/aasdk`, pinned to `9bf6adf`
 - [x] Try a stock build, capture the full error list into `docs/aasdk-port-notes.md`
 - [x] Port `boost::asio::io_service` to `io_context` (95 files affected)
   - [x] `io_service` to `io_context`
@@ -64,7 +64,7 @@ against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
   - [x] `ip::address::from_string` to `ip::make_address`
   - [x] `IOContextWrapper`'s `io_context->post/dispatch` to the free functions
   - [x] `strand.context()` narrowed from `execution_context&` to `io_context&`
-  - [x] Keep the diff as a patch under `packages/android_auto_linux/linux/patches/` so the submodule stays clean
+  - [x] Keep the diff as a patch under `packages/android_auto_native/patches/` so the submodule stays clean
 - [x] Raise the three `cmake_minimum_required()` calls CMake 4 rejects
 - [x] Drop the `system` component from `find_package(Boost)`, gone in Boost 1.90
 - [x] Put aasdk's include directory on the `aasdk` target so `add_subdirectory()` consumers can use it
@@ -75,7 +75,7 @@ against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
 - [x] Verify the whole thing round-trips from a clean submodule: reset, apply patch, build, smoke test passes
 
 Reproduce with `tools/build-aasdk.sh`, which fetches the submodule, applies the patch,
-builds and runs `packages/android_auto_linux/linux/smoke/aasdk_smoke.cpp`. Expected:
+builds and runs `packages/android_auto_native/linux/smoke/aasdk_smoke.cpp`. Expected:
 
 ```
 boost      : 1.90.0
@@ -96,11 +96,11 @@ write up in `docs/aasdk-port-notes.md`.
 Goal: the example app starts, calls into native code, gets a texture id back, and
 shows a test pattern in a `Texture` widget with Flutter widgets on top.
 
-- [x] Create `packages/android_auto_linux/linux/src/` with the core skeleton
+- [x] Create `packages/android_auto_native/src/` with the core skeleton
   - [x] `aa_core.h`: the flat C ABI (opaque handle, create/destroy/start/stop, config struct, event callback)
   - [x] `aa_core.cc`: lifecycle, owns the Boost `io_context` thread pool
   - [x] `event_bus.{h,cc}`: native to Dart events, closed before the Dart callable is torn down
-- [x] Wire `AndroidAutoLinuxPlugin` (GTK entry point) to capture the `FlTextureRegistrar` into a process-global
+- [x] Wire `AndroidAutoNativePlugin` (GTK entry point) to capture the `FlTextureRegistrar` into a process-global
 - [x] `frame_ring.{h,cc}`: the API agnostic seam, a three slot rotation between producer and raster thread
 - [x] Implement `present/gl_adapter.{h,cc}`: an `FlTextureGL` subclass fed from the frame ring
   - [x] Define the API agnostic frame descriptor (`fd`, modifier, stride, offset, fourcc, size) the seam is built on
@@ -108,8 +108,8 @@ shows a test pattern in a `Texture` widget with Flutter widgets on top.
   - [x] Register the texture from the platform thread, not from the producer thread
   - [x] Render a moving test pattern to prove the texture pipeline end to end
 - [x] Link aasdk into the plugin so the M3 transport work has nothing left to integrate
-- [x] `ffigen` config + generated bindings in `packages/android_auto_linux/lib/src/bindings/`
-- [x] Dart side: `AndroidAutoLinux` registers itself as the platform implementation
+- [x] `ffigen` config + generated bindings in `packages/android_auto_native/lib/src/bindings/`
+- [x] Dart side: `AndroidAutoNative` registers itself as the platform implementation
 - [x] `NativeCallable.listener` based event stream from native to Dart
 - [x] Define the public API in `android_auto_platform_interface`
   - [x] `AndroidAutoConfig` (resolution, fps, dpi, head unit identity)
@@ -235,7 +235,7 @@ place. Seven crashes came out of this, each a different instance of the same sha
 | `MessageInStream` dereferenced a null `promise_` during teardown | segfault in an io_context thread |
 | Our own send rejection handler captured a raw `this` | segfault after the session was gone |
 
-Three of these are upstream bugs now fixed in `linux/patches/`: the use after free, the
+Three of these are upstream bugs now fixed in `patches/`: the use after free, the
 ten unguarded `promise_` dereferences, and endpoint halt clearing. The rest are handled
 by giving the long lived pieces process lifetime: libusb, the USB connector and the
 channel strand are created once and never destroyed. See `src/session/usb_context.h`.
@@ -968,7 +968,7 @@ and watching the phone come back with a dark map.
 It also means a host app can set values before it has ever started a session. The Dart
 side keeps the write closures rather than the values, so replaying them into a new core
 is the same code path as setting them in the first place; see `_writeSensor` and
-`_applySensorSettings` in `android_auto_linux.dart`.
+`_applySensorSettings` in `android_auto_native.dart`.
 
 ### The driving restrictions are a set, not a switch
 
@@ -1048,7 +1048,7 @@ larger patch to carry for ever, for messages this plugin is the only consumer of
 aasdk's `Channel` base is public and does the part that is actually hard, so instead
 there is one `MetadataChannel` here that answers the open request and hands every other
 message to a decoder, and one decoder per channel in `metadata_channels.cc`. The patch in
-`linux/patches/` did not grow by a line.
+`patches/` did not grow by a line.
 
 ### What this phone opens, and what it ignores
 
@@ -1229,7 +1229,7 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 
 - [ ] Cross build and test on ARM64 (the target mini PC)
 - [x] Cache the aasdk build so a clean `flutter build linux` is not a 10 minute wait
-- [x] Decide static versus shared linking of aasdk into `libandroid_auto_linux_plugin.so`
+- [x] Decide static versus shared linking of aasdk into `libandroid_auto_native_plugin.so`
 - [x] Document the runtime dependencies an end user has to install
 - [x] GitHub Actions: build x86_64 and ARM64, run unit tests
 - [x] `README.md` with a real screenshot, quick start, and the licence situation spelled out
@@ -1300,7 +1300,7 @@ libaap_protobuf.so.2026 => not found
 
 aasdk versions itself by the day it was built, so a shared build is
 `libaasdk.so.2026.09.17+git.9bf6adf` with a `libaasdk.so.2026` SONAME symlink beside it.
-`android_auto_linux_bundled_libraries` had been pointed at the SONAME, on the reasoning
+`android_auto_native_bundled_libraries` had been pointed at the SONAME, on the reasoning
 that the SONAME is what `DT_NEEDED` records, so the SONAME is what has to be in the
 bundle. Flutter's install step then copied the symlink and not its target, and the
 result kept working on this machine anyway, because the plugin's `RUNPATH` is an
@@ -1446,15 +1446,148 @@ hand beforehand keeps the release instant.
 
 ---
 
-## M12. Android implementation package
+## M12. Android implementation
 
-Sketch only, do not build yet. Recorded so the structure does not have to change later.
+The Android device is the head unit: a car stereo or tablet running the host app, with
+the phone on a cable, over Wi-Fi, or (for development) the same phone. The head unit
+tested is a Samsung Galaxy M21 running LineageOS 20 (Android 13, Exynos 9611), first in
+self mode (its own Android Auto 17.9, through the head unit server, into the example
+app on the same phone) and then with the Pixel 8 Pro on its USB-C port.
 
-- [ ] `packages/android_auto_android` implementing `android_auto_platform_interface`
-- [ ] On Android the host device can be the head unit over USB host mode, same aasdk core via NDK
-- [ ] Video decodes with MediaCodec into a `SurfaceTexture` bridged to a Flutter texture
-- [ ] Audio through AAudio/OpenSL
-- [ ] The app-facing `android_auto` package and the example app must not need any change
+**Decided 2026-10-29: one native package, not two.** `android_auto_native` declares
+`android` as well as `linux`. The C++ core, aasdk and the Dart FFI class are the same
+files on both, and pub.dev cannot share sources between packages, so a separate
+`android_auto_android` would have meant two copies of everything. Host apps depend on
+`android_auto` only and never see the name.
+
+- [x] Cross compile what aasdk links against: `tools/build-android-deps.sh` builds Boost 1.90 (static), protobuf 3.21.12, OpenSSL 3.5.9 and libusb 1.0.29 for arm64-v8a and x86_64 into `android/deps/`
+- [x] aasdk, the protocol session and every channel build with NDK 28 unchanged, bar one hunk in the port patch (static Boost on Android)
+- [x] Android backends beside their Linux siblings behind the existing seams: `gl_adapter_android.cc`, `mediacodec_decoder.cc`, `aaudio_sink.cc`, `aaudio_source.cc`, a Bluetooth placeholder, and `platform/android_jni.cc`
+- [x] Java plugin class: loads the library, hands out `SurfaceProducer`s. The Dart side is the same `AndroidAutoNative` class through the same C ABI
+- [x] Test pattern through EGL into a `SurfaceProducer`, composited under Flutter widgets, animating (bar at x = 1121, 1710, 2001 a 0.7 s apart)
+- [x] `aa_session_connect_head_unit_server` and `AndroidAutoController.connectHeadUnitServer`: dial Android Auto's developer head unit server over TCP
+- [x] Version, SSL, service discovery and every channel opened by the phone, first try
+- [x] Video: MediaCodec (`OMX.Exynos.avc.dec`) into `AHardwareBuffer`s, imported into EGL without a copy, margins cropped. 11 to 28 ms from wire to frame
+- [x] The mid session margin change (focus native, `UpdateUiConfigRequest`, focus projected) works exactly as on Linux
+- [x] Touch, down to a small back arrow
+- [x] Speech audio through AAudio: 26 s, 0 underruns
+- [x] Microphone through AAudio when the app holds `RECORD_AUDIO`, silence when it does not; opened and closed on the phone's request
+- [x] Stop says goodbye and the phone acknowledges it; dialling again projects again
+- [x] App to the background and back: still connected, picture back at once from the kept texture
+- [x] Linux still builds and projects after the shared changes (VA-API, 1280x680)
+- [x] `AndroidAutoController.start` waits for the window to have a size. An Android window is 0 by 0 until its first layout, and a phone on the same machine connected inside that gap and was asked for 1280x720 on a screen that wanted 1920x1080
+- [x] USB host mode: Java finds the phone through `UsbManager` and hands over a file descriptor, `libusb_wrap_sys_device` wraps it, aasdk's own query chain switches the phone to accessory mode and its `AOAPDevice` opens it when it comes back. Pixel 8 Pro to projecting in about 2.5 s from the permission tap, 15 to 18 ms wire to frame at 1920x1080
+- [x] USB stop and start: the goodbye is acknowledged, `libusb_reset_device` is allowed on an app's descriptor and drops the phone out of accessory mode, and Start projects again in 1.8 s with no dialog once both of the phone's identities are allowed for good
+- [x] Media audio through AAudio, 48 kHz stereo, from Spotify on the Pixel
+- [ ] System audio heard. Same sink with a different usage
+- [ ] The cable pulled and put back mid session, and a transport that dies with the phone still attached (the bounce in `RecoverAndRediscover`, here a reset and then a rescan)
+- [ ] Shrinking with every source pixel averaged. `gl_adapter.cc`'s footprint filter is not ported; Android samples bilinear, so a picture drawn much smaller than its frame will look grainy
+- [ ] Sensors and metadata seen working on Android. Shared code, nothing Android specific in it, not looked at
+- [x] Wireless: the RFCOMM service through Java's `BluetoothServerSocket`, bridged to the native handshake over a socket pair; the network from `WifiManager`
+- [x] The head unit hosts its own network, a LocalOnlyHotspot, when the host app names none, with the SSID and passphrase Android chose. Verified: the Pixel joined it, dialled in and projected, 10.6 to 14 ms wire to frame
+- [x] A phone or tablet as head unit gets a phone to dial: a headset link opened from this end (`nudgePhone`), four seconds before the phone opened the Android Auto channel
+- [x] 1080p is not allowed over 2.4 GHz: the phone says `VideoCodecResolutionType 3 (3) is not allowed due wireless frequency`, then `No working configuration`, and hangs up. A known 2.4 GHz network caps an automatic frame at 1280x720
+- [x] Shared fix: the repeated start request reached a phone just as it dialled in, and the phone dropped the session to obey it. It now waits two seconds and goes only if the phone has not dialled
+- [x] The hotspot's BSSID, which Android hides from apps: recovered from the hotspot interface's IPv6 link-local address, which Android builds EUI-64 (`fe80::d4bf:9cff:fe74:613b` is `d6:bf:9c:74:61:3b`, matching `SoftApInfo`). A privacy address carries no MAC, and then the host app has to name it
+- [x] No phone named or linked: the prod works through the paired phones that could be one, which is how the Pixel was found with nothing chosen in the bench. A Pixel 8 Pro calls itself uncategorized and Android had no service list for it, so "a phone" is decided by ruling out computers, headsets and the like rather than by asking for the phone class
+- [ ] A device that does not build its hotspot's link-local address from the MAC. Options then: a privileged host app asking for `SoftApInfo`, or `startLocalOnlyHotspotWithConfiguration` on Android 16 with a BSSID of the head unit's choosing
+- [ ] Calls while the headset link is up. The phone counts the head unit as a headset and may try to route a call to it, which it cannot take
+- [ ] Offering several video configs, so the phone picks the largest its link allows instead of the head unit guessing from the band
+- [x] Packaging: the dependencies ship prebuilt in the package, stripped and with Boost's headers cut to what is used, 30 MB compressed for three ABIs. Kept out of git, published through `android/.pubignore`; verified with `dart pub publish --dry-run`
+- [x] armeabi-v7a, because Flutter ships it in every APK and 32 bit car stereos are common: built, and verified by projecting with the example installed as `armeabi-v7a`. A missing library no longer kills the app at startup
+- [x] Renamed `android_auto_linux` to `android_auto_native`, the Dart class to `AndroidAutoNative`, and moved the shared native tree from `linux/src` to the package root as `src/`, with `third_party/` and `patches/` beside it
+- [x] An Android build in CI: the `android` job in `release.yml` builds the dependencies from nothing (6 minutes for three ABIs on a GitHub runner), debug and release APKs, and checks every ABI's core is present and exports only its interface. Green on run 40883881357, with every other job. The publish job in `publish.yml` shares its setup and has not run, since nothing has been released
+
+### Measured
+
+| | |
+|---|---|
+| Decoder | `OMX.Exynos.avc.dec`, the hardware one, picked by `AMediaCodec_createDecoderByType` |
+| Wire to frame | 27.6 ms in the first ten seconds, 11.6 to 13.1 ms after |
+| Frame | 1920x1080, picture 1920x878, for a view of 2131x975. The view is larger than the largest frame, so the picture is stretched 1.11x |
+| Speech | 16 kHz mono, 26 s, 0 underruns, 96 ms buffered |
+| Microphone | 16 kHz mono, 283 buffers, closed within the request |
+| Library | 88 MB debug unstripped, 13 MB stripped; 73 exported symbols |
+
+### How it is shaped
+
+The seams Linux already had took Android without changing shape. `FrameRing` carries a
+new kind, `kHardwareBuffer`, which is Android's dmabuf: MediaCodec decodes into an
+`AImageReader`, each picture is published by reference with the `AImage` as its
+keepalive, and the present adapter imports it with `eglGetNativeClientBufferANDROID`.
+The reader outlives its decoder through the keepalives, because a picture can still be
+in the ring while the session is torn down and an `AImage` must not outlive its reader.
+
+The present adapter is the one place the platforms differ in kind rather than detail.
+On Linux Flutter calls `populate()` inside its own GL context. Android has nothing like
+it: a texture is a `SurfaceProducer`, a `Surface` that somebody else draws into. So the
+Android adapter has a thread and an EGL context of its own and never touches Flutter's,
+which also keeps it clear of whichever Impeller backend is running. Each frame is drawn
+into a middle texture first and from there into the surface, so a surface Flutter
+replaces (a resize, a return from the background) is drawn again at once: Android Auto
+sends a frame only when its screen changes.
+
+### USB, and the permission that answers in the wrong place
+
+An Android app sees no USB device until `UsbManager` hands it over, and every time the
+phone switches to accessory mode it is a new device with a new product id, so it is
+asked about twice: once as the phone and once as the accessory. Ticking "always open"
+in the dialog makes both go through silently from then on, but only for a host app
+whose activity declares a `USB_DEVICE_ATTACHED` filter; the example's matches every
+device, see `example/android/app/src/main/res/xml/usb_device_filter.xml`.
+
+**The permission can be granted without the app's request ever being answered.** A host
+app with that filter gets the system's own "open with" chooser on attach, and choosing
+the app there grants the permission and starts the activity, while the dialog the
+plugin itself asked for is closed with no answer at all. Seen on Android 13. So the
+plugin does not wait for the answer: while it is searching it rescans every second and
+opens whatever it has been allowed to use, and it only asks itself after a device has
+been sitting there for two seconds, which also keeps it from stacking a second dialog
+on the system's.
+
+### Wireless, and what the phone needed that a car would have had
+
+Three things stood between pairing and a picture, and the phone's own log named each
+one (`adb logcat | grep -E " (GH|CAR)\."` on the phone; it does log).
+
+1. **Nothing happened after pairing.** The phone read the service list and stopped. A
+   car connects as a hands free unit, and a phone running the head unit has that role
+   switched off. Opening the phone's headset gateway from the head unit is what a
+   wireless adapter does in the same position, and four seconds after that link came
+   up the phone opened the Android Auto channel. It needs no permission beyond
+   BLUETOOTH_CONNECT and no root.
+2. **The session restarted in a loop.** The handshake repeats its start request once
+   the phone says it is on the network, which on Linux covered a phone that joined
+   slowly. A phone already on the hotspot dials 60 ms after saying so and got the
+   repeat as it connected, which is an instruction to reconnect. Fixed in shared code.
+3. **The phone hung up a second after opening its channels**, every time, with
+   `VideoCodecResolutionType 3 (3) is not allowed due wireless frequency` and `No
+   working configuration`. Android Auto will not send 1080p over 2.4 GHz, Android's
+   hotspot for an app is 2.4 GHz, and service discovery offers one frame size.
+
+The hotspot is the realistic setup: in a car the head unit hosts the network and tells
+the phone its name, passphrase and BSSID. Android picks a new SSID and BSSID on every
+start, gives an app the SSID and passphrase, and hides the BSSID, which a phone rejects
+an offer without. It comes back out of the interface's IPv6 link-local address, which
+Android builds EUI-64 on the device tested; where it does not, the host app names it.
+
+### Self mode, and the four things it takes on a fresh phone
+
+1. Android Auto's developer settings: tap Version ten times in its settings. Then
+   "Start head unit server" from the overflow menu. The server goes away whenever
+   Android Auto's process does, a system restart included, and has to be started again.
+2. On the first connection the phone shows a welcome screen with a permissions notice.
+   Its Continue button records the acknowledgement and then appears to do nothing.
+3. What it is waiting for is notification access, which the projected screen says and
+   the phone does not. `adb shell 'cmd notification allow_listener
+   com.google.android.projection.gearhead/com.google.android.gearhead.notifications.SharedNotificationListenerManager\$ListenerService'`,
+   with the `$` escaped for the phone's shell: unescaped it silently grants a class
+   that does not exist.
+4. Reconnect. The projection then opens on the launcher.
+
+**Do not edit `enabled_notification_listeners` with `settings put`.** Doing that to
+remove a bad entry restarted the system server on LineageOS, which also took the head
+unit server down.
 
 ---
 
@@ -1463,7 +1596,7 @@ Sketch only, do not build yet. Recorded so the structure does not have to change
 These need a call from the project owner. The first one blocks M1.
 
 1. ~~**Licence.**~~ **Decided 2026-09-12: GPL-3.0-or-later for the whole repository.**
-   `aasdk` is GPL-3.0-or-later, so `android_auto_linux` has no other option, and the
+   `aasdk` is GPL-3.0-or-later, so `android_auto_native` has no other option, and the
    infotainment app this plugin is built for is GPL-3.0 anyway. One `LICENSE` at the
    root covers every package.
 
@@ -1476,7 +1609,7 @@ These need a call from the project owner. The first one blocks M1.
    known Google Automotive Link certificate. It is not a secret, but it is also not ours.
    The plugin will load it from a configurable path so integrators can drop in their own.
 
-3. **Package names.** `android_auto`, `android_auto_linux`,
+3. **Package names.** `android_auto`, `android_auto_native`,
    `android_auto_platform_interface` are all free on pub.dev as of 2026-09-12.
 
 4. **Minimum Flutter version.** Pinned to `>=3.24.0` for now. Revisit once the texture

@@ -4,6 +4,7 @@ analyzer:
     - linux/**
     - windows/**
     - macos/**
+    - android/**
 include: ../analysis_options.yaml
 
 linter:

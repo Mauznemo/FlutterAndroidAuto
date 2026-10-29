@@ -21,7 +21,7 @@ example/linux/flutter/generated_plugin_registrant.h
 example/linux/flutter/generated_plugins.cmake
 
 # Native build output
-packages/android_auto_linux/linux/third_party/*/build/
+packages/android_auto_native/third_party/*/build/
 compile_commands.json
 
 # Custom head unit certificates, never commit these

@@ -42,6 +42,12 @@ class _WirelessPanelState extends State<WirelessPanel> {
   late final TextEditingController _passphrase = TextEditingController(
     text: widget.config.passphrase,
   );
+  late final TextEditingController _bssid = TextEditingController(
+    text: widget.config.bssid,
+  );
+  late final TextEditingController _server = TextEditingController(
+    text: '127.0.0.1:5277',
+  );
   late String _phone = widget.config.phoneAddress;
   List<AndroidAutoBluetoothDevice> _pairedPhones = const [];
   bool _showPassphrase = false;
@@ -65,13 +71,10 @@ class _WirelessPanelState extends State<WirelessPanel> {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _pairedPhones = phones;
-      if (_phone.isEmpty) {
-        final phone = phones.where((one) => one.isPhone);
-        _phone = phone.isEmpty ? '' : phone.first.address;
-      }
-    });
+    // No phone is chosen for the driver. Left empty, the head unit prods whichever
+    // phone is linked, or on Android works through every paired one; picking the first
+    // in the list chose a phone that was not in the car.
+    setState(() => _pairedPhones = phones);
     _publish();
   }
 
@@ -80,6 +83,8 @@ class _WirelessPanelState extends State<WirelessPanel> {
     _poll?.cancel();
     _ssid.dispose();
     _passphrase.dispose();
+    _server.dispose();
+    _bssid.dispose();
     super.dispose();
   }
 
@@ -91,7 +96,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
       ssid: _ssid.text,
       passphrase: _passphrase.text,
       phoneAddress: _phone,
-      bssid: base.bssid,
+      bssid: _bssid.text.trim(),
       interfaceName: base.interfaceName,
       ipAddress: base.ipAddress,
       port: base.port,
@@ -114,6 +119,18 @@ class _WirelessPanelState extends State<WirelessPanel> {
     }
     _controller.setWirelessConfig(_publish());
     await _controller.startWireless();
+  }
+
+  /// Dials Android Auto's head unit server, the developer option the desktop head unit
+  /// uses. On a phone it projects that phone's own Android Auto into this app.
+  Future<void> _dialServer() async {
+    final parts = _server.text.trim().split(':');
+    final host = parts.first.isEmpty ? '127.0.0.1' : parts.first;
+    final port = parts.length > 1 ? int.tryParse(parts[1]) ?? 5277 : 5277;
+    if (_controller.state == AndroidAutoConnectionState.idle) {
+      await _controller.start();
+    }
+    await _controller.connectHeadUnitServer(host: host, port: port);
   }
 
   @override
@@ -166,7 +183,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
           obscureText: !_showPassphrase,
           decoration: InputDecoration(
             labelText: 'Wi-Fi passphrase',
-            helperText: 'The one thing nothing here can read off the machine',
+            helperText: 'Empty on Android: the head unit hosts its own hotspot',
             isDense: true,
             suffixIcon: IconButton(
               tooltip: _showPassphrase ? 'Hide' : 'Show',
@@ -178,6 +195,39 @@ class _WirelessPanelState extends State<WirelessPanel> {
             ),
           ),
           style: const TextStyle(fontSize: 13),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _bssid,
+          onChanged: (_) => _publish(),
+          decoration: const InputDecoration(
+            labelText: 'BSSID',
+            helperText:
+                'Empty reads it off the interface, or a hotspot\'s link-local address',
+            isDense: true,
+          ),
+          style: const TextStyle(fontSize: 13),
+        ),
+        const PanelSection('Head unit server'),
+        const PanelNote(
+          'Android Auto, developer settings, Start head unit server. On the phone '
+          'itself dial 127.0.0.1; from a computer, adb forward tcp:5277 tcp:5277 first.',
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _server,
+                decoration: const InputDecoration(
+                  labelText: 'Address',
+                  isDense: true,
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(onPressed: _dialServer, child: const Text('Dial')),
+          ],
         ),
         const PanelSection('Paired phones'),
         if (_pairedPhones.isEmpty)

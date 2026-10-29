@@ -17,7 +17,7 @@ environment:
 workspace:
   - packages/android_auto
   - packages/android_auto_platform_interface
-  - packages/android_auto_linux
+  - packages/android_auto_native
   - example
 
 dev_dependencies:

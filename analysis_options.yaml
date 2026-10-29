@@ -1,3 +1,8 @@
+analyzer:
+  exclude:
+    # Build output, and since tools/build-android-deps.sh the upstream sources it
+    # downloads, which include Dart examples of their own.
+    - build/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

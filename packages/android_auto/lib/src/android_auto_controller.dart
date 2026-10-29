@@ -99,10 +99,15 @@ class AndroidAutoController extends ChangeNotifier {
   /// or another shape still makes the phone lay out again when it is first laid out,
   /// so a host app that knows where the view will be should say so with [setViewSize]
   /// before starting.
+  ///
+  /// On Android a window is 0 by 0 until its first layout, so a start made that early
+  /// waits up to a second for either the view or the window to have a size. A phone
+  /// on the same machine answers within milliseconds, and asking it for a frame
+  /// before there was any size to choose by got it 1280x720 on a screen twice that.
   Future<void> start() async {
     if (_viewSize == null) {
-      final window = PlatformDispatcher.instance.implicitView?.physicalSize;
-      if (window != null && !window.isEmpty) {
+      final window = await _windowSize();
+      if (_viewSize == null && window != null) {
         setViewSize(window);
       }
     }
@@ -147,6 +152,15 @@ class AndroidAutoController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Dials a phone running Android Auto's head unit server, the developer option
+  /// Google's desktop head unit connects to. A way to try a host app on real Android
+  /// Auto without a cable or a pairing. See
+  /// [AndroidAutoPlatform.connectHeadUnitServer].
+  Future<void> connectHeadUnitServer({
+    String host = '127.0.0.1',
+    int port = 5277,
+  }) => _platform.connectHeadUnitServer(host: host, port: port);
+
   /// Changes which Wi-Fi network a phone is sent to. Applies the next time wireless
   /// starts, so it never disturbs a phone that is projecting.
   void setWirelessConfig(AndroidAutoWirelessConfig config) {
@@ -176,6 +190,22 @@ class AndroidAutoController extends ChangeNotifier {
   Future<void> stopTestPattern() async {
     await _platform.stopTestPattern();
     await _refreshVideoState();
+  }
+
+  /// The window's size in physical pixels, once it has one, or null if it still has
+  /// none after a second. Returns early if a view reports its own size meanwhile.
+  Future<Size?> _windowSize() async {
+    for (var waited = 0; waited < 1000; waited += 20) {
+      final window = PlatformDispatcher.instance.implicitView?.physicalSize;
+      if (window != null && !window.isEmpty) {
+        return window;
+      }
+      if (_viewSize != null) {
+        return null;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    return null;
   }
 
   /// Tells the head unit the size of the view the projection is shown in, in physical

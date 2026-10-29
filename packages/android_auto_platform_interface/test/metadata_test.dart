@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The metadata types are decoded from JSON that `linux/src/metadata/json.cc` writes,
+// The metadata types are decoded from JSON that `src/metadata/json.cc` writes,
 // so these tests are about one seam: the key names, the shapes and the absences on one
 // side matching what the other side reads. A mismatch there is silent. Nothing throws,
 // nothing logs, a turn card just never fills in.

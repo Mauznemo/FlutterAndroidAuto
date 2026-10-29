@@ -1,0 +1,13 @@
+# Used by pub instead of .gitignore in this directory, and the same list except for one
+# line: deps/ is published. It holds the prebuilt Android dependencies, which are kept
+# out of git but are what a host app builds against, so it never has to run
+# tools/build-android-deps.sh. See docs/packaging.md.
+*.iml
+.gradle
+/local.properties
+/.idea/workspace.xml
+/.idea/libraries
+.DS_Store
+/build
+/captures
+.cxx

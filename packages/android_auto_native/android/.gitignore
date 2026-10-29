@@ -1,0 +1,11 @@
+*.iml
+.gradle
+/local.properties
+/.idea/workspace.xml
+/.idea/libraries
+.DS_Store
+/build
+/captures
+.cxx
+# Built by tools/build-android-deps.sh, hundreds of megabytes of static archives.
+/deps/

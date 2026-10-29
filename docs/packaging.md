@@ -13,7 +13,7 @@ build/linux/<arch>/release/bundle/
   android_auto_example                 the executable
   data/                                Flutter assets and the ICU data
   lib/
-    libandroid_auto_linux_plugin.so    the head unit, aasdk inside it
+    libandroid_auto_native_plugin.so    the head unit, aasdk inside it
     libapp.so                          the app's compiled Dart
     libflutter_linux_gtk.so            the Flutter engine
 ```
@@ -28,7 +28,7 @@ the failure is invisible on the machine that did the build:
 
 ```bash
 cp -a build/linux/x64/release/bundle /tmp/relocation-test
-ldd /tmp/relocation-test/lib/libandroid_auto_linux_plugin.so | grep 'not found'
+ldd /tmp/relocation-test/lib/libandroid_auto_native_plugin.so | grep 'not found'
 ```
 
 Silence is a pass. A dangling entry means something is being resolved out of the build
@@ -61,7 +61,7 @@ is GPL-3.0-or-later whether aasdk is inside it or beside it.
 So `AASDK_LIBRARY_TYPE` is set to `STATIC` in the plugin's CMake, aasdk's own
 CMakeLists takes the library type from the parent project (part of the port, see
 [`aasdk-port-notes.md`](aasdk-port-notes.md)), and
-`android_auto_linux_bundled_libraries` is empty.
+`android_auto_native_bundled_libraries` is empty.
 
 Two things follow from static linking that had to be handled:
 
@@ -72,7 +72,7 @@ Two things follow from static linking that had to be handled:
   symbols arrived with default visibility and the plugin exported 6159 of them where 65
   are the interface. A Flutter application loads every plugin into one address space and
   the first definition of a symbol wins for all of them, so a second plugin carrying its
-  own protobuf or Boost would have bound to this one's. `android_auto_linux_plugin.map`
+  own protobuf or Boost would have bound to this one's. `android_auto_native_plugin.map`
   is a linker version script that exports the `aa_*` C ABI and the GTK registrar entry
   point and nothing else.
 
@@ -193,3 +193,77 @@ unit that projects, so what remains owed is the real check on the device: a phon
 cable, and the video, audio, input and sensor paths exercised there. The VA-API path is
 a different driver stack on ARM and is the most likely thing to need work; there is a
 software fallback if it does.
+
+## Android
+
+On Android the plugin is `libandroid_auto_native.so`, built by Gradle's CMake from
+`android/CMakeLists.txt` out of the same `src/` tree. Everything aasdk links is
+inside it statically, for the same reasons as on Linux, and the version script
+`android/android_auto_native.map` exports the C ABI, `JNI_OnLoad` and the plugin's
+`Java_*` methods and nothing else: 73 symbols. It links only against what every Android
+has (`libaaudio`, `libmediandk`, `libEGL`, `libGLESv3`, `libnativewindow`, `libandroid`,
+`liblog`), so there is nothing for a device to install.
+
+The difference from Linux is where the dependencies come from. Android has no package
+manager to provide Boost, protobuf, OpenSSL and libusb, so `tools/build-android-deps.sh`
+cross compiles pinned releases of them into `android/deps/<abi>/`, for arm64-v8a,
+armeabi-v7a and x86_64. It takes about ten minutes per ABI the first time and is skipped
+for anything already built. The host `protoc` has to be the release the Android libprotobuf is built
+from, 3.21.12, because generated code only links against the runtime that matches it;
+Ubuntu 26.04's is.
+
+Three things in that build are easy to get wrong and each fails in a way that looks
+like something else:
+
+- **Boost is static and aasdk asked for it shared.** aasdk defines `BOOST_ALL_DYN_LINK`,
+  which puts Boost.Log in its shared library namespace, and turns down the static
+  libraries in its `find_package`. The port patch makes both Linux only.
+- **Boost installs only the headers of the libraries asked for.** `log;asio` was not
+  enough: aasdk also includes `circular_buffer`, `endian`, `algorithm` and `core`.
+- **CMake's FindOpenSSL asks pkg-config for static link flags**, and on a cross build
+  that is the host's pkg-config: the first link pulled in x86 Ubuntu's `libzstd` and
+  `libjitterentropy`. The Android CMake points `PKG_CONFIG_LIBDIR` at the prefix.
+
+OpenSSL keeps its deprecated ENGINE API because aasdk still calls `ENGINE_cleanup`.
+
+A debug build is 88 MB unstripped and 13 MB stripped, almost all of it aasdk and
+protobuf at `-O0`; Gradle strips it into the APK. The library is linked for 16 KB pages,
+which Google Play requires of native code for Android 15 devices.
+
+### The dependencies ship prebuilt
+
+**A host app never runs `tools/build-android-deps.sh`.** The published package carries
+`android/deps/` for all three ABIs, so its first Android build compiles the plugin and
+aasdk and nothing else. Decided 2026-10-29 over the alternatives: building them on a
+host app's first configure is ten minutes an ABI plus a download, and fetching
+prebuilt archives at build time makes every build depend on a server staying up.
+
+They stay out of git all the same. `android/.gitignore` lists `/deps/` and
+`android/.pubignore`, which pub reads instead of the `.gitignore` beside it, is the same
+list without that line. So a checkout builds them with the script, and a release
+publishes what the script built. The sources are pinned releases fetched by that script,
+which is also how the LGPL's offer of libusb's source is met.
+
+What ships is trimmed, and the trimming happens in the script on every run, so a
+developer builds against exactly the files a host app gets:
+
+| | per ABI |
+|---|---|
+| as built, debug information included | 261 MB |
+| archives stripped of debug information | 28 MB of archives |
+| Boost headers cut to the 30 libraries the core includes | 100 MB to 25 MB |
+| what ships | about 65 MB, three ABIs 30 MB compressed |
+
+The Boost list is the union of what `ninja -t deps` reports for every ABI and both build
+types, and it was identical across all four. Whole libraries rather than single headers,
+so a different NDK taking a different path inside one of them still finds its file.
+
+**armeabi-v7a is there because Flutter is.** Flutter puts a 32 bit ARM build in every
+APK, and a plugin without one makes a 32 bit device fail to load it, which is the class
+of device a lot of Android car stereos are. Verified by installing the example as
+`armeabi-v7a` on the M21, which projected. The plugin's Java side also catches a missing
+library rather than dying in a static initialiser, so an app on an ABI nobody built for
+starts, and reports the plugin as unavailable.
+
+`dev/release.sh` builds the dependencies before validating, and the CI publish job
+builds them before publishing; both refuse to go on without all three ABIs.
