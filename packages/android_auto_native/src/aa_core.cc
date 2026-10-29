@@ -955,6 +955,11 @@ int32_t aa_session_start(AaSession* session) {
   }
   session->running = true;
   session->recovering = false;
+  // Nothing is connected in a session that has only just started. A flag left up by
+  // the connection a stop ended had every phone dialling in over Wi-Fi turned away as
+  // though that connection were still live.
+  session->reached_connected = false;
+  session->recovery_attempts = 0;
   session->decoder->Start();
   session->audio->Start();
 
@@ -1065,6 +1070,10 @@ int32_t aa_session_stop(AaSession* session) {
     // be saying no. The service goes away for good in aa_session_destroy.
     session->wireless->Decline();
   }
+  // Whatever was connected is not any more. Left up, these made the next start turn
+  // away every phone that dialled in over Wi-Fi.
+  session->reached_connected = false;
+  session->recovery_attempts = 0;
   if (!session->running) {
     std::lock_guard<std::mutex> lock(session->protocol_mutex);
     session->protocol.reset();
@@ -1113,6 +1122,8 @@ int32_t aa_session_stop(AaSession* session) {
   session->io_context.restart();
   session->running = false;
   session->recovering = false;
+  // Again, now that no io thread is left to report on the connection being drained.
+  session->reached_connected = false;
   // Nothing is left to draw, and the last frame is holding a dmabuf open. Let go of it,
   // and of the picture in the texture, which the decoder has already done if a phone
   // was projecting but nothing has if it was the test pattern.
