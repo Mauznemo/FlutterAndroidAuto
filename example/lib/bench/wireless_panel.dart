@@ -165,6 +165,13 @@ class _WirelessPanelState extends State<WirelessPanel> {
             'phone ${status.phoneLinked ? "linked" : "not linked"}',
             color: status.phoneLinked ? Colors.greenAccent : Colors.white70,
           ),
+        // Read on every poll above, so it needs no subscription of its own. Tells a
+        // phone that projects over the cable from one that came over Wi-Fi.
+        PanelNote(
+          _controller.phoneOnUsb
+              ? 'A phone is on USB'
+              : 'Nothing that looks like a phone on USB',
+        ),
         const PanelSection('Network to offer'),
         TextField(
           controller: _ssid,

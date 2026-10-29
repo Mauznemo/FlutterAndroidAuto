@@ -20,6 +20,8 @@ constexpr int kClaimRetryMs = 500;
 
 }  // namespace
 
+bool UsbConnector::PhonePresent() { return android::UsbPhonePresent(); }
+
 UsbConnector::UsbConnector(boost::asio::io_context& io_context)
     : io_context_(io_context), strand_(io_context) {}
 

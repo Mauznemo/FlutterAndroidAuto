@@ -1265,6 +1265,22 @@ class AaCoreBindings {
             int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>, int)
           >();
 
+  /// Whether a device that might be a phone is on USB right now, 1 or 0. Something with a
+  /// vendor specific or still image interface (adb, MTP, PTP), one with no interfaces at
+  /// all (a phone set to charge only), or a phone already in accessory mode; never a hub.
+  ///
+  /// Takes no session because it describes the machine, so it answers while nothing runs,
+  /// which is what a head unit needs to start Android Auto when a phone is plugged in. It
+  /// opens nothing and asks for no permission. Cheap enough to poll once a second.
+  int aa_usb_phone_present() {
+    return _aa_usb_phone_present();
+  }
+
+  late final _aa_usb_phone_presentPtr =
+      _lookup<ffi.NativeFunction<ffi.Int32 Function()>>('aa_usb_phone_present');
+  late final _aa_usb_phone_present = _aa_usb_phone_presentPtr
+      .asFunction<int Function()>();
+
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Built as scaffolding for
   /// the video path and kept because it earns its place: the real H.264 path publishes into

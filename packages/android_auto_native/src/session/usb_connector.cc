@@ -26,7 +26,65 @@ constexpr int kClaimRetryMaxMs = 2000;
 // have had a good ten seconds to work.
 constexpr int kResetAfterAttempts = 24;
 
+// Google's vendor id, and the product ids a phone takes on in accessory mode: with and
+// without adb, audio, or both.
+constexpr uint16_t kGoogleVendor = 0x18d1;
+constexpr uint16_t kFirstAccessoryProduct = 0x2d00;
+constexpr uint16_t kLastAccessoryProduct = 0x2d05;
+
+// The same rule as mightBePhone in AndroidAutoPlugin.java, so both platforms agree on
+// what a phone looks like. A laptop's own camera, Bluetooth and keyboard controller
+// show none of these interfaces, which is what keeps it from answering yes always.
+bool MightBePhone(libusb_device* device) {
+  libusb_device_descriptor descriptor{};
+  if (libusb_get_device_descriptor(device, &descriptor) != 0) {
+    return false;
+  }
+  if (descriptor.idVendor == kGoogleVendor && descriptor.idProduct >= kFirstAccessoryProduct &&
+      descriptor.idProduct <= kLastAccessoryProduct) {
+    return true;
+  }
+  if (descriptor.bDeviceClass == LIBUSB_CLASS_HUB) {
+    return false;
+  }
+  libusb_config_descriptor* config = nullptr;
+  if (libusb_get_active_config_descriptor(device, &config) != 0 || config == nullptr) {
+    // Unconfigured, which a phone set to charge only can be.
+    return true;
+  }
+  bool phone = config->bNumInterfaces == 0;
+  for (uint8_t i = 0; i < config->bNumInterfaces && !phone; ++i) {
+    const libusb_interface& usb_interface = config->interface[i];
+    for (int j = 0; j < usb_interface.num_altsetting && !phone; ++j) {
+      const uint8_t interface_class = usb_interface.altsetting[j].bInterfaceClass;
+      phone = interface_class == LIBUSB_CLASS_VENDOR_SPEC ||
+              interface_class == LIBUSB_CLASS_IMAGE;
+    }
+  }
+  libusb_free_config_descriptor(config);
+  return phone;
+}
+
 }  // namespace
+
+bool UsbConnector::PhonePresent() {
+  std::string error;
+  UsbContext* context = UsbContext::Shared(&error);
+  if (context == nullptr) {
+    return false;
+  }
+  libusb_device** devices = nullptr;
+  const ssize_t count = libusb_get_device_list(context->raw(), &devices);
+  if (count < 0) {
+    return false;
+  }
+  bool present = false;
+  for (ssize_t i = 0; i < count && !present; ++i) {
+    present = MightBePhone(devices[i]);
+  }
+  libusb_free_device_list(devices, 1);
+  return present;
+}
 
 UsbConnector::UsbConnector(boost::asio::io_context& io_context)
     : io_context_(io_context) {}

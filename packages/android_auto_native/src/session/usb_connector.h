@@ -75,6 +75,11 @@ class UsbConnector {
   // process wide and is never shut down, see usb_context.h.
   void Stop();
 
+  // Whether anything on USB might be a phone, see aa_usb_phone_present. Needs no
+  // connector and no session, and opens no device: the descriptors come from what the
+  // kernel already read at enumeration.
+  static bool PhonePresent();
+
  private:
   // `attempt` counts consecutive failures to claim the USB interface, see the retry
   // note in the .cc file.

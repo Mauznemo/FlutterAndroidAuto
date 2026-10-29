@@ -168,6 +168,15 @@ class AndroidAutoController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether a device that might be a phone is on USB right now. Works while no
+  /// session runs, and asks for no USB permission. See
+  /// [AndroidAutoPlatform.phoneOnUsb].
+  bool get phoneOnUsb => _platform.phoneOnUsb;
+
+  /// Every change to [phoneOnUsb]. The way to start a session when a phone is plugged
+  /// in. Cancel the subscription when done, since the head unit may poll for it.
+  Stream<bool> get phoneOnUsbChanges => _platform.phoneOnUsbChanges;
+
   /// Whether wireless is being offered right now.
   bool get wirelessActive => _platform.wirelessActive;
 

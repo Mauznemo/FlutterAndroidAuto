@@ -74,6 +74,10 @@ void RescanUsb();
 // Closes a descriptor StartUsbDiscovery handed over. Safe from any thread.
 void ReleaseUsbDevice(int fd);
 
+// Whether UsbManager lists anything that might be a phone. Asks for no permission and
+// works with or without discovery running. Safe from any thread.
+bool UsbPhonePresent();
+
 // A phone that opened the RFCOMM service. Returns a descriptor for Java to pump the
 // phone's bytes through, which it then owns, or -1 to have the phone dropped. Called on
 // Java's accept thread.

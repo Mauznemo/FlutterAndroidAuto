@@ -349,6 +349,25 @@ public class AndroidAutoPlugin implements FlutterPlugin {
         });
   }
 
+  /**
+   * Whether anything attached might be a phone, by {@link #mightBePhone}. Needs no
+   * permission and no session, so a host app can start one when a phone is plugged in.
+   * Called from any native thread; the device list is a binder call and safe from all.
+   */
+  @SuppressWarnings("unused") // Called from native code.
+  static boolean usbPhonePresent() {
+    final UsbManager manager = usbManager();
+    if (manager == null) {
+      return false;
+    }
+    for (UsbDevice device : manager.getDeviceList().values()) {
+      if (mightBePhone(device)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static UsbManager usbManager() {
     synchronized (lock) {
       return context == null ? null : (UsbManager) context.getSystemService(Context.USB_SERVICE);

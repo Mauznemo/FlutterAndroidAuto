@@ -36,6 +36,8 @@ import 'simulated_screen.dart';
 ///   is in [AndroidAutoConfig.metadata], as with a real phone.
 /// * Night mode switches the map to its dark colours.
 ///
+/// * [phoneOnUsb] is always true, the pretend phone being plugged in throughout.
+///
 /// Nothing is ever played or recorded, the Bluetooth and Wi-Fi calls do nothing, and
 /// no sensor value goes anywhere, though each is remembered and read back.
 ///
@@ -458,6 +460,11 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
 
   @override
   bool get wirelessActive => _wirelessActive;
+
+  /// Always true: the pretend phone is plugged in from the start, so a host app that
+  /// starts a session when one is sees it do so.
+  @override
+  bool get phoneOnUsb => true;
 
   // === sensors, remembered and otherwise ignored ===
 

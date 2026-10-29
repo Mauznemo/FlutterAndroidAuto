@@ -59,6 +59,18 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   /// How many times [stop] has been called.
   int stops = 0;
 
+  /// What [phoneOnUsb] answers.
+  bool usbPhone = false;
+
+  /// Feeds [phoneOnUsbChanges].
+  final StreamController<bool> usbChanges = StreamController<bool>.broadcast();
+
+  @override
+  bool get phoneOnUsb => usbPhone;
+
+  @override
+  Stream<bool> get phoneOnUsbChanges => usbChanges.stream;
+
   /// The config the last [initialize] was given, if any.
   AndroidAutoConfig? initializedWith;
 
@@ -155,6 +167,9 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   Future<void> close() async {
     if (!_events.isClosed) {
       await _events.close();
+    }
+    if (!usbChanges.isClosed) {
+      await usbChanges.close();
     }
   }
 }

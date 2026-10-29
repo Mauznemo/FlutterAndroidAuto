@@ -904,6 +904,24 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
     int port = 5277,
   }) async {}
 
+  /// Whether a device that might be a phone is on USB right now.
+  ///
+  /// Describes the machine rather than a session, so it answers before [start] and
+  /// after [stop], which is what a head unit needs to start projecting when a phone is
+  /// plugged in. Asks for no USB permission and opens nothing. "Might be": anything
+  /// showing an adb, MTP or PTP interface counts, as does a phone set to charge only,
+  /// and a hub, keyboard or flash drive does not.
+  ///
+  /// While a phone projects, also the way to tell whether it came over the cable.
+  bool get phoneOnUsb => false;
+
+  /// Every change to [phoneOnUsb], as it happens. Only the changes: read [phoneOnUsb]
+  /// for where things stand when listening starts.
+  ///
+  /// Works without a session, like [phoneOnUsb]. An implementation may poll while
+  /// something listens, so cancel the subscription when it is no longer needed.
+  Stream<bool> get phoneOnUsbChanges => const Stream<bool>.empty();
+
   /// Whether wireless is being offered right now.
   bool get wirelessActive => false;
 

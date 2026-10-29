@@ -126,6 +126,24 @@ void main() {
     expect(platform.stops, 1);
   });
 
+  test('phoneOnUsb answers without a session, and its changes come through', () async {
+    final controller = AndroidAutoController();
+    addTearDown(controller.dispose);
+
+    platform.usbPhone = true;
+    expect(controller.phoneOnUsb, isTrue);
+
+    final changes = <bool>[];
+    final subscription = controller.phoneOnUsbChanges.listen(changes.add);
+    addTearDown(subscription.cancel);
+    platform.usbChanges
+      ..add(false)
+      ..add(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(changes, [false, true]);
+    expect(platform.starts, 0);
+  });
+
   test('a lifecycle event updates the state and notifies', () async {
     final controller = AndroidAutoController();
     addTearDown(controller.dispose);

@@ -1768,6 +1768,8 @@ int32_t aa_session_connect_head_unit_server(AaSession* session, const char* host
   return 0;
 }
 
+int32_t aa_usb_phone_present(void) { return aa::UsbConnector::PhonePresent() ? 1 : 0; }
+
 int32_t aa_session_start_test_pattern(AaSession* session) {
   if (session == nullptr || !session->pattern) {
     return -1;

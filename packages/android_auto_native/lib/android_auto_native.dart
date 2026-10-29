@@ -95,6 +95,16 @@ class AndroidAutoNative extends AndroidAutoPlatform {
   _audioCallback;
   NativeCallable<Void Function(Int32, Pointer<Char>)>? _metadataCallback;
 
+  /// [phoneOnUsbChanges], polled once a second while anything listens. Neither
+  /// platform has a way to call into Dart without a session to carry it, and asking is
+  /// cheap: the kernel's descriptors on Linux, UsbManager's list on Android.
+  late final _phoneOnUsb = StreamController<bool>.broadcast(
+    onListen: _watchUsb,
+    onCancel: _unwatchUsb,
+  );
+  Timer? _usbPoll;
+  bool _lastPhoneOnUsb = false;
+
   /// Called by the Flutter tooling through `dartPluginClass`.
   static void registerWith() {
     AndroidAutoPlatform.instance = AndroidAutoNative();
@@ -317,6 +327,8 @@ class AndroidAutoNative extends AndroidAutoPlatform {
     await _phoneStatus.close();
     await _notifications.close();
     await _browseResults.close();
+    _unwatchUsb();
+    await _phoneOnUsb.close();
     await _events.close();
   }
 
@@ -571,6 +583,36 @@ class AndroidAutoNative extends AndroidAutoPlatform {
     } finally {
       malloc.free(native);
     }
+  }
+
+  @override
+  bool get phoneOnUsb {
+    try {
+      return _bindings.aa_usb_phone_present() == 1;
+    } on AaLibraryLoadException {
+      // No core in this build, so no USB either. Reported as missing when a session
+      // is started, which is where a host app is looking for errors.
+      return false;
+    }
+  }
+
+  @override
+  Stream<bool> get phoneOnUsbChanges => _phoneOnUsb.stream;
+
+  void _watchUsb() {
+    _lastPhoneOnUsb = phoneOnUsb;
+    _usbPoll ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      final now = phoneOnUsb;
+      if (now != _lastPhoneOnUsb) {
+        _lastPhoneOnUsb = now;
+        _phoneOnUsb.add(now);
+      }
+    });
+  }
+
+  void _unwatchUsb() {
+    _usbPoll?.cancel();
+    _usbPoll = null;
   }
 
   @override

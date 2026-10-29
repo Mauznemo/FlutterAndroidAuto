@@ -54,6 +54,8 @@ class UsbConnector {
   void RecoverAndRediscover();
   void ClearHandlers();
   void Stop();
+  // Asked of UsbManager through Java, with the same rule as the Linux one.
+  static bool PhonePresent();
 
  private:
   // On the strand, for a descriptor Java has handed over.

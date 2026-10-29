@@ -728,6 +728,15 @@ AA_EXPORT char* aa_session_wireless_summary(AaSession* session);
 AA_EXPORT int32_t aa_session_connect_head_unit_server(AaSession* session, const char* host,
                                                       int32_t port);
 
+// Whether a device that might be a phone is on USB right now, 1 or 0. Something with a
+// vendor specific or still image interface (adb, MTP, PTP), one with no interfaces at
+// all (a phone set to charge only), or a phone already in accessory mode; never a hub.
+//
+// Takes no session because it describes the machine, so it answers while nothing runs,
+// which is what a head unit needs to start Android Auto when a phone is plugged in. It
+// opens nothing and asks for no permission. Cheap enough to poll once a second.
+AA_EXPORT int32_t aa_usb_phone_present(void);
+
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Built as scaffolding for
 // the video path and kept because it earns its place: the real H.264 path publishes into

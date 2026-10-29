@@ -57,6 +57,7 @@ class _HeadUnitPageState extends State<HeadUnitPage> {
   /// the app does.
   AndroidAutoNotification? _lastNotification;
   StreamSubscription<AndroidAutoNotification>? _notifications;
+  StreamSubscription<bool>? _usb;
 
   @override
   void initState() {
@@ -64,6 +65,12 @@ class _HeadUnitPageState extends State<HeadUnitPage> {
     _controller.addListener(_onChanged);
     _notifications = _controller.notifications.listen(
       (notification) => setState(() => _lastNotification = notification),
+    );
+    // Logged rather than acted on: a product would start a session here when a phone
+    // is plugged in, and the bench leaves starting to its button.
+    debugPrint('[Bench] phone on USB: ${_controller.phoneOnUsb}');
+    _usb = _controller.phoneOnUsbChanges.listen(
+      (present) => debugPrint('[Bench] phone on USB: $present'),
     );
     // Before there is a phone on purpose: the value is remembered across sessions, and
     // setting it early is the case worth exercising.
@@ -95,6 +102,7 @@ class _HeadUnitPageState extends State<HeadUnitPage> {
   @override
   void dispose() {
     _notifications?.cancel();
+    _usb?.cancel();
     _location.dispose();
     _pcmTap.dispose();
     _controller

@@ -37,6 +37,7 @@ jmethodID g_host_wifi = nullptr;
 jmethodID g_connected_phone = nullptr;
 jmethodID g_nudge_phone = nullptr;
 jmethodID g_release_wifi = nullptr;
+jmethodID g_usb_phone_present = nullptr;
 jobject g_context = nullptr;
 
 // Which listeners are live. Java posts resizes to the main thread, so a surface can
@@ -299,6 +300,16 @@ void NudgePhone(const std::string& address) {
   env->DeleteLocalRef(java_address);
 }
 
+bool UsbPhonePresent() {
+  JNIEnv* env = Env();
+  if (env == nullptr || g_plugin == nullptr || g_usb_phone_present == nullptr) {
+    return false;
+  }
+  const jboolean present = env->CallStaticBooleanMethod(g_plugin, g_usb_phone_present);
+  ClearException(env, "usbPhonePresent");
+  return present == JNI_TRUE;
+}
+
 void ReleaseWifiNetwork() {
   JNIEnv* env = Env();
   if (env == nullptr || g_plugin == nullptr || g_release_wifi == nullptr) {
@@ -343,6 +354,7 @@ using aa::android::g_connected_phone;
 using aa::android::g_host_wifi;
 using aa::android::g_nudge_phone;
 using aa::android::g_release_wifi;
+using aa::android::g_usb_phone_present;
 using aa::android::g_wifi_network;
 using aa::android::g_rescan_usb;
 using aa::android::g_resize_surface;
@@ -387,6 +399,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
   g_wifi_network = env->GetStaticMethodID(g_plugin, "wifiNetwork", "()Ljava/lang/String;");
   g_host_wifi = env->GetStaticMethodID(g_plugin, "hostWifiNetwork", "()Ljava/lang/String;");
   g_release_wifi = env->GetStaticMethodID(g_plugin, "releaseWifiNetwork", "()V");
+  g_usb_phone_present = env->GetStaticMethodID(g_plugin, "usbPhonePresent", "()Z");
   g_connected_phone =
       env->GetStaticMethodID(g_plugin, "connectedPhone", "()Ljava/lang/String;");
   g_nudge_phone = env->GetStaticMethodID(g_plugin, "nudgePhone", "(Ljava/lang/String;)V");
