@@ -115,8 +115,20 @@ public class AndroidAutoPlugin implements FlutterPlugin {
   private static final Map<Integer, UsbDeviceConnection> usbConnections = new HashMap<>();
   private static final Map<Integer, String> usbNames = new HashMap<>();
 
-  static {
-    System.loadLibrary("android_auto_native");
+  // Whether the native core is in this APK. It is built for arm64-v8a, armeabi-v7a and
+  // x86_64; an app built for anything else still has to start, with this plugin
+  // unavailable, rather than die in a static initialiser before Flutter is up. The Dart
+  // side then reports the library as missing when a session is started.
+  private static final boolean loaded = load();
+
+  private static boolean load() {
+    try {
+      System.loadLibrary("android_auto_native");
+      return true;
+    } catch (UnsatisfiedLinkError e) {
+      Log.e(TAG, "The android_auto native library is not built for this device", e);
+      return false;
+    }
   }
 
   @Override
@@ -125,7 +137,9 @@ public class AndroidAutoPlugin implements FlutterPlugin {
       textures = binding.getTextureRegistry();
       context = binding.getApplicationContext();
     }
-    nativeAttach(binding.getApplicationContext());
+    if (loaded) {
+      nativeAttach(binding.getApplicationContext());
+    }
   }
 
   @Override

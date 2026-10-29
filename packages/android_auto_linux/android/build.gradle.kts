@@ -47,8 +47,9 @@ android {
             }
         }
         ndk {
-            // The ABIs tools/build-android-deps.sh builds for.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // The ABIs tools/build-android-deps.sh builds for. armeabi-v7a because the
+            // Android car stereos this is for are often 32 bit, x86_64 for the emulator.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 

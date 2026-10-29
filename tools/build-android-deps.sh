@@ -8,7 +8,13 @@
 # On Linux these come from the distribution. Android has no such thing, so they are
 # built here from pinned upstream releases, statically, into
 # packages/android_auto_linux/android/deps/<abi>/, which the plugin's Android CMake
-# reads. The result is a few hundred megabytes of objects and is never committed.
+# reads. It is never committed, and it is published: android/.pubignore lets pub
+# include what .gitignore keeps out of git, so a host app builds against these archives
+# and never runs this script. See docs/packaging.md.
+#
+# What is kept is what ships, so it is trimmed after every run: debug information is
+# stripped from the archives, and Boost's headers are cut down to the libraries in
+# BOOST_HEADERS below. Together that takes an ABI from 261 MB to about 70.
 #
 # Needs the Android NDK (ANDROID_NDK_HOME, or the version below under ANDROID_HOME),
 # cmake, ninja, make, perl (for OpenSSL's Configure) and a host protoc 3.21. The host
@@ -26,12 +32,25 @@ NDK_VERSION="28.2.13676358"
 # The oldest these libraries need. The plugin itself asks for 28, see its build.gradle.kts,
 # and archives built for an older API link into a newer one unchanged.
 API=26
-ABIS=(arm64-v8a x86_64)
+ABIS=(arm64-v8a armeabi-v7a x86_64)
 
 BOOST_VERSION=1.90.0
 PROTOBUF_VERSION=3.21.12
 OPENSSL_VERSION=3.5.9
 LIBUSB_VERSION=1.0.29
+
+# The Boost libraries whose headers the core and aasdk include, for every ABI and both
+# build types. Boost installs the headers of every library its compiled ones depend
+# on, a hundred megabytes of them, and these are the quarter actually read. To
+# regenerate, build the Android CMake once per ABI and build type and run
+#
+#   ninja -C <build> -t deps | grep -o 'include/boost/[^ ]*' | cut -d/ -f3 | sort -u
+#
+# A library missing from here fails the build at once with a header not found.
+BOOST_HEADERS="algorithm align asio assert cerrno circular_buffer circular_buffer_fwd
+  concept concept_check config core cstdint current_function detail endian exception
+  iterator limits move mpl noncopyable preprocessor range shared_ptr smart_ptr
+  static_assert system throw_exception type_traits version"
 
 if [ "${1:-}" = "--clean" ]; then
   rm -rf "$WORK"
@@ -174,5 +193,19 @@ for ABI in "${ABIS[@]}"; do
       -DBOOST_ENABLE_PYTHON=OFF \
       -DBOOST_ENABLE_MPI=OFF
   fi
-  echo "==> $ABI done: $PREFIX"
+  # Trimmed every time, so a prefix built before this existed is trimmed too.
+  for archive in "$PREFIX"/lib/*.a; do
+    "$LLVM/bin/llvm-strip" --strip-debug "$archive"
+  done
+  (
+    cd "$PREFIX/include/boost"
+    for entry in *; do
+      name="${entry%.hpp}"
+      case " $(echo $BOOST_HEADERS) " in
+        *" $name "*) ;;
+        *) rm -rf "$entry" ;;
+      esac
+    done
+  )
+  echo "==> $ABI done: $PREFIX ($(du -sh "$PREFIX" | cut -f1))"
 done
