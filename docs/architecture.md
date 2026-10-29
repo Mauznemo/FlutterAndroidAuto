@@ -264,7 +264,8 @@ seam, beside its Linux sibling:
 | frame descriptor, `frame_ring.h` | `kDmabuf` | `kHardwareBuffer` |
 | playback, `audio/pcm_sink.h` | `pulse_sink.cc` | `aaudio_sink.cc` |
 | capture, `audio/pcm_source.h` | `pulse_source.cc` | `aaudio_source.cc` |
-| Bluetooth, `bluetooth/bluez_client.h` | `bluez_client.cc` | `bluez_client_android.cc`, not implemented |
+| Bluetooth, `bluetooth/bluez_client.h` | `bluez_client.cc` | `bluez_client_android.cc`, a `BluetoothServerSocket` in Java over a socket pair |
+| Wi-Fi, `wireless/wifi_network.h` | `wifi_network.cc`, wireless extensions | `wifi_network_android.cc`, `WifiManager` and a LocalOnlyHotspot |
 | USB, the `UsbConnector` interface | `usb_connector.cc`, libusb hotplug | `usb_connector_android.cc`, descriptors from `UsbManager` |
 | entry point | `android_auto_linux_plugin.cc`, GTK | `platform/android_jni.cc` and `AndroidAutoPlugin.java` |
 
@@ -304,8 +305,14 @@ only gets one as a file descriptor from `UsbManager`, after the user has allowed
 aasdk's own query chain and `AOAPDevice`, the same objects the Linux hub uses. The phone
 leaves the bus after the switch and comes back as an accessory, which Java hands over
 in turn. Java keeps each descriptor open until the native side's last handle to it is
-gone, because libusb polls it from its event thread. Wireless is the one transport
-missing on Android, because Bluetooth is only reachable from Java. The head unit server transport,
+gone, because libusb polls it from its event thread.
+
+Wireless goes through Java for both of its halves. The RFCOMM service is a
+`BluetoothServerSocket`, and because Java hands out no descriptor for a Bluetooth
+socket, each phone gets a socket pair: the handshake reads one end as it reads BlueZ's
+descriptor on Linux, and Java copies bytes between the other end and the phone. The
+network is a LocalOnlyHotspot the head unit brings up for itself when the host app names
+none, described by `WifiManager`. The head unit server transport,
 `aa_session_connect_head_unit_server`, works everywhere and is how Android is tested:
 the phone's own Android Auto, projecting into the app on the same phone.
 

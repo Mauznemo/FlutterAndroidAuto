@@ -250,6 +250,40 @@ handshake, so this proves the plumbing and not the projection. `AA_TRANSPORTS` e
 for the same test, because a wireless connection is never allowed to displace a session
 that is already connected and unplugging is not always possible.
 
+## Android Auto limits the frame by band
+
+**1080p is not sent over 2.4 GHz.** The phone checks every video configuration in
+service discovery against its link, logs `VideoCodecResolutionType 3 (3) is not
+allowed due wireless frequency` and `No working configuration`, and hangs up about a
+second after opening its channels, before asking for video. The head unit offers one
+configuration, so it has to pick one the phone will take: a network known to be on
+2.4 GHz caps an automatic frame at 1280x720. A band that is not known caps nothing,
+which is Linux today, where the access point is usually 5 GHz and 1080p goes through.
+
+## The repeated start request
+
+The start request goes out when the Bluetooth channel opens and once more when the
+phone reports it is on the network, for a phone that joins slowly and would otherwise
+sit there waiting to be asked. The repeat waits two seconds and goes only if the phone
+has not dialled in. Sent at once, it reached a phone that was already on the network
+60 ms before that phone dialled, and the phone obeyed it as an instruction to
+reconnect: a session that started, stopped and started again.
+
+## Android as the head unit
+
+The same connector, with Java behind both of its platform pieces; see
+`docs/architecture.md`. Three things differ in behaviour:
+
+- **The head unit hosts.** With no network and no passphrase named it starts a
+  LocalOnlyHotspot and offers that, with the SSID and passphrase Android chose, as a
+  car does. Android hides the hotspot's BSSID from apps, so the host app has to name it.
+- **A phone or tablet running the head unit has to prod the phone.** It has no hands
+  free profile, and a phone pairs, reads the service list and then does nothing.
+  `Reconnect` therefore opens a headset link to the phone, which is what gets it to
+  dial. A car stereo with the profile of its own needs none of this.
+- **The phone's own log is readable**, `adb logcat` with `GH.` and `CAR.` tags, and it
+  names the reason whenever it gives up.
+
 ## Losing the link
 
 Much less to do than the USB path. There is no device to bounce and no accessory mode

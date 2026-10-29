@@ -74,8 +74,9 @@ Linux, through `android_auto_linux`, over USB or over Wi-Fi. Built and tested on
 x86_64; ARM64 is intended and not yet verified.
 
 **Android is in progress**, through the same package and the same native core: the
-Android device is the head unit, and a phone on its USB port projects with video, touch
-and audio. Wi-Fi does not work yet. It needs `minSdk = 28`, the host app asks for
+Android device is the head unit, and a phone projects over its USB port or over Wi-Fi,
+with video, touch and audio. Over Wi-Fi the head unit hosts its own hotspot, whose BSSID
+the host app has to name, because Android does not tell an app. It needs `minSdk = 28`, the host app asks for
 `RECORD_AUDIO` itself, and its activity should declare a `USB_DEVICE_ATTACHED` filter
 so the driver can allow the phone once rather than on every connect; the example app
 shows both.

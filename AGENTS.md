@@ -260,8 +260,19 @@ cd example && flutter build apk --debug --target-platform android-arm64
   phone over as a file descriptor, which `usb_connector_android.cc` wraps. Java owns the
   descriptor until the native side releases it; never close one under libusb. Do not
   rely on the permission request's answer arriving, see M12 in `PLAN.md`.
-- **Wireless is not implemented on Android**: Bluetooth is only reachable from Java.
-  `aa_session_connect_head_unit_server` works anywhere, which is self mode: the phone's
+- **Wireless on Android hosts its own hotspot.** With no network and no passphrase
+  named, the head unit starts a LocalOnlyHotspot and offers that, as a car does. Android
+  will not tell an app that hotspot's BSSID, and a phone rejects an offer without one,
+  so a host app has to name it. Bluetooth is a `BluetoothServerSocket` in Java bridged
+  to the native handshake over a socket pair.
+- **A phone or tablet as head unit has no hands free profile**, and a phone only dials
+  wireless Android Auto towards a device that connects like one. So the nudge opens a
+  headset link to the phone (`nudgePhone` in Java). A real Android car stereo has the
+  profile and needs none of it.
+- **Android Auto will not send 1080p over 2.4 GHz.** It rejects the only video config
+  offered and hangs up a second after opening its channels. A known 2.4 GHz network caps
+  an automatic frame at 1280x720; an unknown band (Linux) does not.
+- `aa_session_connect_head_unit_server` works anywhere, which is self mode: the phone's
   own Android Auto into the app on the same phone. Setting that up is in `PLAN.md`.
 - **Nothing on Android may wait for Flutter's thread from the render thread**, and the
   surface Flutter hands over can be taken away at any moment (`onSurfaceCleanup`), which
@@ -860,5 +871,7 @@ code ends at producing an `aasdk::transport::ITransport` and hands it to the sam
 - The audio path needs `libpulse` and `libpulse-simple`. On this machine that is PipeWire
   answering to PulseAudio's API, which is why it is the first backend: the same code runs
   on PipeWire, on PulseAudio, and on the compatibility layer infotainment images ship.
-- Android Auto logs nothing to `logcat` on a production phone, so do not go looking.
-  `adb` is still useful for telling a locked phone from an unresponsive one.
+- **Android Auto does log on a production phone**, under `GH.*` and `CAR.*` tags, and
+  that is where the phone says why it hung up: `adb logcat | grep -E " (GH|CAR)\."` on
+  the phone, during the attempt. It named the 2.4 GHz video rule in one line after an
+  afternoon of guessing from the head unit's side. Its clock is not the head unit's.

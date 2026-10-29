@@ -30,7 +30,7 @@ Android turned out to need no change to the app-facing API beyond one optional c
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
 | M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
 | M11 | Packaging, ARM64, CI, docs | **in progress**, bar running it on an ARM64 device |
-| M12 | Android implementation | **in progress**, projecting over USB with touch and audio, bar wireless |
+| M12 | Android implementation | **in progress**, projecting over USB and Wi-Fi, bar packaging |
 
 ---
 
@@ -1483,7 +1483,14 @@ files on both, and pub.dev cannot share sources between packages, so a separate
 - [ ] The cable pulled and put back mid session, and a transport that dies with the phone still attached (the bounce in `RecoverAndRediscover`, here a reset and then a rescan)
 - [ ] Shrinking with every source pixel averaged. `gl_adapter.cc`'s footprint filter is not ported; Android samples bilinear, so a picture drawn much smaller than its frame will look grainy
 - [ ] Sensors and metadata seen working on Android. Shared code, nothing Android specific in it, not looked at
-- [ ] Wireless: the RFCOMM service through Java's `BluetoothServerSocket`, the network from `WifiManager`. `bluez_client_android.cc` reports Bluetooth as unavailable
+- [x] Wireless: the RFCOMM service through Java's `BluetoothServerSocket`, bridged to the native handshake over a socket pair; the network from `WifiManager`
+- [x] The head unit hosts its own network, a LocalOnlyHotspot, when the host app names none, with the SSID and passphrase Android chose. Verified: the Pixel joined it, dialled in and projected, 10.6 to 14 ms wire to frame
+- [x] A phone or tablet as head unit gets a phone to dial: a headset link opened from this end (`nudgePhone`), four seconds before the phone opened the Android Auto channel
+- [x] 1080p is not allowed over 2.4 GHz: the phone says `VideoCodecResolutionType 3 (3) is not allowed due wireless frequency`, then `No working configuration`, and hangs up. A known 2.4 GHz network caps an automatic frame at 1280x720
+- [x] Shared fix: the repeated start request reached a phone just as it dialled in, and the phone dropped the session to obey it. It now waits two seconds and goes only if the phone has not dialled
+- [ ] The hotspot's BSSID. Android hides it from apps and a phone rejects an offer without one, so today the host app has to name it. Options: a privileged host app asking for `SoftApInfo`, or offering several video configs and a 5 GHz hotspot through `startLocalOnlyHotspotWithConfiguration` on Android 16
+- [ ] Calls while the headset link is up. The phone counts the head unit as a headset and may try to route a call to it, which it cannot take
+- [ ] Offering several video configs, so the phone picks the largest its link allows instead of the head unit guessing from the band
 - [ ] Packaging: `android/deps/` is built on the developer's machine. Before publishing, decide between prebuilt archives in the package and building them at configure time
 - [ ] Rename the package now it is not Linux only, and move `linux/src` to the package root as the shared tree
 - [ ] An Android build in CI
@@ -1535,6 +1542,32 @@ plugin does not wait for the answer: while it is searching it rescans every seco
 opens whatever it has been allowed to use, and it only asks itself after a device has
 been sitting there for two seconds, which also keeps it from stacking a second dialog
 on the system's.
+
+### Wireless, and what the phone needed that a car would have had
+
+Three things stood between pairing and a picture, and the phone's own log named each
+one (`adb logcat | grep -E " (GH|CAR)\."` on the phone; it does log).
+
+1. **Nothing happened after pairing.** The phone read the service list and stopped. A
+   car connects as a hands free unit, and a phone running the head unit has that role
+   switched off. Opening the phone's headset gateway from the head unit is what a
+   wireless adapter does in the same position, and four seconds after that link came
+   up the phone opened the Android Auto channel. It needs no permission beyond
+   BLUETOOTH_CONNECT and no root.
+2. **The session restarted in a loop.** The handshake repeats its start request once
+   the phone says it is on the network, which on Linux covered a phone that joined
+   slowly. A phone already on the hotspot dials 60 ms after saying so and got the
+   repeat as it connected, which is an instruction to reconnect. Fixed in shared code.
+3. **The phone hung up a second after opening its channels**, every time, with
+   `VideoCodecResolutionType 3 (3) is not allowed due wireless frequency` and `No
+   working configuration`. Android Auto will not send 1080p over 2.4 GHz, Android's
+   hotspot for an app is 2.4 GHz, and service discovery offers one frame size.
+
+The hotspot is the realistic setup: in a car the head unit hosts the network and tells
+the phone its name, passphrase and BSSID. Android picks a new SSID and BSSID on every
+start, gives an app the SSID and passphrase, and hides the BSSID, which a phone rejects
+an offer without. Until that is solved the host app names it; on the bench it is typed
+into the Wireless panel from `dumpsys wifi`.
 
 ### Self mode, and the four things it takes on a fresh phone
 

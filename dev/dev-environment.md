@@ -122,8 +122,8 @@ Both of the open questions this file recorded on 2026-09-12 have been answered:
 
 - A Pixel 8 Pro projects over the cable and over Wi-Fi, with
   `tools/setup-dev-machine.sh --udev` in place. `adb` is still only useful for telling
-  a locked phone from an unresponsive one, since Android Auto logs nothing to `logcat`
-  on a production phone.
+  a locked phone from an unresponsive one. (This used to say Android Auto logs nothing
+  to `logcat` on a production phone. It does, under `GH.*` and `CAR.*`, see M12.)
 - VA-API zero copy works on this Intel UHD part. The decoder exports a dmabuf that
   `gl_adapter` imports as `EGLImage`s, measured at 0.9 to 1.1 ms wire to frame against
   2.9 ms for the software fallback.
@@ -154,6 +154,11 @@ For a phone on the M21's own USB port it has to come off the laptop, so adb goes
 Wi-Fi instead: `adb tcpip 5555` while still cabled, then `adb connect <its address>:5555`
 and `-s <address>:5555` on every command. It reverts to USB on the M21's next reboot.
 A plain USB-C to USB-C cable to the Pixel made the M21 the host on its own.
+
+For wireless the Pixel goes on the laptop's USB instead, for its log: nothing on the
+laptop takes it over while the Linux bench is not running. The M21 hosts a new hotspot
+with a new SSID and BSSID every time the example starts, and the BSSID has to be typed
+into the bench's Wireless panel: `dumpsys wifi`, `mCurrentSoftApInfoMap`, gives it.
 
 Two things that bite:
 
