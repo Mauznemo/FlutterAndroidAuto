@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1b1eb74..13038fe 100644
+index 1b1eb74..35dbcf6 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -153,7 +153,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,7 +11,30 @@ index 1b1eb74..13038fe 100644
  
  # Default to Release mode unless overridden with -DCMAKE_BUILD_TYPE=Debug on cmake command
  if(NOT CMAKE_BUILD_TYPE)
-@@ -248,7 +248,13 @@ else()
+@@ -196,11 +196,20 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/bin)
+ set (CMAKE_PROJECT_VERSION_PATCH ${_commit_timestamp})
+ 
+ # Configure Boost
+-set(Boost_USE_STATIC_LIBS OFF)
++# Android has no system Boost, so the plugin cross compiles a static one and links it
++# into its own library. A shared Boost.Log lives in a different namespace from a static
++# one, so the dynamic flavour is only asked for where the system provides it.
++if(ANDROID)
++    set(Boost_USE_STATIC_LIBS ON)
++else()
++    set(Boost_USE_STATIC_LIBS OFF)
++endif()
+ set(Boost_USE_MULTITHREADED ON)
+ set(Boost_USE_STATIC_RUNTIME OFF)
+ 
+-add_definitions(-DBOOST_ALL_DYN_LINK)
++if(NOT ANDROID)
++    add_definitions(-DBOOST_ALL_DYN_LINK)
++endif()
+ 
+ if(CMAKE_BUILD_TYPE STREQUAL "Release")
+     message(STATUS "Disabling Boost DEBUG logs")
+@@ -248,7 +257,13 @@ else()
      message(STATUS "Skipping Abseil requirement - using system protobuf")
  endif()
  
@@ -26,7 +49,7 @@ index 1b1eb74..13038fe 100644
  
  # Capture Boost version for packaging
  if(Boost_VERSION)
-@@ -283,25 +289,33 @@ file(GLOB_RECURSE tests_include_files ${include_ut_directory}/*.hpp)
+@@ -283,25 +298,33 @@ file(GLOB_RECURSE tests_include_files ${include_ut_directory}/*.hpp)
  
  list(REMOVE_ITEM source_files ${tests_source_files})
  

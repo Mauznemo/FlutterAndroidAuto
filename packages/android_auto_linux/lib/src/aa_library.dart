@@ -6,9 +6,11 @@ import 'bindings/aa_core_bindings.dart';
 
 /// Loads the native head unit core and exposes its bindings.
 ///
-/// The core lives inside `libandroid_auto_linux_plugin.so`, the same shared object
-/// Flutter already loaded to run the plugin's GTK registration. Opening it again by
-/// name is cheap: `dlopen` returns a handle to the copy that is already mapped.
+/// On Linux the core lives inside `libandroid_auto_linux_plugin.so`, the same shared
+/// object Flutter already loaded to run the plugin's GTK registration. On Android it is
+/// `libandroid_auto_native.so`, which the plugin's Java class loaded when the engine
+/// attached. Either way opening it again by name is cheap: `dlopen` returns a handle to
+/// the copy that is already mapped.
 class AaLibrary {
   AaLibrary._(this.bindings);
 
@@ -19,15 +21,18 @@ class AaLibrary {
 
   /// The process wide instance, loaded on first use.
   ///
-  /// Throws [UnsupportedError] off Linux and [AaLibraryLoadException] if the shared
-  /// object cannot be found, which in practice means the plugin was not bundled.
+  /// Throws [UnsupportedError] off Linux and Android, and [AaLibraryLoadException] if
+  /// the shared object cannot be found, which in practice means the plugin was not
+  /// bundled.
   static AaLibrary get instance => _instance ??= AaLibrary._(AaCoreBindings(_open()));
 
   static DynamicLibrary _open() {
-    if (!Platform.isLinux) {
-      throw UnsupportedError('android_auto_linux only supports Linux.');
+    if (!Platform.isLinux && !Platform.isAndroid) {
+      throw UnsupportedError('android_auto_linux only supports Linux and Android.');
     }
-    const name = 'libandroid_auto_linux_plugin.so';
+    final name = Platform.isAndroid
+        ? 'libandroid_auto_native.so'
+        : 'libandroid_auto_linux_plugin.so';
     try {
       return DynamicLibrary.open(name);
     } on ArgumentError catch (error) {

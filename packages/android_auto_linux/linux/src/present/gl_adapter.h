@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The only file in this project that is allowed to name an OpenGL type.
+// The interface of the only two files in this project allowed to name an OpenGL type.
 //
-// It takes an aa::Frame off the FrameRing and gets it in front of Flutter. Today that
-// means an FlTextureGL, because Impeller on Linux runs its OpenGLES backend. When Linux
-// moves to Impeller Vulkan, a vk_adapter sits beside this file and nothing above the
-// FrameRing changes. See docs/architecture.md.
+// It takes an aa::Frame off the FrameRing and gets it in front of Flutter. On Linux,
+// gl_adapter.cc, that means an FlTextureGL, because Impeller on Linux runs its OpenGLES
+// backend. On Android, gl_adapter_android.cc, it means EGL on a thread of its own
+// drawing into a SurfaceProducer's Surface. When Linux moves to Impeller Vulkan, a
+// vk_adapter sits beside these and nothing above the FrameRing changes. See
+// docs/architecture.md.
 
 #ifndef ANDROID_AUTO_LINUX_PRESENT_GL_ADAPTER_H_
 #define ANDROID_AUTO_LINUX_PRESENT_GL_ADAPTER_H_
@@ -65,8 +67,8 @@ class GlAdapter {
 
  private:
   FrameRing* ring_;
-  // Actually an AaVideoTexture*, kept opaque so the header stays free of GObject and
-  // Flutter types. Only gl_adapter.cc knows what it is.
+  // An AaVideoTexture* on Linux and a Presenter* on Android, kept opaque so the header
+  // stays free of GObject, Flutter and EGL types. Only the .cc knows which.
   void* texture_ = nullptr;
   int64_t texture_id_ = -1;
   // Width in the high half, height in the low, so the raster thread reads both at once.

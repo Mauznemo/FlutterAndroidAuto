@@ -31,6 +31,12 @@ flutter:
       linux:
         pluginClass: AndroidAutoLinuxPlugin
         dartPluginClass: AndroidAutoLinux
+      # The same native core and the same Dart class. The Java plugin class only loads
+      # the library and hands out Flutter textures, see android/.
+      android:
+        package: io.github.mauznemo.android_auto
+        pluginClass: AndroidAutoPlugin
+        dartPluginClass: AndroidAutoLinux
 
 # aasdk carries the publicly known Google Automotive Link head unit certificate and its
 # key, the same pair every open source Android Auto implementation uses, and its CMake

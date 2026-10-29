@@ -1231,6 +1231,40 @@ class AaCoreBindings {
   late final _aa_session_wireless_summary = _aa_session_wireless_summaryPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<AaSession>)>();
 
+  /// Dials a phone running Android Auto's head unit server, the developer option the
+  /// desktop head unit connects to, and projects from it. Android Auto listens on TCP 5277
+  /// once "Start head unit server" is picked in its developer settings, so this is the way
+  /// to project without a cable or a Bluetooth pairing: from the same phone over
+  /// 127.0.0.1, or from a computer through `adb forward tcp:5277 tcp:5277`.
+  ///
+  /// A test bench transport, not one a car would ship with. `host` is a numeric address,
+  /// NULL or empty for 127.0.0.1; `port` 0 or less is 5277. Returns 0 once the attempt has
+  /// started, -1 if the session is not running and -2 for an address that does not parse.
+  /// Whether it worked comes back through the event callback, like every other connection.
+  int aa_session_connect_head_unit_server(
+    ffi.Pointer<AaSession> session,
+    ffi.Pointer<ffi.Char> host,
+    int port,
+  ) {
+    return _aa_session_connect_head_unit_server(session, host, port);
+  }
+
+  late final _aa_session_connect_head_unit_serverPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<AaSession>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int32,
+          )
+        >
+      >('aa_session_connect_head_unit_server');
+  late final _aa_session_connect_head_unit_server =
+      _aa_session_connect_head_unit_serverPtr
+          .asFunction<
+            int Function(ffi.Pointer<AaSession>, ffi.Pointer<ffi.Char>, int)
+          >();
+
   /// Drives the texture pipeline from a generated pattern instead of a phone, so a host
   /// app can lay its overlay out before any hardware is involved. Built as scaffolding for
   /// the video path and kept because it earns its place: the real H.264 path publishes into

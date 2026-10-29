@@ -23,6 +23,11 @@ UsbContext* UsbContext::Shared(std::string* error) {
   }
 
   libusb_context* context = nullptr;
+#if defined(__ANDROID__)
+  // An app cannot read /dev/bus/usb, so libusb must not try: on Android every device
+  // arrives as a descriptor from UsbManager and is wrapped, see usb_connector_android.h.
+  libusb_set_option(nullptr, LIBUSB_OPTION_NO_DEVICE_DISCOVERY);
+#endif
   const int result = libusb_init(&context);
   if (result != 0) {
     if (error != nullptr) {

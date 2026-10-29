@@ -42,6 +42,9 @@ class _WirelessPanelState extends State<WirelessPanel> {
   late final TextEditingController _passphrase = TextEditingController(
     text: widget.config.passphrase,
   );
+  late final TextEditingController _server = TextEditingController(
+    text: '127.0.0.1:5277',
+  );
   late String _phone = widget.config.phoneAddress;
   List<AndroidAutoBluetoothDevice> _pairedPhones = const [];
   bool _showPassphrase = false;
@@ -80,6 +83,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
     _poll?.cancel();
     _ssid.dispose();
     _passphrase.dispose();
+    _server.dispose();
     super.dispose();
   }
 
@@ -114,6 +118,18 @@ class _WirelessPanelState extends State<WirelessPanel> {
     }
     _controller.setWirelessConfig(_publish());
     await _controller.startWireless();
+  }
+
+  /// Dials Android Auto's head unit server, the developer option the desktop head unit
+  /// uses. On a phone it projects that phone's own Android Auto into this app.
+  Future<void> _dialServer() async {
+    final parts = _server.text.trim().split(':');
+    final host = parts.first.isEmpty ? '127.0.0.1' : parts.first;
+    final port = parts.length > 1 ? int.tryParse(parts[1]) ?? 5277 : 5277;
+    if (_controller.state == AndroidAutoConnectionState.idle) {
+      await _controller.start();
+    }
+    await _controller.connectHeadUnitServer(host: host, port: port);
   }
 
   @override
@@ -178,6 +194,27 @@ class _WirelessPanelState extends State<WirelessPanel> {
             ),
           ),
           style: const TextStyle(fontSize: 13),
+        ),
+        const PanelSection('Head unit server'),
+        const PanelNote(
+          'Android Auto, developer settings, Start head unit server. On the phone '
+          'itself dial 127.0.0.1; from a computer, adb forward tcp:5277 tcp:5277 first.',
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _server,
+                decoration: const InputDecoration(
+                  labelText: 'Address',
+                  isDense: true,
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(onPressed: _dialServer, child: const Text('Dial')),
+          ],
         ),
         const PanelSection('Paired phones'),
         if (_pairedPhones.isEmpty)

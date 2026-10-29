@@ -25,6 +25,9 @@ enum class FrameKind {
   // DRM prime file descriptors. The zero copy path, and the one that survives the move
   // to Vulkan, since a dmabuf imports into both EGL and Vulkan.
   kDmabuf,
+  // An Android AHardwareBuffer, which is what a dmabuf is called there: MediaCodec
+  // decodes into one and the present adapter imports it into EGL without a copy.
+  kHardwareBuffer,
 };
 
 // One separately importable image inside a dmabuf frame.
@@ -84,6 +87,12 @@ struct Frame {
   ColorSpace color_space = ColorSpace::kBt601;
   // Whether luma spans 0..255 rather than the broadcast 16..235.
   bool full_range = false;
+
+  // kHardwareBuffer. An AHardwareBuffer*, kept as void* so the seam stays free of
+  // platform types. Owned by the keepalive it was published with. `width` and
+  // `height` are the buffer's, which a decoder may pad past the picture, so the crop
+  // includes that padding as well as the margins.
+  const void* hardware_buffer = nullptr;
 };
 
 // A three slot rotation between one producer thread and Flutter's raster thread.

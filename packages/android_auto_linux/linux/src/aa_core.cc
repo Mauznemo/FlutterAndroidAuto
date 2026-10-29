@@ -6,6 +6,9 @@
 #include <aasdk/Common/Log.hpp>
 #include <aasdk/Common/ModernLogger.hpp>
 #include <aasdk/Common/Strand.hpp>
+#include <aasdk/TCP/TCPEndpoint.hpp>
+#include <aasdk/TCP/TCPWrapper.hpp>
+#include <aasdk/Transport/TCPTransport.hpp>
 
 #include <atomic>
 #include <cctype>
@@ -32,7 +35,11 @@
 #include "session/metadata_channels.h"
 #include "session/protocol_session.h"
 #include "session/service_discovery.h"
+#if defined(__ANDROID__)
+#include "session/usb_connector_android.h"
+#else
 #include "session/usb_connector.h"
+#endif
 #include "session/wireless_connector.h"
 #include "test_pattern.h"
 #include "video/video_decoder.h"
@@ -228,6 +235,13 @@ void ApplyAasdkLogLevel() {
   }
   aasdk::common::ModernLogger::getInstance().setLevel(
       aasdk::common::ModernLogger::stringToLevel(upper));
+}
+
+// aasdk's TCPEndpoint keeps this by reference and outlives whoever built it, see the
+// same thing in wireless_connector.cc. It holds no state, so one for the process.
+aasdk::tcp::TCPWrapper& SharedTcpWrapper() {
+  static aasdk::tcp::TCPWrapper wrapper;
+  return wrapper;
 }
 
 // The density to advertise for what the host app asked for. Zero or less is a host app
@@ -460,15 +474,23 @@ std::shared_ptr<aa::MetadataChannels> LockMetadata(AaSession* session) {
   return session->metadata_channels.lock();
 }
 
+// What a connection came in over, which decides how it is recovered when it fails.
+enum class Link {
+  // A cable that goes quiet leaves the phone enumerated and still in accessory mode, so
+  // it has to be bounced.
+  kUsb,
+  // A Wi-Fi link that goes quiet leaves nothing behind at all, so opening the port
+  // again and waiting is the whole of it.
+  kWireless,
+  // A head unit server this end dialled. Nobody is going to dial back, and redialling
+  // on its own would hide a server that has stopped, so the failure is reported.
+  kHeadUnitServer,
+};
+
 // Builds the session for one connection and wires up everything that has to be told
 // when it changes state.
-//
-// `wireless` picks the recovery, which is the one thing the two transports do not
-// share. A cable that goes quiet leaves the phone enumerated and still in accessory
-// mode, so it has to be bounced; a Wi-Fi link that goes quiet leaves nothing behind at
-// all, so opening the port again and waiting is the whole of it.
-std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
-                                                        bool wireless) {
+std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session, Link link) {
+  const bool wireless = link == Link::kWireless;
   if (auto previous = session->Protocol()) {
     previous->Stop();
   }
@@ -476,16 +498,25 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
 
   aa::HeadUnitDescription description = session->Describe();
   if (session->automatic_frame()) {
+    double view_width = 0.0;
+    double view_height = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(session->view_mutex);
+      view_width = session->view_width;
+      view_height = session->view_height;
+    }
     session->events.Emit(session->events.last_state(),
                          "Picked " + std::to_string(description.width) + "x" +
                              std::to_string(description.height) +
-                             ", the smallest frame that covers the view.");
+                             ", the smallest frame that covers the view (" +
+                             std::to_string(static_cast<int>(view_width)) + "x" +
+                             std::to_string(static_cast<int>(view_height)) + ").");
   }
   auto protocol = aa::ProtocolSession::Create(
       session->io_context, *session->channel_strand, std::move(description),
       session->decoder, session->audio, session->microphone, session->sensors,
       session->metadata,
-      [session, wireless](int state, const std::string& message) {
+      [session, wireless, link](int state, const std::string& message) {
         // News from a connection that is already being recovered from. Its channels
         // report their failures on the connected state as the link comes down, a
         // millisecond after the searching report below, and passing that on put the
@@ -507,6 +538,16 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session,
         // back up between them. Without this guard the first error starts a bounce and
         // the next six each start another.
         if (state == AA_STATE_ERROR && session->recovering) {
+          return;
+        }
+
+        if (state == AA_STATE_ERROR && link == Link::kHeadUnitServer) {
+          // Debounced by the same flag, though there is nothing to recover: every
+          // channel notices the socket closing, and one report is the truth.
+          session->reached_connected = false;
+          session->recovering = true;
+          session->events.Emit(AA_STATE_ERROR,
+                               "Lost the connection to the head unit server. " + message);
           return;
         }
 
@@ -641,7 +682,7 @@ int32_t StartWirelessTransport(AaSession* session) {
         }
         // A phone dialled in, so whatever wait was in flight is over.
         session->recovering = false;
-        auto protocol = NewProtocolSession(session, true);
+        auto protocol = NewProtocolSession(session, Link::kWireless);
         session->events.Emit(AA_STATE_HANDSHAKING,
                              "Phone connected over Wi-Fi from " + peer + ".");
         protocol->Start(std::move(transport));
@@ -918,7 +959,7 @@ int32_t aa_session_start(AaSession* session) {
           //
           // A device arrived, so whatever bounce was in flight has done its job.
           session->recovering = false;
-          auto protocol = NewProtocolSession(session, false);
+          auto protocol = NewProtocolSession(session, Link::kUsb);
           // Started from the local reference: a stop landing right now can take the
           // member away, and Start() itself waits for that stop rather than racing it.
           protocol->Start(std::move(device));
@@ -941,9 +982,9 @@ int32_t aa_session_start(AaSession* session) {
 
   session->events.Emit(AA_STATE_SEARCHING, want_usb && want_wireless
                                                ? "Looking for a phone on USB or Wi-Fi."
-                                           : want_wireless
-                                               ? "Looking for a phone over Wi-Fi."
-                                               : "Looking for a phone on USB.");
+                                           : want_wireless ? "Looking for a phone over Wi-Fi."
+                                           : want_usb      ? "Looking for a phone on USB."
+                                                           : "Waiting for a phone.");
   return 0;
 }
 
@@ -1657,6 +1698,57 @@ char* aa_session_wireless_summary(AaSession* session) {
   line += '\t';
   line += summary.phone_linked ? '1' : '0';
   return strdup(line.c_str());
+}
+
+int32_t aa_session_connect_head_unit_server(AaSession* session, const char* host,
+                                             int32_t port) {
+  if (session == nullptr || !session->running) {
+    return -1;
+  }
+  std::string address = CopyOrEmpty(host);
+  if (address.empty()) {
+    address = "127.0.0.1";
+  }
+  const uint16_t to_port =
+      port > 0 && port <= 65535 ? static_cast<uint16_t>(port) : uint16_t{5277};
+  boost::system::error_code parse_error;
+  const auto ip = boost::asio::ip::make_address(address, parse_error);
+  if (parse_error) {
+    return -2;
+  }
+  const std::string where = address + ":" + std::to_string(to_port);
+  session->events.Emit(AA_STATE_SEARCHING, "Dialling the head unit server at " + where + ".");
+
+  auto socket = std::make_shared<boost::asio::ip::tcp::socket>(session->io_context);
+  socket->async_connect(
+      boost::asio::ip::tcp::endpoint(ip, to_port),
+      [session, socket, where](const boost::system::error_code& error) {
+        if (error) {
+          session->events.Emit(
+              AA_STATE_ERROR,
+              "Could not reach the head unit server at " + where + ": " + error.message() +
+                  ". Start it on the phone in Android Auto's developer settings.");
+          return;
+        }
+        if (session->reached_connected) {
+          // Same rule as a phone dialling in over Wi-Fi: a working session is not torn
+          // down for one that is merely offered.
+          socket->close();
+          return;
+        }
+        boost::system::error_code option_error;
+        socket->set_option(boost::asio::ip::tcp::no_delay(true), option_error);
+        auto endpoint =
+            std::make_shared<aasdk::tcp::TCPEndpoint>(SharedTcpWrapper(), socket);
+        auto transport =
+            std::make_shared<aasdk::transport::TCPTransport>(session->io_context, endpoint);
+        session->recovering = false;
+        auto protocol = NewProtocolSession(session, Link::kHeadUnitServer);
+        session->events.Emit(AA_STATE_HANDSHAKING,
+                             "Connected to the head unit server at " + where + ".");
+        protocol->Start(std::move(transport));
+      });
+  return 0;
 }
 
 int32_t aa_session_start_test_pattern(AaSession* session) {

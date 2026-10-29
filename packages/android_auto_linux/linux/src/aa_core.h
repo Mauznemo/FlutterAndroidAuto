@@ -715,6 +715,19 @@ AA_EXPORT int32_t aa_session_wireless_active(AaSession* session);
 // free with aa_string_free.
 AA_EXPORT char* aa_session_wireless_summary(AaSession* session);
 
+// Dials a phone running Android Auto's head unit server, the developer option the
+// desktop head unit connects to, and projects from it. Android Auto listens on TCP 5277
+// once "Start head unit server" is picked in its developer settings, so this is the way
+// to project without a cable or a Bluetooth pairing: from the same phone over
+// 127.0.0.1, or from a computer through `adb forward tcp:5277 tcp:5277`.
+//
+// A test bench transport, not one a car would ship with. `host` is a numeric address,
+// NULL or empty for 127.0.0.1; `port` 0 or less is 5277. Returns 0 once the attempt has
+// started, -1 if the session is not running and -2 for an address that does not parse.
+// Whether it worked comes back through the event callback, like every other connection.
+AA_EXPORT int32_t aa_session_connect_head_unit_server(AaSession* session, const char* host,
+                                                      int32_t port);
+
 // Drives the texture pipeline from a generated pattern instead of a phone, so a host
 // app can lay its overlay out before any hardware is involved. Built as scaffolding for
 // the video path and kept because it earns its place: the real H.264 path publishes into

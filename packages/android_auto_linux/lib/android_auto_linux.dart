@@ -544,6 +544,36 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   @override
+  Future<void> connectHeadUnitServer({
+    String host = '127.0.0.1',
+    int port = 5277,
+  }) async {
+    if (_session == nullptr) {
+      _emit(
+        AndroidAutoConnectionState.error,
+        'Start the head unit session before dialling a head unit server.',
+      );
+      return;
+    }
+    final native = host.toNativeUtf8();
+    try {
+      final result = _bindings.aa_session_connect_head_unit_server(
+        _session,
+        native.cast(),
+        port,
+      );
+      if (result == -2) {
+        _emit(
+          AndroidAutoConnectionState.error,
+          '"$host" is not a numeric address.',
+        );
+      }
+    } finally {
+      malloc.free(native);
+    }
+  }
+
+  @override
   bool get wirelessActive => _session == nullptr
       ? false
       : _bindings.aa_session_wireless_active(_session) == 1;

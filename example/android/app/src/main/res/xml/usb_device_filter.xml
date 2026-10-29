@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Which USB devices may open this app when plugged in, and so be allowed for good with
+     "Always open" in the permission dialog rather than asked about on every connect.
+     No attributes matches every device: a head unit's USB port is there for phones, and
+     a phone shows a different product id once it is in accessory mode, so a list by id
+     would have to name both halves of every phone. -->
+<resources>
+  <usb-device />
+</resources>

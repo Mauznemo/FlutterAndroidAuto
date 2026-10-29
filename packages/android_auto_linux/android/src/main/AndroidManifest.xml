@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- The head unit server a phone opens in Android Auto's developer settings, and
+       wireless projection, are both TCP. -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <!-- Asked for by Android Auto when the Assistant is invoked. Without it the phone
+       gets silence, the same as a head unit with no microphone. -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <!-- A phone on the cable needs USB host mode, which a head unit has and a phone may
+       not. Not required, so the app still installs where only TCP will work. -->
+  <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+</manifest>
