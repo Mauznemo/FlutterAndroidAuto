@@ -136,6 +136,27 @@ class AaCoreBindings {
   late final _aa_session_start = _aa_session_startPtr
       .asFunction<int Function(ffi.Pointer<AaSession>)>();
 
+  /// As aa_session_start, offering only `transports`, an OR of AaTransport, for this
+  /// session; negative means AaConfig::transports. Narrowed to AaConfig::transports, never
+  /// widened. A head unit made with wireless and started without it keeps the Bluetooth
+  /// service published and refuses every phone that asks, and brings up no network of its
+  /// own, so a cable only session costs no hotspot.
+  int aa_session_start_transports(
+    ffi.Pointer<AaSession> session,
+    int transports,
+  ) {
+    return _aa_session_start_transports(session, transports);
+  }
+
+  late final _aa_session_start_transportsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<AaSession>, ffi.Int32)
+        >
+      >('aa_session_start_transports');
+  late final _aa_session_start_transports = _aa_session_start_transportsPtr
+      .asFunction<int Function(ffi.Pointer<AaSession>, int)>();
+
   /// Stops the session and joins its threads. Returns 0 on success. Idempotent.
   int aa_session_stop(ffi.Pointer<AaSession> session) {
     return _aa_session_stop(session);
@@ -1163,6 +1184,10 @@ class AaCoreBindings {
   /// The service is withdrawn for good by aa_session_destroy, and never published at all
   /// when AaConfig::transports leaves AA_TRANSPORT_WIRELESS out. A phone paired while it
   /// is out never learns this machine can project, so it never asks.
+  ///
+  /// A network the head unit brought up itself, Android's LocalOnlyHotspot, is taken down
+  /// here when no phone projects over it, or when the one that does goes. aa_session_stop
+  /// takes it down always.
   int aa_session_stop_wireless(ffi.Pointer<AaSession> session) {
     return _aa_session_stop_wireless(session);
   }

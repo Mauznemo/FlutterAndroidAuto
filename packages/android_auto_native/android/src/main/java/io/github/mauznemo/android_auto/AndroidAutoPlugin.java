@@ -1017,9 +1017,9 @@ public class AndroidAutoPlugin implements FlutterPlugin {
    * not pinned to one). Empty when it will not start.
    *
    * <p>Android picks the SSID and passphrase itself, which is the point: a head unit with
-   * no network to join has one without anybody typing a password, as a car does. It
-   * needs the host app to hold ACCESS_FINE_LOCATION, and NEARBY_WIFI_DEVICES from
-   * Android 13, with location turned on.
+   * no network to join has one without anybody typing a password, as a car does. From
+   * Android 13 it needs NEARBY_WIFI_DEVICES, which the plugin declares and the host app
+   * asks for; before that, ACCESS_FINE_LOCATION with location turned on.
    *
    * <p>Called from the platform thread, which is the main thread, and waits there for up
    * to five seconds the first time. The callbacks go to a thread of their own so that

@@ -149,7 +149,7 @@ class AndroidAutoSimulator extends AndroidAutoPlatform {
   }
 
   @override
-  Future<void> start(AndroidAutoConfig config) async {
+  Future<void> start(AndroidAutoConfig config, {Set<AndroidAutoTransport>? transports}) async {
     _config = config;
     if (_state != AndroidAutoConnectionState.idle &&
         _state != AndroidAutoConnectionState.error) {

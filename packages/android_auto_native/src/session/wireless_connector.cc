@@ -44,6 +44,16 @@ std::string WirelessConnector::Start(const WirelessSettings& settings,
   on_transport_ = std::move(on_transport);
   on_state_ = std::move(on_state);
 
+  const std::string error = StartOffering(settings);
+  if (!error.empty()) {
+    // A hotspot brought up for an offer that then could not be made is no use to
+    // anyone, and would stay up until the app closed.
+    ReleaseNetwork();
+  }
+  return error;
+}
+
+std::string WirelessConnector::StartOffering(const WirelessSettings& settings) {
   // What the machine says about itself, then whatever the host app overrode. The
   // passphrase is the one field that can only come from the host app for a network the
   // head unit joined: nothing here can read one, see wifi_network.h.
@@ -54,6 +64,9 @@ std::string WirelessConnector::Start(const WirelessSettings& settings,
   WifiNetwork network;
   if (settings.ssid.empty() && settings.passphrase.empty()) {
     network = HostWifiNetwork();
+    if (network.hosting) {
+      hosting_network_ = true;
+    }
   }
   if (network.ssid.empty()) {
     network = DetectWifiNetwork(settings.interface);
@@ -487,7 +500,7 @@ void WirelessConnector::Stop() {
   bluetooth_.Stop();
   // Not in Decline: a phone already projecting over the network keeps it when the
   // offer is withdrawn, and taking the network away would end that too.
-  ReleaseWifiNetwork();
+  ReleaseNetwork();
   boost::system::error_code ignored;
   acceptor_.close(ignored);
   if (fake_phone_) {
@@ -499,6 +512,18 @@ void WirelessConnector::Stop() {
     summary_.bluetooth_ready = false;
     summary_.phone_linked = false;
   }
+}
+
+void WirelessConnector::ReleaseNetwork() {
+  if (!hosting_network_.exchange(false)) {
+    return;
+  }
+  ReleaseWifiNetwork();
+  {
+    std::lock_guard<std::mutex> lock(summary_mutex_);
+    summary_.hosting = false;
+  }
+  AASDK_LOG(info) << "[Wireless] took down the network the head unit brought up";
 }
 
 void WirelessConnector::ClearHandlers() {

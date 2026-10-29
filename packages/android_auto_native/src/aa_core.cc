@@ -456,6 +456,10 @@ struct AaSession {
   // Whether a bounce is already in flight, see the note where it is set. Without it one
   // dead transport bounces the phone once per channel.
   std::atomic<bool> recovering{false};
+  // Whether the live connection runs over Wi-Fi, from the phone dialling in until that
+  // connection ends or another replaces it. A hotspot the head unit brought up is only
+  // taken down while nothing projects over it, see ReleaseIdleNetwork.
+  std::atomic<bool> wireless_live{false};
   // Outlives every protocol session built on it, see the note on ProtocolSession::Create.
   std::unique_ptr<aasdk::Strand> channel_strand;
 
@@ -492,6 +496,16 @@ std::shared_ptr<aa::MetadataChannels> LockMetadata(AaSession* session) {
 }
 
 // What a connection came in over, which decides how it is recovered when it fails.
+// Takes down a network the head unit brought up for wireless, once wireless is not on
+// offer and no phone is projecting over it. Leaving it up after that is a second radio
+// running for nothing and a hotspot in every passing Wi-Fi list. A later offer brings
+// a fresh one up. Nothing to do on Linux, where the network is the machine's own.
+void ReleaseIdleNetwork(AaSession* session) {
+  if (session->wireless && !session->wireless->running() && !session->wireless_live) {
+    session->wireless->ReleaseNetwork();
+  }
+}
+
 enum class Link {
   // A cable that goes quiet leaves the phone enumerated and still in accessory mode, so
   // it has to be bounced.
@@ -512,6 +526,12 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session, Link
     previous->Stop();
   }
   session->reached_connected = false;
+  session->wireless_live = wireless;
+  if (!wireless) {
+    // A cable can take over from a phone on the head unit's hotspot, and then nothing
+    // is left on it if wireless is no longer on offer.
+    ReleaseIdleNetwork(session);
+  }
 
   aa::HeadUnitDescription description = session->Describe(link == Link::kWireless);
   if (session->automatic_frame()) {
@@ -574,6 +594,7 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session, Link
           // link broke, in which case it will notice long before this end does. Both
           // want the same thing: the port open and somebody listening.
           session->reached_connected = false;
+          session->wireless_live = false;
           session->recovery_attempts = 0;
           session->recovering = true;
           session->events.Emit(AA_STATE_SEARCHING,
@@ -583,6 +604,9 @@ std::shared_ptr<aa::ProtocolSession> NewProtocolSession(AaSession* session, Link
           if (session->wireless) {
             session->wireless->Rearm();
           }
+          // Rearm does nothing while wireless is declined, and then the phone that was
+          // keeping the hotspot up has just gone.
+          ReleaseIdleNetwork(session);
           return;
         }
 
@@ -911,6 +935,10 @@ void aa_session_destroy(AaSession* session) {
 }
 
 int32_t aa_session_start(AaSession* session) {
+  return aa_session_start_transports(session, -1);
+}
+
+int32_t aa_session_start_transports(AaSession* session, int32_t transports) {
   if (session == nullptr) {
     return -1;
   }
@@ -959,6 +987,7 @@ int32_t aa_session_start(AaSession* session) {
   // the connection a stop ended had every phone dialling in over Wi-Fi turned away as
   // though that connection were still live.
   session->reached_connected = false;
+  session->wireless_live = false;
   session->recovery_attempts = 0;
   session->decoder->Start();
   session->audio->Start();
@@ -969,9 +998,12 @@ int32_t aa_session_start(AaSession* session) {
   if (!session->channel_strand) {
     session->channel_strand = std::make_unique<aasdk::Strand>(session->io_context);
   }
-  const int32_t transports = ApplyTransportOverride(session->config.transports);
-  const bool want_usb = (transports & AA_TRANSPORT_USB) != 0;
-  const bool want_wireless = (transports & AA_TRANSPORT_WIRELESS) != 0;
+  // Narrowed to what the session was made with, never widened: a head unit made without
+  // wireless never publishes the Bluetooth service, see aa_session_decline_wireless.
+  const int32_t configured = ApplyTransportOverride(session->config.transports);
+  const int32_t wanted = transports < 0 ? configured : (transports & configured);
+  const bool want_usb = (wanted & AA_TRANSPORT_USB) != 0;
+  const bool want_wireless = (wanted & AA_TRANSPORT_WIRELESS) != 0;
 
   if (want_usb) {
     const std::string usb_error = session->usb->Start(
@@ -1000,6 +1032,10 @@ int32_t aa_session_start(AaSession* session) {
     // also has a cable: a machine with no Bluetooth is still a working wired head
     // unit, and failing the whole start would make it neither.
     StartWirelessTransport(session);
+  } else if ((configured & AA_TRANSPORT_WIRELESS) != 0) {
+    // Made with wireless and started without it: phones that ask are still refused
+    // rather than ignored, and no network is brought up just to go unoffered.
+    aa_session_decline_wireless(session);
   }
 
   session->events.Emit(AA_STATE_SEARCHING, want_usb && want_wireless
@@ -1069,10 +1105,14 @@ int32_t aa_session_stop(AaSession* session) {
     // head unit whose session the user has stopped is exactly a head unit that should
     // be saying no. The service goes away for good in aa_session_destroy.
     session->wireless->Decline();
+    // The network goes with the session, unlike the service: a phone that was
+    // projecting over the head unit's own hotspot has just been said goodbye to.
+    session->wireless->ReleaseNetwork();
   }
   // Whatever was connected is not any more. Left up, these made the next start turn
   // away every phone that dialled in over Wi-Fi.
   session->reached_connected = false;
+  session->wireless_live = false;
   session->recovery_attempts = 0;
   if (!session->running) {
     std::lock_guard<std::mutex> lock(session->protocol_mutex);
@@ -1124,6 +1164,7 @@ int32_t aa_session_stop(AaSession* session) {
   session->recovering = false;
   // Again, now that no io thread is left to report on the connection being drained.
   session->reached_connected = false;
+  session->wireless_live = false;
   // Nothing is left to draw, and the last frame is holding a dmabuf open. Let go of it,
   // and of the picture in the texture, which the decoder has already done if a phone
   // was projecting but nothing has if it was the test pattern.
@@ -1675,6 +1716,9 @@ int32_t aa_session_stop_wireless(AaSession* session) {
     // no rather than ignored, which is what actually stops it asking. See
     // WirelessConnector::Decline.
     session->wireless->Decline();
+    // A hotspot of the head unit's own goes too, unless a phone is projecting over it,
+    // and then it goes when that phone does.
+    ReleaseIdleNetwork(session);
   }
   return 0;
 }

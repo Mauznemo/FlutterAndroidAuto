@@ -126,6 +126,21 @@ void main() {
     expect(platform.stops, 1);
   });
 
+  test('start passes a narrowed transport set through, and null by default', () async {
+    final controller = AndroidAutoController(
+      config: const AndroidAutoConfig(
+        transports: {AndroidAutoTransport.usb, AndroidAutoTransport.wireless},
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    expect(platform.startedWith, isNull);
+
+    await controller.start(transports: {AndroidAutoTransport.usb});
+    expect(platform.startedWith, {AndroidAutoTransport.usb});
+  });
+
   test('phoneOnUsb answers without a session, and its changes come through', () async {
     final controller = AndroidAutoController();
     addTearDown(controller.dispose);

@@ -127,8 +127,10 @@ class _WirelessPanelState extends State<WirelessPanel> {
     final parts = _server.text.trim().split(':');
     final host = parts.first.isEmpty ? '127.0.0.1' : parts.first;
     final port = parts.length > 1 ? int.tryParse(parts[1]) ?? 5277 : 5277;
+    // The cable only: dialling needs neither, and on Android an offer of wireless
+    // brings up a hotspot that this connection would never use.
     if (_controller.state == AndroidAutoConnectionState.idle) {
-      await _controller.start();
+      await _controller.start(transports: {AndroidAutoTransport.usb});
     }
     await _controller.connectHeadUnitServer(host: host, port: port);
   }

@@ -316,6 +316,13 @@ AA_EXPORT void aa_session_destroy(AaSession* session);
 // success, negative on failure. Idempotent.
 AA_EXPORT int32_t aa_session_start(AaSession* session);
 
+// As aa_session_start, offering only `transports`, an OR of AaTransport, for this
+// session; negative means AaConfig::transports. Narrowed to AaConfig::transports, never
+// widened. A head unit made with wireless and started without it keeps the Bluetooth
+// service published and refuses every phone that asks, and brings up no network of its
+// own, so a cable only session costs no hotspot.
+AA_EXPORT int32_t aa_session_start_transports(AaSession* session, int32_t transports);
+
 // Stops the session and joins its threads. Returns 0 on success. Idempotent.
 AA_EXPORT int32_t aa_session_stop(AaSession* session);
 
@@ -687,6 +694,10 @@ AA_EXPORT int32_t aa_session_start_wireless(AaSession* session);
 // The service is withdrawn for good by aa_session_destroy, and never published at all
 // when AaConfig::transports leaves AA_TRANSPORT_WIRELESS out. A phone paired while it
 // is out never learns this machine can project, so it never asks.
+//
+// A network the head unit brought up itself, Android's LocalOnlyHotspot, is taken down
+// here when no phone projects over it, or when the one that does goes. aa_session_stop
+// takes it down always.
 AA_EXPORT int32_t aa_session_stop_wireless(AaSession* session);
 
 // Publishes the Bluetooth service and refuses every phone that asks, without offering

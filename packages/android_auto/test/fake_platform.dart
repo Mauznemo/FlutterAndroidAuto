@@ -56,6 +56,9 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   /// How many times [start] has been called.
   int starts = 0;
 
+  /// The transports the last [start] narrowed to, null for the config's own.
+  Set<AndroidAutoTransport>? startedWith;
+
   /// How many times [stop] has been called.
   int stops = 0;
 
@@ -100,8 +103,9 @@ class FakeAndroidAutoPlatform extends AndroidAutoPlatform {
   }
 
   @override
-  Future<void> start(AndroidAutoConfig config) async {
+  Future<void> start(AndroidAutoConfig config, {Set<AndroidAutoTransport>? transports}) async {
     starts++;
+    startedWith = transports;
   }
 
   @override

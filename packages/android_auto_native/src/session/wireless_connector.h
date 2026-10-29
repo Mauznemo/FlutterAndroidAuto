@@ -118,6 +118,12 @@ class WirelessConnector {
   // a head unit that is merely not projecting wants Decline.
   void Stop();
 
+  // Takes down a network Start brought up for the phone, Android's LocalOnlyHotspot,
+  // and nothing else. Decline keeps it, because a phone already projecting over it
+  // would lose its link; the owner calls this once none is. A no-op when this machine
+  // was on a network of its own, which is always the case on Linux.
+  void ReleaseNetwork();
+
   // Drops the handlers. The connector outlives the session that installed them, the
   // same rule UsbConnector::ClearHandlers exists for.
   void ClearHandlers();
@@ -134,6 +140,8 @@ class WirelessConnector {
   WirelessSettings settings() const;
 
  private:
+  // Start, less the cleanup of a network it brought up and then could not offer.
+  std::string StartOffering(const WirelessSettings& settings);
   void Accept();
   // Arms the grace period after which a phone that has said nothing is prodded, see
   // the note in the .cc file.
@@ -174,6 +182,10 @@ class WirelessConnector {
   std::atomic<bool> running_{false};
   // Whether to refuse rather than offer. Read on BlueZ's thread.
   std::atomic<bool> declining_{false};
+  // Whether a network of the head unit's own is up, see ReleaseNetwork. Exchanged
+  // rather than read, since a stop on the platform thread and a phone leaving on an io
+  // thread can both ask for it to go.
+  std::atomic<bool> hosting_network_{false};
 };
 
 }  // namespace aa

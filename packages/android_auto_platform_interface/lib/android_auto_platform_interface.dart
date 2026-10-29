@@ -840,9 +840,16 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
 
   /// Starts looking for a phone. Completes once the session is running, not once a
   /// phone has actually connected. Watch [events] for that.
-  Future<void> start(AndroidAutoConfig config);
+  ///
+  /// [transports] narrows what this session offers, never widens it: null is
+  /// [AndroidAutoConfig.transports]. A head unit made with wireless and started
+  /// without it still refuses phones that ask over Bluetooth, see [initialize], but
+  /// offers nothing and brings up no network of its own, so a cable only session costs
+  /// no hotspot. [startWireless] can still offer wireless later in that session.
+  Future<void> start(AndroidAutoConfig config, {Set<AndroidAutoTransport>? transports});
 
-  /// Tears the session down and releases the transport.
+  /// Tears the session down and releases the transport, and any network the head unit
+  /// brought up for wireless with it.
   Future<void> stop();
 
   /// Every phone this machine is paired with, so an app can present a picker.
@@ -886,6 +893,10 @@ abstract class AndroidAutoPlatform extends PlatformInterface {
   /// To have the service never published at all, leave [AndroidAutoTransport.wireless]
   /// out of [AndroidAutoConfig.transports]. A phone paired while it is out never learns
   /// this machine can project, so it never asks in the first place.
+  ///
+  /// A network the head unit brought up itself, which on Android is a hotspot, is
+  /// taken down here unless a phone is projecting over it, and then once that phone
+  /// goes. [stop] always takes it down.
   Future<void> stopWireless() async {}
 
   /// Dials a phone running Android Auto's head unit server and projects from it.

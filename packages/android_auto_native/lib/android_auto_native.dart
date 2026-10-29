@@ -205,13 +205,16 @@ class AndroidAutoNative extends AndroidAutoPlatform {
   }
 
   @override
-  Future<void> start(AndroidAutoConfig config) async {
+  Future<void> start(AndroidAutoConfig config, {Set<AndroidAutoTransport>? transports}) async {
+    // Negative is the config's own set. The core narrows anything else to it.
+    final offered =
+        transports == null ? -1 : transports.fold(0, (mask, one) => mask | one.bit);
     // A stopped session is restarted, not rebuilt. The native side keeps its USB
     // discovery alive across stop and start on purpose, so throwing the session away
     // here would defeat that. The same applies to a session that only exists because
     // initialize built it.
     if (_session != nullptr) {
-      final result = _bindings.aa_session_start(_session);
+      final result = _bindings.aa_session_start_transports(_session, offered);
       if (result != 0) {
         _emit(
           AndroidAutoConnectionState.error,
@@ -224,7 +227,7 @@ class AndroidAutoNative extends AndroidAutoPlatform {
     if (_session == nullptr) {
       return;
     }
-    final result = _bindings.aa_session_start(_session);
+    final result = _bindings.aa_session_start_transports(_session, offered);
     if (result != 0) {
       _emit(
         AndroidAutoConnectionState.error,

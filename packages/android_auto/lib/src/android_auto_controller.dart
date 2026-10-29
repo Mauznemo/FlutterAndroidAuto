@@ -104,18 +104,23 @@ class AndroidAutoController extends ChangeNotifier {
   /// waits up to a second for either the view or the window to have a size. A phone
   /// on the same machine answers within milliseconds, and asking it for a frame
   /// before there was any size to choose by got it 1280x720 on a screen twice that.
-  Future<void> start() async {
+  ///
+  /// [transports] narrows what this session offers, null being
+  /// [AndroidAutoConfig.transports]. For a controller made with both that wants a
+  /// cable only session now and then: phones asking over Bluetooth are still refused,
+  /// and no hotspot comes up just to be declined. See [AndroidAutoPlatform.start].
+  Future<void> start({Set<AndroidAutoTransport>? transports}) async {
     if (_viewSize == null) {
       final window = await _windowSize();
       if (_viewSize == null && window != null) {
         setViewSize(window);
       }
     }
-    await _platform.start(config);
+    await _platform.start(config, transports: transports);
     await _refreshVideoState();
   }
 
-  /// Ends the session.
+  /// Ends the session, and takes down any hotspot the head unit brought up for it.
   Future<void> stop() async {
     await _platform.stop();
     _textureId = null;
