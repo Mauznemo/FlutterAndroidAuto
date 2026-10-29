@@ -34,6 +34,12 @@ namespace wifi_pb = aap_protobuf::service::wifiprojection::message;
 // told gets told.
 constexpr int kUnpromptedOfferMs = 1500;
 
+// How long a phone that says it is on the network gets to dial in before it is asked
+// again. A phone that joins quickly dials within a fraction of a second of saying so, and
+// a second start request reaching it then is an instruction to drop what it has just
+// connected and start over, which it obeys.
+constexpr int kResendStartMs = 2000;
+
 // Two big endian sixteen bit fields: the payload length, then the message id.
 constexpr size_t kHeaderSize = 4;
 
@@ -168,6 +174,7 @@ AawHandshake::AawHandshake(boost::asio::io_context& io_context, int fd,
     : strand_(boost::asio::make_strand(io_context)),
       socket_(io_context, fd),
       unprompted_timer_(io_context),
+      resend_timer_(io_context),
       offer_(std::move(offer)),
       on_status_(std::move(on_status)),
       on_failure_(std::move(on_failure)) {}
@@ -341,10 +348,8 @@ void AawHandshake::Handle(uint16_t id, const std::vector<uint8_t>& payload) {
           return;
         }
         start_resent_ = true;
-        if (on_status_) {
-          on_status_("The phone is on the network. Asking it to connect.");
-        }
-        // And ask again, now that the phone is actually on the network.
+        // And ask again, now that the phone is actually on the network, unless it dials
+        // in meanwhile.
         //
         // Read the message names as what they mean: the info exchange hands over
         // credentials, this status is the phone saying it has joined, and the start
@@ -353,12 +358,29 @@ void AawHandshake::Handle(uint16_t id, const std::vector<uint8_t>& payload) {
         // moment to be told where to connect to. Sending it again here costs one
         // small message and removes the possibility that the phone is sitting on the
         // network waiting to be asked.
-        aaw::WifiStartRequest request;
-        request.set_ip_address(offer_.ip);
-        request.set_port(offer_.port);
-        Send(aaw::WIFI_START_REQUEST, request.SerializeAsString());
-        AASDK_LOG(info) << "[Wireless] phone is on the network, asked it again to "
-                        << "connect to " << offer_.ip << ":" << offer_.port;
+        //
+        // Not at once. A phone that was already on the network when it was first asked
+        // dials within a fraction of a second of saying so, and the repeat then reached
+        // it just as it connected: it dropped the session to obey, every time. Seen
+        // with a phone joining a hotspot it had joined before.
+        auto self = shared_from_this();
+        resend_timer_.expires_after(std::chrono::milliseconds(kResendStartMs));
+        resend_timer_.async_wait(boost::asio::bind_executor(
+            strand_, [this, self](const boost::system::error_code& ec) {
+              if (ec || stopped_.load() || projecting_.load()) {
+                return;
+              }
+              if (on_status_) {
+                on_status_("The phone is on the network. Asking it to connect.");
+              }
+              aaw::WifiStartRequest request;
+              request.set_ip_address(offer_.ip);
+              request.set_port(offer_.port);
+              Send(aaw::WIFI_START_REQUEST, request.SerializeAsString());
+              AASDK_LOG(info) << "[Wireless] phone is on the network and has not dialled "
+                              << "in, asked it again to connect to " << offer_.ip << ":"
+                              << offer_.port;
+            }));
         return;
       }
       if (on_failure_) {
@@ -452,6 +474,7 @@ void AawHandshake::Stop() {
   boost::asio::post(strand_, [this, self]() {
     boost::system::error_code ignored;
     unprompted_timer_.cancel();
+    resend_timer_.cancel();
     socket_.close(ignored);
   });
 }

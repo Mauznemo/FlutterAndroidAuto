@@ -124,6 +124,8 @@ class AawHandshake : public std::enable_shared_from_this<AawHandshake> {
   boost::asio::strand<boost::asio::io_context::executor_type> strand_;
   boost::asio::posix::stream_descriptor socket_;
   boost::asio::steady_timer unprompted_timer_;
+  // Holds the repeated start request back until the phone has had time to dial.
+  boost::asio::steady_timer resend_timer_;
 
   WirelessOffer offer_;
   StatusHandler on_status_;
