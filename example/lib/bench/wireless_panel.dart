@@ -71,13 +71,10 @@ class _WirelessPanelState extends State<WirelessPanel> {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _pairedPhones = phones;
-      if (_phone.isEmpty) {
-        final phone = phones.where((one) => one.isPhone);
-        _phone = phone.isEmpty ? '' : phone.first.address;
-      }
-    });
+    // No phone is chosen for the driver. Left empty, the head unit prods whichever
+    // phone is linked, or on Android works through every paired one; picking the first
+    // in the list chose a phone that was not in the car.
+    setState(() => _pairedPhones = phones);
     _publish();
   }
 
@@ -206,7 +203,7 @@ class _WirelessPanelState extends State<WirelessPanel> {
           decoration: const InputDecoration(
             labelText: 'BSSID',
             helperText:
-                'Empty reads it off the interface. Android hides a hotspot\'s, name it',
+                'Empty reads it off the interface, or a hotspot\'s link-local address',
             isDense: true,
           ),
           style: const TextStyle(fontSize: 13),

@@ -103,6 +103,12 @@ void BluezClient::Reconnect(const std::string& address) {
   android::NudgePhone(address);
 }
 
-std::string BluezClient::ConnectedPhone() const { return android::ConnectedPhone(); }
+std::string BluezClient::ConnectedPhone() const {
+  // With no phone linked, every paired one, which Reconnect hands to Java to try in
+  // turn. A head unit that is switched on reaches for the phones it knows; waiting for
+  // one to show up by itself is what left a paired phone sitting there.
+  const std::string phone = android::ConnectedPhone();
+  return phone.empty() ? std::string("every paired phone") : phone;
+}
 
 }  // namespace aa

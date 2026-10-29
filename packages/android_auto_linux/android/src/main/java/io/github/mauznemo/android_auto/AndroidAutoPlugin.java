@@ -35,9 +35,7 @@ import android.view.Surface;
 
 import androidx.annotation.NonNull;
 
-import java.io.BufferedReader;
 import java.io.FileInputStream;
-import java.io.FileReader;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -660,8 +658,7 @@ public class AndroidAutoPlugin implements FlutterPlugin {
     }
     try {
       for (BluetoothDevice device : adapter.getBondedDevices()) {
-        final BluetoothClass type = device.getBluetoothClass();
-        if (type == null || type.getMajorDeviceClass() != BluetoothClass.Device.Major.PHONE) {
+        if (!isPhone(device)) {
           continue;
         }
         final Object connected = BluetoothDevice.class.getMethod("isConnected").invoke(device);
@@ -696,16 +693,29 @@ public class AndroidAutoPlugin implements FlutterPlugin {
         new Thread(
             () -> {
               dropHeadsetLink();
-              final BluetoothSocket socket;
-              try {
-                final BluetoothDevice device = adapter.getRemoteDevice(address);
-                socket = device.createRfcommSocketToServiceRecord(HEADSET_GATEWAY);
-                socket.connect();
-              } catch (IOException | SecurityException | IllegalArgumentException e) {
-                Log.w(TAG, "Could not open the headset link to " + address + ": " + e.getMessage());
+              BluetoothSocket socket = null;
+              String linked = "";
+              final java.util.List<String> candidates = nudgeCandidates(adapter, address);
+              Log.i(TAG, "Opening a headset link to the first of " + candidates);
+              for (String candidate : candidates) {
+                try {
+                  final BluetoothDevice device = adapter.getRemoteDevice(candidate);
+                  final BluetoothSocket attempt =
+                      device.createRfcommSocketToServiceRecord(HEADSET_GATEWAY);
+                  attempt.connect();
+                  socket = attempt;
+                  linked = candidate;
+                  break;
+                } catch (IOException | SecurityException | IllegalArgumentException e) {
+                  // Out of range, switched off, or not a phone after all.
+                  Log.i(TAG, "No headset link to " + candidate + ": " + e.getMessage());
+                }
+              }
+              if (socket == null) {
                 return;
               }
-              Log.i(TAG, "Headset link to " + address + " is up");
+              final String address_ = linked;
+              Log.i(TAG, "Headset link to " + address_ + " is up");
               synchronized (rfcommSockets) {
                 headsetLink = socket;
               }
@@ -720,11 +730,70 @@ public class AndroidAutoPlugin implements FlutterPlugin {
               } catch (IOException ignored) {
                 // The link went away.
               }
-              Log.i(TAG, "Headset link to " + address + " ended");
+              Log.i(TAG, "Headset link to " + address_ + " ended");
             },
             "AndroidAuto headset link");
     worker.setDaemon(true);
     worker.start();
+  }
+
+  private static final UUID HANDS_FREE_GATEWAY =
+      UUID.fromString("0000111f-0000-1000-8000-00805f9b34fb");
+
+  /**
+   * Whether a bonded device is a phone worth a headset link.
+   *
+   * <p>By class first, but only to rule things out: a computer, a headset or a watch is
+   * never the phone, even though a Windows PC offers a hands free gateway too. Then by the
+   * services Android read at pairing, a headset or hands free gateway being what a link
+   * needs. A device whose services were never read is taken on its class, and a Pixel 8
+   * Pro calls itself uncategorized, so that counts.
+   */
+  private static boolean isPhone(BluetoothDevice device) {
+    final BluetoothClass type = device.getBluetoothClass();
+    final int major = type == null ? BluetoothClass.Device.Major.UNCATEGORIZED
+        : type.getMajorDeviceClass();
+    if (major != BluetoothClass.Device.Major.PHONE
+        && major != BluetoothClass.Device.Major.UNCATEGORIZED
+        && major != BluetoothClass.Device.Major.MISC) {
+      return false;
+    }
+    final android.os.ParcelUuid[] uuids = device.getUuids();
+    if (uuids == null || uuids.length == 0) {
+      return true;
+    }
+    for (android.os.ParcelUuid uuid : uuids) {
+      if (HEADSET_GATEWAY.equals(uuid.getUuid()) || HANDS_FREE_GATEWAY.equals(uuid.getUuid())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Which phones to try a headset link to: the one named, or with no name every bonded
+   * phone, the linked ones first. A car does the same when it starts, working down the
+   * phones it knows until one answers. A phone that is not there costs a few seconds.
+   */
+  private static java.util.List<String> nudgeCandidates(BluetoothAdapter adapter, String address) {
+    final java.util.List<String> candidates = new java.util.ArrayList<>();
+    if (BluetoothAdapter.checkBluetoothAddress(address)) {
+      candidates.add(address);
+      return candidates;
+    }
+    synchronized (linkedPhones) {
+      candidates.addAll(linkedPhones);
+    }
+    try {
+      for (BluetoothDevice device : adapter.getBondedDevices()) {
+        if (isPhone(device) && !candidates.contains(device.getAddress())) {
+          candidates.add(device.getAddress());
+        }
+      }
+    } catch (SecurityException ignored) {
+      // Without permission there is nothing to try.
+    }
+    return candidates;
   }
 
   private static void dropHeadsetLink() {
@@ -822,9 +891,7 @@ public class AndroidAutoPlugin implements FlutterPlugin {
     final StringBuilder listing = new StringBuilder();
     try {
       for (BluetoothDevice device : adapter.getBondedDevices()) {
-        final BluetoothClass type = device.getBluetoothClass();
-        final boolean phone =
-            type != null && type.getMajorDeviceClass() == BluetoothClass.Device.Major.PHONE;
+        final boolean phone = isPhone(device);
         final String name = device.getName();
         listing
             .append(device.getAddress())
@@ -997,8 +1064,8 @@ public class AndroidAutoPlugin implements FlutterPlugin {
       final MacAddress mac = config.getBssid();
       if (mac != null) {
         bssid = mac.toString();
-      } else if (!name.isEmpty()) {
-        bssid = readMac(name);
+      } else if (face != null) {
+        bssid = macFromLinkLocal(face);
       }
       Log.i(
           TAG,
@@ -1075,16 +1142,31 @@ public class AndroidAutoPlugin implements FlutterPlugin {
     return "";
   }
 
-  // An access point's BSSID is its interface's MAC. Apps are not told MACs any more, so
-  // this is the fallback for when the hotspot's own configuration does not say.
-  private static String readMac(String interfaceName) {
-    try (BufferedReader reader =
-        new BufferedReader(new FileReader("/sys/class/net/" + interfaceName + "/address"))) {
-      final String line = reader.readLine();
-      return line == null ? "" : line.trim();
-    } catch (IOException | SecurityException e) {
-      return "";
+  /**
+   * An interface's MAC, recovered from its IPv6 link-local address, or empty.
+   *
+   * <p>An access point's BSSID is its interface's MAC, and apps have not been told MACs
+   * since Android 11: not through NetworkInterface, sysfs or netlink. Addresses they
+   * still get, and a link-local address built the EUI-64 way carries the MAC inside it,
+   * with ff:fe in the middle and the universal/local bit flipped. Android builds the
+   * hotspot's that way on the device tested. One built for privacy carries nothing,
+   * which shows as no ff:fe, and then this says nothing rather than guess.
+   */
+  private static String macFromLinkLocal(NetworkInterface face) {
+    for (InetAddress address : Collections.list(face.getInetAddresses())) {
+      if (!(address instanceof java.net.Inet6Address) || !address.isLinkLocalAddress()) {
+        continue;
+      }
+      final byte[] b = address.getAddress();
+      if ((b[11] & 0xff) != 0xff || (b[12] & 0xff) != 0xfe) {
+        continue;
+      }
+      return String.format(
+          "%02x:%02x:%02x:%02x:%02x:%02x",
+          (b[8] & 0xff) ^ 0x02, b[9] & 0xff, b[10] & 0xff, b[13] & 0xff, b[14] & 0xff,
+          b[15] & 0xff);
     }
+    return "";
   }
 
   private static native int nativeRfcommConnection(String address);
