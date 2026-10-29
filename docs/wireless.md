@@ -276,11 +276,16 @@ The same connector, with Java behind both of its platform pieces; see
 
 - **The head unit hosts.** With no network and no passphrase named it starts a
   LocalOnlyHotspot and offers that, with the SSID and passphrase Android chose, as a
-  car does. Android hides the hotspot's BSSID from apps, so the host app has to name it.
+  car does. Android hides the hotspot's BSSID from apps, so it is read back out of the
+  hotspot interface's IPv6 link-local address, which Android builds EUI-64: the MAC with
+  `ff:fe` in the middle and one bit flipped. Where that is a privacy address instead,
+  the host app has to name it.
 - **A phone or tablet running the head unit has to prod the phone.** It has no hands
   free profile, and a phone pairs, reads the service list and then does nothing.
   `Reconnect` therefore opens a headset link to the phone, which is what gets it to
-  dial. A car stereo with the profile of its own needs none of this.
+  dial. With no phone named and none linked, it works through the paired devices that
+  could be phones until one answers, as a car does when it starts. A car stereo with
+  the profile of its own needs none of this.
 - **The phone's own log is readable**, `adb logcat` with `GH.` and `CAR.` tags, and it
   names the reason whenever it gives up.
 

@@ -263,7 +263,8 @@ cd example && flutter build apk --debug --target-platform android-arm64
 - **Wireless on Android hosts its own hotspot.** With no network and no passphrase
   named, the head unit starts a LocalOnlyHotspot and offers that, as a car does. Android
   will not tell an app that hotspot's BSSID, and a phone rejects an offer without one,
-  so a host app has to name it. Bluetooth is a `BluetoothServerSocket` in Java bridged
+  so it is read back out of the interface's EUI-64 link-local address; a host app has
+  to name it only where that is a privacy address. Bluetooth is a `BluetoothServerSocket` in Java bridged
   to the native handshake over a socket pair.
 - **A phone or tablet as head unit has no hands free profile**, and a phone only dials
   wireless Android Auto towards a device that connects like one. So the nudge opens a

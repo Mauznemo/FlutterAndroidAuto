@@ -157,8 +157,8 @@ A plain USB-C to USB-C cable to the Pixel made the M21 the host on its own.
 
 For wireless the Pixel goes on the laptop's USB instead, for its log: nothing on the
 laptop takes it over while the Linux bench is not running. The M21 hosts a new hotspot
-with a new SSID and BSSID every time the example starts, and the BSSID has to be typed
-into the bench's Wireless panel: `dumpsys wifi`, `mCurrentSoftApInfoMap`, gives it.
+with a new SSID and BSSID every time the example starts; both are found by the head unit
+itself, and `dumpsys wifi`, `mCurrentSoftApInfoMap`, shows what Android really chose.
 
 Two things that bite:
 

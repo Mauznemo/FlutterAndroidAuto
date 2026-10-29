@@ -92,8 +92,8 @@ of a host app can be built and tried there and only goes to Linux for the car. S
 `AndroidAutoSimulator` docs; `AndroidAutoSimulator.registerWith()` puts it on Linux too.
 
 Not there yet: no ARM64 device tested (CI builds it, which is not the same thing), an
-Android implementation that projects over USB and Wi-Fi but cannot yet learn its own
-hotspot's BSSID, and the notification and media browser channels are
+Android implementation that projects over USB and Wi-Fi and still needs its packaging
+settled, and the notification and media browser channels are
 implemented against the schema but unverified, because the one phone tested never opens
 them.
 

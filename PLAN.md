@@ -1488,7 +1488,9 @@ files on both, and pub.dev cannot share sources between packages, so a separate
 - [x] A phone or tablet as head unit gets a phone to dial: a headset link opened from this end (`nudgePhone`), four seconds before the phone opened the Android Auto channel
 - [x] 1080p is not allowed over 2.4 GHz: the phone says `VideoCodecResolutionType 3 (3) is not allowed due wireless frequency`, then `No working configuration`, and hangs up. A known 2.4 GHz network caps an automatic frame at 1280x720
 - [x] Shared fix: the repeated start request reached a phone just as it dialled in, and the phone dropped the session to obey it. It now waits two seconds and goes only if the phone has not dialled
-- [ ] The hotspot's BSSID. Android hides it from apps and a phone rejects an offer without one, so today the host app has to name it. Options: a privileged host app asking for `SoftApInfo`, or offering several video configs and a 5 GHz hotspot through `startLocalOnlyHotspotWithConfiguration` on Android 16
+- [x] The hotspot's BSSID, which Android hides from apps: recovered from the hotspot interface's IPv6 link-local address, which Android builds EUI-64 (`fe80::d4bf:9cff:fe74:613b` is `d6:bf:9c:74:61:3b`, matching `SoftApInfo`). A privacy address carries no MAC, and then the host app has to name it
+- [x] No phone named or linked: the prod works through the paired phones that could be one, which is how the Pixel was found with nothing chosen in the bench. A Pixel 8 Pro calls itself uncategorized and Android had no service list for it, so "a phone" is decided by ruling out computers, headsets and the like rather than by asking for the phone class
+- [ ] A device that does not build its hotspot's link-local address from the MAC. Options then: a privileged host app asking for `SoftApInfo`, or `startLocalOnlyHotspotWithConfiguration` on Android 16 with a BSSID of the head unit's choosing
 - [ ] Calls while the headset link is up. The phone counts the head unit as a headset and may try to route a call to it, which it cannot take
 - [ ] Offering several video configs, so the phone picks the largest its link allows instead of the head unit guessing from the band
 - [ ] Packaging: `android/deps/` is built on the developer's machine. Before publishing, decide between prebuilt archives in the package and building them at configure time
@@ -1566,8 +1568,8 @@ one (`adb logcat | grep -E " (GH|CAR)\."` on the phone; it does log).
 The hotspot is the realistic setup: in a car the head unit hosts the network and tells
 the phone its name, passphrase and BSSID. Android picks a new SSID and BSSID on every
 start, gives an app the SSID and passphrase, and hides the BSSID, which a phone rejects
-an offer without. Until that is solved the host app names it; on the bench it is typed
-into the Wireless panel from `dumpsys wifi`.
+an offer without. It comes back out of the interface's IPv6 link-local address, which
+Android builds EUI-64 on the device tested; where it does not, the host app names it.
 
 ### Self mode, and the four things it takes on a fresh phone
 
