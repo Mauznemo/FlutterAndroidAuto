@@ -193,3 +193,45 @@ unit that projects, so what remains owed is the real check on the device: a phon
 cable, and the video, audio, input and sensor paths exercised there. The VA-API path is
 a different driver stack on ARM and is the most likely thing to need work; there is a
 software fallback if it does.
+
+## Android
+
+On Android the plugin is `libandroid_auto_native.so`, built by Gradle's CMake from
+`android/CMakeLists.txt` out of the same `linux/src` tree. Everything aasdk links is
+inside it statically, for the same reasons as on Linux, and the version script
+`android/android_auto_native.map` exports the C ABI, `JNI_OnLoad` and the plugin's
+`Java_*` methods and nothing else: 73 symbols. It links only against what every Android
+has (`libaaudio`, `libmediandk`, `libEGL`, `libGLESv3`, `libnativewindow`, `libandroid`,
+`liblog`), so there is nothing for a device to install.
+
+The difference from Linux is where the dependencies come from. Android has no package
+manager to provide Boost, protobuf, OpenSSL and libusb, so `tools/build-android-deps.sh`
+cross compiles pinned releases of them into `android/deps/<abi>/`, for arm64-v8a and
+x86_64. It takes about ten minutes per ABI the first time and is skipped for anything
+already built. The host `protoc` has to be the release the Android libprotobuf is built
+from, 3.21.12, because generated code only links against the runtime that matches it;
+Ubuntu 26.04's is.
+
+Three things in that build are easy to get wrong and each fails in a way that looks
+like something else:
+
+- **Boost is static and aasdk asked for it shared.** aasdk defines `BOOST_ALL_DYN_LINK`,
+  which puts Boost.Log in its shared library namespace, and turns down the static
+  libraries in its `find_package`. The port patch makes both Linux only.
+- **Boost installs only the headers of the libraries asked for.** `log;asio` was not
+  enough: aasdk also includes `circular_buffer`, `endian`, `algorithm` and `core`.
+- **CMake's FindOpenSSL asks pkg-config for static link flags**, and on a cross build
+  that is the host's pkg-config: the first link pulled in x86 Ubuntu's `libzstd` and
+  `libjitterentropy`. The Android CMake points `PKG_CONFIG_LIBDIR` at the prefix.
+
+OpenSSL keeps its deprecated ENGINE API because aasdk still calls `ENGINE_cleanup`.
+
+A debug build is 88 MB unstripped and 13 MB stripped, almost all of it aasdk and
+protobuf at `-O0`; Gradle strips it into the APK. The library is linked for 16 KB pages,
+which Google Play requires of native code for Android 15 devices.
+
+**Not settled: how a published package gets `android/deps/`.** It is built on the
+developer's machine today and is not in the repository. Before Android can be
+published either prebuilt archives ship inside the package, a few tens of megabytes per
+ABI, or the plugin's CMake builds them on first configure the way it already applies
+the aasdk patch, at ten minutes per ABI for every host app's first build.

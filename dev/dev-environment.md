@@ -127,3 +127,50 @@ Both of the open questions this file recorded on 2026-09-12 have been answered:
 - VA-API zero copy works on this Intel UHD part. The decoder exports a dmabuf that
   `gl_adapter` imports as `EGLImage`s, measured at 0.9 to 1.1 ms wire to frame against
   2.9 ms for the software fallback.
+
+## Android, added 2026-10-29
+
+| | |
+|---|---|
+| JDK | OpenJDK 21 from apt (`openjdk-21-jdk-headless`) |
+| Android SDK | `~/Android/Sdk`, command line tools only, no Android Studio. `flutter config --android-sdk ~/Android/Sdk` |
+| Installed | `platform-tools`, `platforms;android-36`, `build-tools;36.0.0`, `ndk;28.2.13676358`, `cmake;3.31.6` |
+| Test head unit | Samsung Galaxy M21, LineageOS 20, Android 13, arm64, 2340x1080 at 420 dpi, adb serial `R58N91XQV6V`. Android Auto 17.9 and Google services installed |
+
+The M21 is a spare phone: its prompts can be accepted without asking. It is driven
+entirely over adb, there is no mirroring tool installed:
+
+```bash
+adb exec-out screencap -p > shot.png     # 2340x1080 in landscape, full resolution
+adb shell input tap 1284 812             # screen pixels, the same frame as the shot
+adb shell uiautomator dump /sdcard/ui.xml && adb shell cat /sdcard/ui.xml
+adb logcat -d | grep AndroidAuto         # the core's stdout and stderr land here
+```
+
+`uiautomator dump` gives every on screen element's text and bounds, which is the
+quickest way to find a button on a screen in German.
+
+For a phone on the M21's own USB port it has to come off the laptop, so adb goes over
+Wi-Fi instead: `adb tcpip 5555` while still cabled, then `adb connect <its address>:5555`
+and `-s <address>:5555` on every command. It reverts to USB on the M21's next reboot.
+A plain USB-C to USB-C cable to the Pixel made the M21 the host on its own.
+
+Two things that bite:
+
+- **The Linux bench takes the M21 over.** It is on this laptop's USB for adb, so the
+  Linux example started with the USB transport finds it, puts it in accessory mode
+  and projects from it, which cuts adb and fights whatever the phone was doing. Run
+  the Linux bench with `AA_TRANSPORTS=wireless`, or unplug the M21, while it matters.
+- **The phone's shell eats `$`.** A component name like `Outer$Inner` passed through
+  `adb shell` has to be escaped for the far end too, or it silently becomes `Outer`.
+
+Self mode, the phone's own Android Auto projecting into the example on the same phone,
+is how Android is tested. The four steps it takes on a fresh phone are in `PLAN.md`
+under M12. Build and run it with:
+
+```bash
+cd example && flutter build apk --debug --target-platform android-arm64 \
+  --dart-define=AA_HEAD_UNIT_SERVER=127.0.0.1:5277
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+adb shell am start -n io.github.mauznemo.android_auto_example/.MainActivity
+```

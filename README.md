@@ -91,8 +91,9 @@ controller, and sends guidance, now playing and calls on the metadata streams. T
 of a host app can be built and tried there and only goes to Linux for the car. See the
 `AndroidAutoSimulator` docs; `AndroidAutoSimulator.registerWith()` puts it on Linux too.
 
-Not there yet: no ARM64 device tested (CI builds it, which is not the same thing), no
-Android implementation, and the notification and media browser channels are
+Not there yet: no ARM64 device tested (CI builds it, which is not the same thing), an
+Android implementation that projects over USB with touch and audio but has no Wi-Fi
+yet, and the notification and media browser channels are
 implemented against the schema but unverified, because the one phone tested never opens
 them.
 
@@ -102,7 +103,7 @@ them.
 packages/
   android_auto                        app facing API and the macOS/Windows simulator, pure Dart
   android_auto_platform_interface     the contract, pure Dart
-  android_auto_linux                  Linux implementation, links aasdk
+  android_auto_linux                  Linux and Android implementation, links aasdk
 example/                              the reference integration and test bench
 docs/
   research.md                         protocol notes and library evaluation

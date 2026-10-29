@@ -70,9 +70,15 @@ head unit claims a position. Offer only what the app will actually feed.
 
 ## Platforms
 
-Linux today, through `android_auto_linux`, over USB or over Wi-Fi. Built and tested on
-x86_64; ARM64 is intended and not yet verified. The package layout is federated, so an
-Android implementation can be added without touching this API.
+Linux, through `android_auto_linux`, over USB or over Wi-Fi. Built and tested on
+x86_64; ARM64 is intended and not yet verified.
+
+**Android is in progress**, through the same package and the same native core: the
+Android device is the head unit, and a phone on its USB port projects with video, touch
+and audio. Wi-Fi does not work yet. It needs `minSdk = 28`, the host app asks for
+`RECORD_AUDIO` itself, and its activity should declare a `USB_DEVICE_ATTACHED` filter
+so the driver can allow the phone once rather than on every connect; the example app
+shows both.
 
 **macOS and Windows run a simulator**, so an app can be developed on the machine most
 Flutter is written on and only built for Linux when it goes into the car. Nothing to set

@@ -23,7 +23,7 @@
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ implements
 ┌───────────────────────────────▼──────────────────────────────────────┐
-│  android_auto_linux           (GPL-3.0, links aasdk)                 │
+│  android_auto_linux           (GPL-3.0, links aasdk, Linux + Android)│
 │                                                                      │
 │  Dart:   AndroidAutoLinux ── dart:ffi ──┐   NativeCallable.listener  │
 │                                         │            ▲               │
@@ -249,6 +249,65 @@ What it buys is optionality. A future permissive implementation could be dropped
 without changing a line of host app code, and at that point relicensing the two pure
 Dart packages would be a matter of agreement among their contributors rather than of
 untangling anything.
+
+## Android, the same core behind other backends
+
+`android_auto_linux` declares `android` as well as `linux`, and on Android it builds
+the same `linux/src` tree with the NDK into `libandroid_auto_native.so`. The Dart class
+is the same `AndroidAutoLinux` over the same C ABI. What changes is one file behind each
+seam, beside its Linux sibling:
+
+| Seam | Linux | Android |
+|---|---|---|
+| present adapter, `present/gl_adapter.h` | `gl_adapter.cc`, `FlTextureGL` | `gl_adapter_android.cc`, EGL into a `SurfaceProducer` |
+| decoder, `video/video_decoder.h` | `libav_decoder.cc`, VA-API or the CPU | `mediacodec_decoder.cc`, MediaCodec |
+| frame descriptor, `frame_ring.h` | `kDmabuf` | `kHardwareBuffer` |
+| playback, `audio/pcm_sink.h` | `pulse_sink.cc` | `aaudio_sink.cc` |
+| capture, `audio/pcm_source.h` | `pulse_source.cc` | `aaudio_source.cc` |
+| Bluetooth, `bluetooth/bluez_client.h` | `bluez_client.cc` | `bluez_client_android.cc`, not implemented |
+| USB, the `UsbConnector` interface | `usb_connector.cc`, libusb hotplug | `usb_connector_android.cc`, descriptors from `UsbManager` |
+| entry point | `android_auto_linux_plugin.cc`, GTK | `platform/android_jni.cc` and `AndroidAutoPlugin.java` |
+
+`video_decoder.h` is the one header that differs per platform: it includes
+`libav_decoder.h` or `mediacodec_decoder.h`, which declare classes of the same name
+and the same public interface. Everything else above a seam is one file for both.
+
+The present adapter is the one place the two differ in kind. On Linux Flutter calls
+`populate()` on its raster thread with its own GL context current, and the adapter draws
+in it. Android has no such hook: a texture is a `SurfaceProducer`, a `Surface` somebody
+else draws into, which Impeller then samples whichever of its backends is running. So:
+
+```
+MediaCodec ─> AImageReader ─> AHardwareBuffer + AImage keepalive ─> FrameRing
+   ─> render thread, own EGL context:
+        eglGetNativeClientBufferANDROID ─> EGLImage ─> samplerExternalOES
+        crop the margins ─> middle texture ─> the SurfaceProducer's Surface
+```
+
+The middle texture is there so a surface Flutter replaces, on a resize or a return from
+the background, can be drawn again straight away; Android Auto only sends a frame when
+its screen changes. The surface is sized to the picture as it is shown, so Flutter
+samples it one to one, the same thing the Linux adapter achieves by rendering at the
+display size.
+
+JNI is used for that and nothing else. The Java plugin loads the library from its static
+initialiser, so `JNI_OnLoad` runs with the app's class loader and caches the plugin
+class; the core calls `createSurface`, `resizeSurface` and `releaseSurface` on it, and
+is called back with each new `Surface` and before each one goes away. Dart reaches the
+core through FFI exactly as on Linux, on the platform thread, which Flutter on Android
+now merges with the UI thread.
+
+USB goes through Java too, because libusb cannot discover devices on Android: an app
+only gets one as a file descriptor from `UsbManager`, after the user has allowed it.
+`AndroidAutoPlugin.java` finds phones, asks, and hands each descriptor over;
+`usb_connector_android.cc` wraps it with `libusb_wrap_sys_device` and from there it is
+aasdk's own query chain and `AOAPDevice`, the same objects the Linux hub uses. The phone
+leaves the bus after the switch and comes back as an accessory, which Java hands over
+in turn. Java keeps each descriptor open until the native side's last handle to it is
+gone, because libusb polls it from its event thread. Wireless is the one transport
+missing on Android, because Bluetooth is only reachable from Java. The head unit server transport,
+`aa_session_connect_head_unit_server`, works everywhere and is how Android is tested:
+the phone's own Android Auto, projecting into the app on the same phone.
 
 ## The simulator on macOS and Windows
 

@@ -4,8 +4,8 @@ A Flutter plugin that runs a real Android Auto head unit **inside** the Flutter 
 rendering the projected phone screen into a Flutter `Texture` so the host app can
 draw its own widgets on top of it.
 
-Linux first (x86_64 and ARM64). The package layout is federated so an Android
-implementation can be added later without touching the app-facing API.
+Linux first (x86_64 and ARM64), Android second. The package layout is federated, and
+Android turned out to need no change to the app-facing API beyond one optional call.
 
 > Working agreement: every box below is a checkpoint. Tick it only when the thing is
 > actually verified on this machine, not when the code merely compiles. Sessions are
@@ -30,7 +30,7 @@ implementation can be added later without touching the app-facing API.
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
 | M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
 | M11 | Packaging, ARM64, CI, docs | **in progress**, bar running it on an ARM64 device |
-| M12 | Android implementation package | not started |
+| M12 | Android implementation | **in progress**, projecting over USB with touch and audio, bar wireless |
 
 ---
 
@@ -1446,15 +1446,113 @@ hand beforehand keeps the release instant.
 
 ---
 
-## M12. Android implementation package
+## M12. Android implementation
 
-Sketch only, do not build yet. Recorded so the structure does not have to change later.
+The Android device is the head unit: a car stereo or tablet running the host app, with
+the phone on a cable, over Wi-Fi, or (for development) the same phone. The head unit
+tested is a Samsung Galaxy M21 running LineageOS 20 (Android 13, Exynos 9611), first in
+self mode (its own Android Auto 17.9, through the head unit server, into the example
+app on the same phone) and then with the Pixel 8 Pro on its USB-C port.
 
-- [ ] `packages/android_auto_android` implementing `android_auto_platform_interface`
-- [ ] On Android the host device can be the head unit over USB host mode, same aasdk core via NDK
-- [ ] Video decodes with MediaCodec into a `SurfaceTexture` bridged to a Flutter texture
-- [ ] Audio through AAudio/OpenSL
-- [ ] The app-facing `android_auto` package and the example app must not need any change
+**Decided 2026-10-29: one native package, not two.** `android_auto_linux` declares
+`android` as well as `linux`. The C++ core, aasdk and the Dart FFI class are the same
+files on both, and pub.dev cannot share sources between packages, so a separate
+`android_auto_android` would have meant two copies of everything. Host apps depend on
+`android_auto` only and never see the name.
+
+- [x] Cross compile what aasdk links against: `tools/build-android-deps.sh` builds Boost 1.90 (static), protobuf 3.21.12, OpenSSL 3.5.9 and libusb 1.0.29 for arm64-v8a and x86_64 into `android/deps/`
+- [x] aasdk, the protocol session and every channel build with NDK 28 unchanged, bar one hunk in the port patch (static Boost on Android)
+- [x] Android backends beside their Linux siblings behind the existing seams: `gl_adapter_android.cc`, `mediacodec_decoder.cc`, `aaudio_sink.cc`, `aaudio_source.cc`, a Bluetooth placeholder, and `platform/android_jni.cc`
+- [x] Java plugin class: loads the library, hands out `SurfaceProducer`s. The Dart side is the same `AndroidAutoLinux` class through the same C ABI
+- [x] Test pattern through EGL into a `SurfaceProducer`, composited under Flutter widgets, animating (bar at x = 1121, 1710, 2001 a 0.7 s apart)
+- [x] `aa_session_connect_head_unit_server` and `AndroidAutoController.connectHeadUnitServer`: dial Android Auto's developer head unit server over TCP
+- [x] Version, SSL, service discovery and every channel opened by the phone, first try
+- [x] Video: MediaCodec (`OMX.Exynos.avc.dec`) into `AHardwareBuffer`s, imported into EGL without a copy, margins cropped. 11 to 28 ms from wire to frame
+- [x] The mid session margin change (focus native, `UpdateUiConfigRequest`, focus projected) works exactly as on Linux
+- [x] Touch, down to a small back arrow
+- [x] Speech audio through AAudio: 26 s, 0 underruns
+- [x] Microphone through AAudio when the app holds `RECORD_AUDIO`, silence when it does not; opened and closed on the phone's request
+- [x] Stop says goodbye and the phone acknowledges it; dialling again projects again
+- [x] App to the background and back: still connected, picture back at once from the kept texture
+- [x] Linux still builds and projects after the shared changes (VA-API, 1280x680)
+- [x] `AndroidAutoController.start` waits for the window to have a size. An Android window is 0 by 0 until its first layout, and a phone on the same machine connected inside that gap and was asked for 1280x720 on a screen that wanted 1920x1080
+- [x] USB host mode: Java finds the phone through `UsbManager` and hands over a file descriptor, `libusb_wrap_sys_device` wraps it, aasdk's own query chain switches the phone to accessory mode and its `AOAPDevice` opens it when it comes back. Pixel 8 Pro to projecting in about 2.5 s from the permission tap, 15 to 18 ms wire to frame at 1920x1080
+- [x] USB stop and start: the goodbye is acknowledged, `libusb_reset_device` is allowed on an app's descriptor and drops the phone out of accessory mode, and Start projects again in 1.8 s with no dialog once both of the phone's identities are allowed for good
+- [x] Media audio through AAudio, 48 kHz stereo, from Spotify on the Pixel
+- [ ] System audio heard. Same sink with a different usage
+- [ ] The cable pulled and put back mid session, and a transport that dies with the phone still attached (the bounce in `RecoverAndRediscover`, here a reset and then a rescan)
+- [ ] Shrinking with every source pixel averaged. `gl_adapter.cc`'s footprint filter is not ported; Android samples bilinear, so a picture drawn much smaller than its frame will look grainy
+- [ ] Sensors and metadata seen working on Android. Shared code, nothing Android specific in it, not looked at
+- [ ] Wireless: the RFCOMM service through Java's `BluetoothServerSocket`, the network from `WifiManager`. `bluez_client_android.cc` reports Bluetooth as unavailable
+- [ ] Packaging: `android/deps/` is built on the developer's machine. Before publishing, decide between prebuilt archives in the package and building them at configure time
+- [ ] Rename the package now it is not Linux only, and move `linux/src` to the package root as the shared tree
+- [ ] An Android build in CI
+- [ ] armeabi-v7a, if any head unit worth supporting is still 32 bit
+
+### Measured
+
+| | |
+|---|---|
+| Decoder | `OMX.Exynos.avc.dec`, the hardware one, picked by `AMediaCodec_createDecoderByType` |
+| Wire to frame | 27.6 ms in the first ten seconds, 11.6 to 13.1 ms after |
+| Frame | 1920x1080, picture 1920x878, for a view of 2131x975. The view is larger than the largest frame, so the picture is stretched 1.11x |
+| Speech | 16 kHz mono, 26 s, 0 underruns, 96 ms buffered |
+| Microphone | 16 kHz mono, 283 buffers, closed within the request |
+| Library | 88 MB debug unstripped, 13 MB stripped; 73 exported symbols |
+
+### How it is shaped
+
+The seams Linux already had took Android without changing shape. `FrameRing` carries a
+new kind, `kHardwareBuffer`, which is Android's dmabuf: MediaCodec decodes into an
+`AImageReader`, each picture is published by reference with the `AImage` as its
+keepalive, and the present adapter imports it with `eglGetNativeClientBufferANDROID`.
+The reader outlives its decoder through the keepalives, because a picture can still be
+in the ring while the session is torn down and an `AImage` must not outlive its reader.
+
+The present adapter is the one place the platforms differ in kind rather than detail.
+On Linux Flutter calls `populate()` inside its own GL context. Android has nothing like
+it: a texture is a `SurfaceProducer`, a `Surface` that somebody else draws into. So the
+Android adapter has a thread and an EGL context of its own and never touches Flutter's,
+which also keeps it clear of whichever Impeller backend is running. Each frame is drawn
+into a middle texture first and from there into the surface, so a surface Flutter
+replaces (a resize, a return from the background) is drawn again at once: Android Auto
+sends a frame only when its screen changes.
+
+### USB, and the permission that answers in the wrong place
+
+An Android app sees no USB device until `UsbManager` hands it over, and every time the
+phone switches to accessory mode it is a new device with a new product id, so it is
+asked about twice: once as the phone and once as the accessory. Ticking "always open"
+in the dialog makes both go through silently from then on, but only for a host app
+whose activity declares a `USB_DEVICE_ATTACHED` filter; the example's matches every
+device, see `example/android/app/src/main/res/xml/usb_device_filter.xml`.
+
+**The permission can be granted without the app's request ever being answered.** A host
+app with that filter gets the system's own "open with" chooser on attach, and choosing
+the app there grants the permission and starts the activity, while the dialog the
+plugin itself asked for is closed with no answer at all. Seen on Android 13. So the
+plugin does not wait for the answer: while it is searching it rescans every second and
+opens whatever it has been allowed to use, and it only asks itself after a device has
+been sitting there for two seconds, which also keeps it from stacking a second dialog
+on the system's.
+
+### Self mode, and the four things it takes on a fresh phone
+
+1. Android Auto's developer settings: tap Version ten times in its settings. Then
+   "Start head unit server" from the overflow menu. The server goes away whenever
+   Android Auto's process does, a system restart included, and has to be started again.
+2. On the first connection the phone shows a welcome screen with a permissions notice.
+   Its Continue button records the acknowledgement and then appears to do nothing.
+3. What it is waiting for is notification access, which the projected screen says and
+   the phone does not. `adb shell 'cmd notification allow_listener
+   com.google.android.projection.gearhead/com.google.android.gearhead.notifications.SharedNotificationListenerManager\$ListenerService'`,
+   with the `$` escaped for the phone's shell: unescaped it silently grants a class
+   that does not exist.
+4. Reconnect. The projection then opens on the launcher.
+
+**Do not edit `enabled_notification_listeners` with `settings put`.** Doing that to
+remove a bad entry restarted the system server on LineageOS, which also took the head
+unit server down.
 
 ---
 

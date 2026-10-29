@@ -8,7 +8,7 @@
 
 A Flutter plugin that runs an Android Auto head unit inside a Flutter app, rendering the
 projected phone screen into a Flutter `Texture` so the host app can draw widgets on top.
-Linux first, federated package layout so Android can be added later.
+Linux first, Android second, from one native package: see "Android" below.
 
 **Read `PLAN.md` first in every session.** It holds the milestones with checkboxes and is
 the source of truth for what is done and what is next. Tick a box only when the thing is
@@ -30,9 +30,9 @@ was taken, never for what the code does now.
 |---|---|
 | `packages/android_auto` | app facing API, pure Dart, no GPL code |
 | `packages/android_auto_platform_interface` | the contract, pure Dart, no GPL code |
-| `packages/android_auto_linux` | Linux implementation, links aasdk, **GPL-3.0** |
+| `packages/android_auto_linux` | the native implementation for Linux **and Android**, links aasdk, **GPL-3.0**. `linux/src` is the native tree both build |
 | `example/` | the reference integration and test bench, run this to verify anything visually. `lib/head_unit/` is what a product would ship, `lib/bench/` the diagnostic panels |
-| `tools/` | what a stranger needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `install-echo-cancel.sh`, `wireless-ap.sh`, and `config/` for the PipeWire drop-in the fourth of those installs |
+| `tools/` | what a stranger needs: `setup-dev-machine.sh`, `build-aasdk.sh`, `port-aasdk.sh`, `build-android-deps.sh`, `install-echo-cancel.sh`, `wireless-ap.sh`, and `config/` for the PipeWire drop-in `install-echo-cancel.sh` installs |
 | `dev/` | this machine's own tooling, not part of the plugin: `ui.sh`, `run-example.sh`, `wireless-test.sh`, `wireless-capture.sh`, `fake-wireless-phone.py`, `audio-graph.sh`, `release.sh` with `release_support.py`, and `dev-environment.md` |
 | `pubspec.yaml` | the workspace root, not a package. Its only content is the member list |
 
@@ -129,6 +129,7 @@ Release build does not, so they will silently do nothing in a release build:
 | `AA_WIRELESS_SSID`, `AA_WIRELESS_PASSPHRASE` | **debug only.** What to tell the phone to join, for a test that cannot stop to type into a text field. A real head unit gets these from its host app |
 | `AA_AUTOSTART=1` | the example app presses its own Start button. Example app only, not the plugin |
 | `AA_SIMULATE=1` | the example app registers `AndroidAutoSimulator` instead of the real head unit, the same pure Dart stand in macOS and Windows always get. Example app only |
+| `--dart-define=AA_HEAD_UNIT_SERVER=127.0.0.1:5277` | a build time knob, since an Android app has no environment: the example app starts and dials Android Auto's head unit server on launch. Example app only |
 
 Built against Flutter 3.47.4 stable, which on this machine is the snap at
 `~/snap/flutter/common/flutter`. Nothing requires the snap; that is just where it is
@@ -233,6 +234,39 @@ against pub.dev. Full write up in `docs/releasing.md`.
 Do NOT git commit unless you are told to do so!
 Once toled to, for commit message and PR style: read CONTRIBUTING.md before writing either.
 
+## Android
+
+The Android device is the head unit. `android_auto_linux` declares `android` beside
+`linux`, builds the same `linux/src` tree with the NDK into `libandroid_auto_native.so`,
+and runs the same `AndroidAutoLinux` Dart class over the same C ABI. One package on
+purpose: pub.dev cannot share sources between packages, so two would mean two copies
+of aasdk and the core. A rename (it is not Linux only any more) is still open in
+`PLAN.md`. Architecture in `docs/architecture.md`, packaging in `docs/packaging.md`.
+
+```bash
+tools/build-android-deps.sh   # once: Boost, protobuf, OpenSSL, libusb into android/deps/
+cd example && flutter build apk --debug --target-platform android-arm64
+```
+
+- **Every platform difference is one file behind an existing seam**, beside its Linux
+  sibling in `linux/src`, chosen by the CMake file of that platform. Keep it that way:
+  a new Android backend is a new `.cc`, not an `#ifdef` in shared code. The few
+  `__ANDROID__` checks in shared code are for things Android does not have at all.
+- **Android needs API 28** (AAudio usages and the voice recognition microphone), so a
+  host app sets `minSdk = 28`, and it asks for `RECORD_AUDIO` itself, or the phone
+  hears silence. The plugin never asks.
+- **USB on Android starts in Java.** libusb cannot discover devices there, so
+  `AndroidAutoPlugin.java` watches `UsbManager`, asks for permission and hands each
+  phone over as a file descriptor, which `usb_connector_android.cc` wraps. Java owns the
+  descriptor until the native side releases it; never close one under libusb. Do not
+  rely on the permission request's answer arriving, see M12 in `PLAN.md`.
+- **Wireless is not implemented on Android**: Bluetooth is only reachable from Java.
+  `aa_session_connect_head_unit_server` works anywhere, which is self mode: the phone's
+  own Android Auto into the app on the same phone. Setting that up is in `PLAN.md`.
+- **Nothing on Android may wait for Flutter's thread from the render thread**, and the
+  surface Flutter hands over can be taken away at any moment (`onSurfaceCleanup`), which
+  must not return while anything still draws into it. See `gl_adapter_android.cc`.
+
 ## Native layout
 
 | File | What |
@@ -240,14 +274,14 @@ Once toled to, for commit message and PR style: read CONTRIBUTING.md before writ
 | `linux/src/aa_core.h` | the flat C ABI, the only thing Dart binds to |
 | `linux/src/aa_core.cc` | session lifecycle, owns the `io_context` thread pool |
 | `linux/src/frame_ring.*` | the API agnostic seam, three slots, producer to raster thread |
-| `linux/src/present/gl_adapter.*` | **the only file allowed to name a GL type** |
+| `linux/src/present/gl_adapter.*` | **the only files allowed to name a GL type**, `gl_adapter.cc` on Linux and `gl_adapter_android.cc` on Android behind one header |
 | `linux/src/present/texture_registry.*` | the `FlTextureRegistrar` the GTK entry point captured |
 | `linux/src/event_bus.*` | native to Dart events |
-| `linux/src/video/video_decoder.*` | H.264 to frames on its own thread, VA-API or software |
+| `linux/src/video/video_decoder.h` | picks the platform's decoder: `libav_decoder.*` (VA-API or software) or `mediacodec_decoder.*`, one class name and one interface |
 | `linux/src/video/video_margins.*` | the frame size and the margins that fit it to the view, **no protobuf** |
 | `linux/src/session/video_channel.*` | the MEDIA_SINK_VIDEO channel |
-| `linux/src/audio/pcm_sink.*` | the API agnostic seam for playback, **PulseAudio is named only in pulse_sink.cc** |
-| `linux/src/audio/pcm_source.*` | the same seam for capture, **PulseAudio is named only in pulse_source.cc** |
+| `linux/src/audio/pcm_sink.*` | the API agnostic seam for playback, **PulseAudio is named only in pulse_sink.cc**, AAudio only in aaudio_sink.cc |
+| `linux/src/audio/pcm_source.*` | the same seam for capture, **PulseAudio is named only in pulse_source.cc**, AAudio only in aaudio_source.cc |
 | `linux/src/audio/audio_output.*` | three streams, a writer thread each, volume, mute and ducking |
 | `linux/src/audio/audio_input.*` | the microphone, one capture thread, created on the phone's request and joined on its release |
 | `linux/src/session/audio_channels.*` | the three MEDIA_SINK audio channels |
@@ -264,6 +298,10 @@ Once toled to, for commit message and PR style: read CONTRIBUTING.md before writ
 | `linux/src/session/wireless_connector.*` | Bluetooth, then the handshake, then the acceptor on 5288, ending at a transport |
 | `linux/src/test_pattern.*` | drives the texture without a phone, for overlay layout |
 | `linux/android_auto_linux_plugin.map` | the linker version script: the `aa_*` ABI and the GTK registrar are exported, everything aasdk and protobuf drag in is not |
+| `linux/src/platform/android_jni.*` | **the only files that name a JNI type**: `JNI_OnLoad`, the Surface and USB calls into `AndroidAutoPlugin.java`, stdout to logcat |
+| `linux/src/session/usb_connector_android.*` | `UsbConnector` on Android: descriptors from Java, wrapped, switched to accessory mode by aasdk's own query chain |
+| `android/CMakeLists.txt` | the Android build of the same tree, which source replaces which Linux one is listed at its top |
+| `android/android_auto_native.map` | Android's version script: `aa_*`, `JNI_OnLoad`, `Java_*` |
 
 After changing `aa_core.h`, regenerate the Dart bindings:
 
