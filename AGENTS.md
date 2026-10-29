@@ -248,6 +248,13 @@ tools/build-android-deps.sh   # once: Boost, protobuf, OpenSSL, libusb into andr
 cd example && flutter build apk --debug --target-platform android-arm64
 ```
 
+**`android/deps/` is published but never committed.** A host app builds against the
+copy in the package; `android/.pubignore` is what lets pub include it while
+`.gitignore` keeps it out of git, so keep the two lists the same apart from that line.
+The script strips and prunes what it builds, so a missing Boost header after adding an
+include means adding that library to `BOOST_HEADERS` in it. Three ABIs, armeabi-v7a
+included, because Flutter ships one in every APK.
+
 - **Every platform difference is one file behind an existing seam**, beside its Linux
   sibling in `linux/src`, chosen by the CMake file of that platform. Keep it that way:
   a new Android backend is a new `.cc`, not an `#ifdef` in shared code. The few

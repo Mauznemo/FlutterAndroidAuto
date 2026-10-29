@@ -206,9 +206,9 @@ has (`libaaudio`, `libmediandk`, `libEGL`, `libGLESv3`, `libnativewindow`, `liba
 
 The difference from Linux is where the dependencies come from. Android has no package
 manager to provide Boost, protobuf, OpenSSL and libusb, so `tools/build-android-deps.sh`
-cross compiles pinned releases of them into `android/deps/<abi>/`, for arm64-v8a and
-x86_64. It takes about ten minutes per ABI the first time and is skipped for anything
-already built. The host `protoc` has to be the release the Android libprotobuf is built
+cross compiles pinned releases of them into `android/deps/<abi>/`, for arm64-v8a,
+armeabi-v7a and x86_64. It takes about ten minutes per ABI the first time and is skipped
+for anything already built. The host `protoc` has to be the release the Android libprotobuf is built
 from, 3.21.12, because generated code only links against the runtime that matches it;
 Ubuntu 26.04's is.
 
@@ -230,8 +230,40 @@ A debug build is 88 MB unstripped and 13 MB stripped, almost all of it aasdk and
 protobuf at `-O0`; Gradle strips it into the APK. The library is linked for 16 KB pages,
 which Google Play requires of native code for Android 15 devices.
 
-**Not settled: how a published package gets `android/deps/`.** It is built on the
-developer's machine today and is not in the repository. Before Android can be
-published either prebuilt archives ship inside the package, a few tens of megabytes per
-ABI, or the plugin's CMake builds them on first configure the way it already applies
-the aasdk patch, at ten minutes per ABI for every host app's first build.
+### The dependencies ship prebuilt
+
+**A host app never runs `tools/build-android-deps.sh`.** The published package carries
+`android/deps/` for all three ABIs, so its first Android build compiles the plugin and
+aasdk and nothing else. Decided 2026-10-29 over the alternatives: building them on a
+host app's first configure is ten minutes an ABI plus a download, and fetching
+prebuilt archives at build time makes every build depend on a server staying up.
+
+They stay out of git all the same. `android/.gitignore` lists `/deps/` and
+`android/.pubignore`, which pub reads instead of the `.gitignore` beside it, is the same
+list without that line. So a checkout builds them with the script, and a release
+publishes what the script built. The sources are pinned releases fetched by that script,
+which is also how the LGPL's offer of libusb's source is met.
+
+What ships is trimmed, and the trimming happens in the script on every run, so a
+developer builds against exactly the files a host app gets:
+
+| | per ABI |
+|---|---|
+| as built, debug information included | 261 MB |
+| archives stripped of debug information | 28 MB of archives |
+| Boost headers cut to the 30 libraries the core includes | 100 MB to 25 MB |
+| what ships | about 65 MB, three ABIs 30 MB compressed |
+
+The Boost list is the union of what `ninja -t deps` reports for every ABI and both build
+types, and it was identical across all four. Whole libraries rather than single headers,
+so a different NDK taking a different path inside one of them still finds its file.
+
+**armeabi-v7a is there because Flutter is.** Flutter puts a 32 bit ARM build in every
+APK, and a plugin without one makes a 32 bit device fail to load it, which is the class
+of device a lot of Android car stereos are. Verified by installing the example as
+`armeabi-v7a` on the M21, which projected. The plugin's Java side also catches a missing
+library rather than dying in a static initialiser, so an app on an ABI nobody built for
+starts, and reports the plugin as unavailable.
+
+`dev/release.sh` builds the dependencies before validating, and the CI publish job
+builds them before publishing; both refuse to go on without all three ABIs.

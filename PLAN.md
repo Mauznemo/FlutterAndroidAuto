@@ -30,7 +30,7 @@ Android turned out to need no change to the app-facing API beyond one optional c
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
 | M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
 | M11 | Packaging, ARM64, CI, docs | **in progress**, bar running it on an ARM64 device |
-| M12 | Android implementation | **in progress**, projecting over USB and Wi-Fi, bar packaging |
+| M12 | Android implementation | **in progress**, projecting over USB and Wi-Fi, packaged, bar CI proof and the rename |
 
 ---
 
@@ -1493,10 +1493,10 @@ files on both, and pub.dev cannot share sources between packages, so a separate
 - [ ] A device that does not build its hotspot's link-local address from the MAC. Options then: a privileged host app asking for `SoftApInfo`, or `startLocalOnlyHotspotWithConfiguration` on Android 16 with a BSSID of the head unit's choosing
 - [ ] Calls while the headset link is up. The phone counts the head unit as a headset and may try to route a call to it, which it cannot take
 - [ ] Offering several video configs, so the phone picks the largest its link allows instead of the head unit guessing from the band
-- [ ] Packaging: `android/deps/` is built on the developer's machine. Before publishing, decide between prebuilt archives in the package and building them at configure time
+- [x] Packaging: the dependencies ship prebuilt in the package, stripped and with Boost's headers cut to what is used, 30 MB compressed for three ABIs. Kept out of git, published through `android/.pubignore`; verified with `dart pub publish --dry-run`
+- [x] armeabi-v7a, because Flutter ships it in every APK and 32 bit car stereos are common: built, and verified by projecting with the example installed as `armeabi-v7a`. A missing library no longer kills the app at startup
 - [ ] Rename the package now it is not Linux only, and move `linux/src` to the package root as the shared tree
-- [ ] An Android build in CI
-- [ ] armeabi-v7a, if any head unit worth supporting is still 32 bit
+- [ ] An Android build in CI: the `android` job in `release.yml` and the publish job in `publish.yml` are written and have not run yet
 
 ### Measured
 

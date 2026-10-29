@@ -193,6 +193,11 @@ credential there. It does not have to stay that way, and the first release is th
 one that must work like that: pub.dev configures automated publishing on a package's
 admin page, and a package has no admin page until it has been published once.
 
+`android_auto_linux` is the one package that cannot be published from a bare checkout:
+it ships the prebuilt Android dependencies, which git does not track. The release script
+and the CI publish job both run `tools/build-android-deps.sh` first, see the Android
+section of `docs/packaging.md`.
+
 After the first release:
 
 1. On each of the three packages' pub.dev pages, **Admin**, **Automated publishing**,
