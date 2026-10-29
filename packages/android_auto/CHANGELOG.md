@@ -1,3 +1,13 @@
+## 0.2.1
+
+### Added
+
+- tell a phone is on usb without a session
+
+### Fixed
+
+- android hotspot stays up after stop and on cable only sessions
+
 ## 0.2.0
 
 ### Added
