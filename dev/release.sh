@@ -230,6 +230,21 @@ else
   warn "skipping the native build check (--skip-build)"
 fi
 
+# android_auto_linux ships the Android dependencies prebuilt, from android/deps, which
+# git does not track and android/.pubignore publishes. Publishing without them would put
+# a package on pub.dev that cannot build for Android, so they are brought up to date
+# here, which takes seconds when nothing changed, and every ABI is checked for.
+step "Building the Android dependencies the package ships"
+tools/build-android-deps.sh | grep -E "done:" | sed 's/^/  /'
+for abi in arm64-v8a armeabi-v7a x86_64; do
+  [ -f "packages/android_auto_linux/android/deps/$abi/lib/libboost_log.a" ] \
+    || die "no Android dependencies for $abi after building them, see docs/packaging.md"
+done
+if [ "$SKIP_BUILD" = "0" ]; then
+  step "Building the example for Android, release"
+  (cd example && "$FLUTTER" build apk --release)
+fi
+
 # The bump is committed before pub validates it, because `dart pub publish --dry-run`
 # exits non zero on a *warning*, and "checked-in files are modified in git" is a warning
 # this script would otherwise always trigger, having just rewritten six files.
