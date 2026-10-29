@@ -213,7 +213,7 @@ instead of a rewrite, so prefer extending it over touching call sites.
 
 `dev/release.sh` cuts a release: it bumps the three packages in lockstep, generates a
 changelog per package from the `feat`, `fix` and `refactor` commits that touched it,
-builds on CI (Linux on both architectures, macOS, Windows), and only then publishes to
+builds on CI (Linux on both architectures, Android, macOS, Windows), and only then publishes to
 pub.dev in dependency order and opens a GitHub release. Never run it unless asked to. `--dry-run` does every check
 and pushes nothing.
 

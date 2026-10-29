@@ -420,7 +420,7 @@ ci_gate() {
   # --exit-status fails the shell when the run failed, and a run succeeds only when
   # every job and every matrix leg did: both Linux architectures, macOS and Windows.
   if ! gh run watch "$run" --exit-status; then
-    die "a build failed (Linux, macOS or Windows, the run above says which).
+    die "a build failed (Linux, Android, macOS or Windows, the run above says which).
        NOTHING has been published, there is no tag and no GitHub release, so there
        is nothing to clean up.
 
