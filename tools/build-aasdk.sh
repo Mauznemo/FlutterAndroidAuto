@@ -12,8 +12,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AASDK="$REPO/packages/android_auto_linux/linux/third_party/aasdk"
-PATCH="$REPO/packages/android_auto_linux/linux/patches/0001-port-to-boost-asio-io_context.patch"
+AASDK="$REPO/packages/android_auto_native/third_party/aasdk"
+PATCH="$REPO/packages/android_auto_native/patches/0001-port-to-boost-asio-io_context.patch"
 BUILD="$REPO/build/aasdk-smoke"
 
 [ "${1:-}" = "--clean" ] && rm -rf "$BUILD"
@@ -42,7 +42,7 @@ if [ -z "$PROTOC" ]; then
   echo "protoc is not installed, run: tools/setup-dev-machine.sh --build-deps" >&2
   exit 1
 fi
-cmake -S "$REPO/packages/android_auto_linux/linux/smoke" -B "$BUILD" -G Ninja \
+cmake -S "$REPO/packages/android_auto_native/linux/smoke" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DProtobuf_PROTOC_EXECUTABLE="$PROTOC" \
   -DPROTOBUF_PROTOC_EXECUTABLE="$PROTOC" >/dev/null

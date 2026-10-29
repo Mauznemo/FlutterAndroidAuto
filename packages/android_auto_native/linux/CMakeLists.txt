@@ -4,12 +4,12 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Project-level configuration.
-set(PROJECT_NAME "android_auto_linux")
+set(PROJECT_NAME "android_auto_native")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 # This value is used when generating builds using this plugin, so it must
 # not be changed.
-set(PLUGIN_NAME "android_auto_linux_plugin")
+set(PLUGIN_NAME "android_auto_native_plugin")
 
 # === build caching ===
 #
@@ -37,39 +37,43 @@ if(AA_USE_CCACHE AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
   endif()
 endif()
 
+# The native core is shared with Android and lives at the package root, beside this
+# directory rather than inside it. Only the GTK entry point is Linux's own.
+set(AA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+
 # Any new source files that you add to the plugin should be added here.
 list(APPEND PLUGIN_SOURCES
-  "android_auto_linux_plugin.cc"
-  "src/aa_core.cc"
-  "src/audio/audio_input.cc"
-  "src/audio/audio_output.cc"
-  "src/audio/pulse_sink.cc"
-  "src/audio/pulse_source.cc"
-  "src/bluetooth/bluez_client.cc"
-  "src/event_bus.cc"
-  "src/frame_ring.cc"
-  "src/test_pattern.cc"
-  "src/metadata/json.cc"
-  "src/metadata/metadata_state.cc"
-  "src/present/gl_adapter.cc"
-  "src/present/texture_registry.cc"
-  "src/sensors/sensor_state.cc"
-  "src/session/usb_context.cc"
-  "src/session/usb_connector.cc"
-  "src/session/wireless_connector.cc"
-  "src/session/audio_channels.cc"
-  "src/session/service_discovery.cc"
-  "src/session/input_channel.cc"
-  "src/session/metadata_channel.cc"
-  "src/session/metadata_channels.cc"
-  "src/session/microphone_channel.cc"
-  "src/session/protocol_session.cc"
-  "src/session/sensor_channel.cc"
-  "src/session/video_channel.cc"
-  "src/video/libav_decoder.cc"
-  "src/video/video_margins.cc"
-  "src/wireless/aaw_handshake.cc"
-  "src/wireless/wifi_network.cc"
+  "android_auto_native_plugin.cc"
+  "${AA_SRC}/aa_core.cc"
+  "${AA_SRC}/audio/audio_input.cc"
+  "${AA_SRC}/audio/audio_output.cc"
+  "${AA_SRC}/audio/pulse_sink.cc"
+  "${AA_SRC}/audio/pulse_source.cc"
+  "${AA_SRC}/bluetooth/bluez_client.cc"
+  "${AA_SRC}/event_bus.cc"
+  "${AA_SRC}/frame_ring.cc"
+  "${AA_SRC}/test_pattern.cc"
+  "${AA_SRC}/metadata/json.cc"
+  "${AA_SRC}/metadata/metadata_state.cc"
+  "${AA_SRC}/present/gl_adapter.cc"
+  "${AA_SRC}/present/texture_registry.cc"
+  "${AA_SRC}/sensors/sensor_state.cc"
+  "${AA_SRC}/session/usb_context.cc"
+  "${AA_SRC}/session/usb_connector.cc"
+  "${AA_SRC}/session/wireless_connector.cc"
+  "${AA_SRC}/session/audio_channels.cc"
+  "${AA_SRC}/session/service_discovery.cc"
+  "${AA_SRC}/session/input_channel.cc"
+  "${AA_SRC}/session/metadata_channel.cc"
+  "${AA_SRC}/session/metadata_channels.cc"
+  "${AA_SRC}/session/microphone_channel.cc"
+  "${AA_SRC}/session/protocol_session.cc"
+  "${AA_SRC}/session/sensor_channel.cc"
+  "${AA_SRC}/session/video_channel.cc"
+  "${AA_SRC}/video/libav_decoder.cc"
+  "${AA_SRC}/video/video_margins.cc"
+  "${AA_SRC}/wireless/aaw_handshake.cc"
+  "${AA_SRC}/wireless/wifi_network.cc"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -107,7 +111,7 @@ target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 #
 # LINK_FLAGS rather than target_link_options, which needs CMake 3.13 and this file is
 # pinned at 3.10 on purpose, see the note at the top.
-set(PLUGIN_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/android_auto_linux_plugin.map")
+set(PLUGIN_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/android_auto_native_plugin.map")
 set_property(TARGET ${PLUGIN_NAME} APPEND_STRING PROPERTY
   LINK_FLAGS " -Wl,--version-script=${PLUGIN_VERSION_SCRIPT}")
 set_property(TARGET ${PLUGIN_NAME} APPEND PROPERTY
@@ -144,7 +148,8 @@ endif()
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(${PLUGIN_NAME} PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}")
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
@@ -205,8 +210,8 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GIO)
 # Vendored as a submodule and patched, see docs/aasdk-port-notes.md. It does not build
 # unpatched against Boost 1.87 or newer, so the patch is applied here, at configure time,
 # rather than being a manual step a fresh clone has to know about.
-set(AASDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/aasdk")
-set(AASDK_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/0001-port-to-boost-asio-io_context.patch")
+set(AASDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/aasdk")
+set(AASDK_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/../patches/0001-port-to-boost-asio-io_context.patch")
 # Created by the patch, so its presence is the same question as "is this patched".
 set(AASDK_PATCH_MARKER "${AASDK_DIR}/include/aasdk/Common/Strand.hpp")
 
@@ -289,7 +294,7 @@ endif()
 # List of absolute paths to libraries that should be bundled with the plugin.
 #
 # Empty, and that is the point of linking aasdk statically above: everything the plugin
-# needs beyond the system libraries is inside libandroid_auto_linux_plugin.so. Flutter
+# needs beyond the system libraries is inside libandroid_auto_native_plugin.so. Flutter
 # still requires the variable to exist.
 #
 # It was not always empty, and the way it failed is worth keeping. aasdk was shared, so
@@ -299,7 +304,7 @@ endif()
 # file that was not. Neither showed a symptom on the machine that built it, because the
 # plugin's RUNPATH still reached into the build tree. The failure only appeared once the
 # bundle was copied somewhere else, which is to say, once it was shipped.
-set(android_auto_linux_bundled_libraries
+set(android_auto_native_bundled_libraries
   ""
   PARENT_SCOPE
 )

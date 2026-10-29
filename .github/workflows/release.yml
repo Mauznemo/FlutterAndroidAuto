@@ -104,9 +104,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_linux/linux/patches/*.patch') }}-${{ github.sha }}
+          key: ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_native/patches/*.patch') }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_linux/linux/patches/*.patch') }}-
+            ccache-${{ matrix.arch }}-${{ hashFiles('.gitmodules', 'packages/android_auto_native/patches/*.patch') }}-
             ccache-${{ matrix.arch }}-
 
       - name: Configure ccache
@@ -160,7 +160,7 @@ jobs:
           fi
           # And with the build tree gone, every dependency still resolves.
           mv example/build /tmp/build-moved-away
-          if ldd /tmp/relocated/lib/libandroid_auto_linux_plugin.so | grep 'not found'; then
+          if ldd /tmp/relocated/lib/libandroid_auto_native_plugin.so | grep 'not found'; then
             echo "::error::the bundle only loads on the machine that built it"
             exit 1
           fi
@@ -215,7 +215,7 @@ jobs:
       - name: Restore the Android dependencies
         uses: actions/cache@v4
         with:
-          path: packages/android_auto_linux/android/deps
+          path: packages/android_auto_native/android/deps
           key: android-deps-${{ hashFiles('tools/build-android-deps.sh') }}
 
       - name: Build the Android dependencies

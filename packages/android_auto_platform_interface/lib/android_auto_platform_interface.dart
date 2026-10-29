@@ -2,7 +2,7 @@
 /// Platform interface for the `android_auto` plugin.
 ///
 /// Contains no native code and no aasdk derived code, so a future permissive
-/// implementation could replace `android_auto_linux` without any host app change. This
+/// implementation could replace `android_auto_native` without any host app change. This
 /// package is itself GPL-3.0-or-later, like the rest of the repository.
 library;
 

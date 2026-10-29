@@ -106,7 +106,7 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
        A release has to be reproducible from what is committed, and pub publishes
        what is in the directory rather than what is in the commit."
 
-[ -f "packages/android_auto_linux/linux/third_party/aasdk/CMakeLists.txt" ] \
+[ -f "packages/android_auto_native/third_party/aasdk/CMakeLists.txt" ] \
   || die "the aasdk submodule is not checked out. Run:
        git submodule update --init --recursive"
 
@@ -230,14 +230,14 @@ else
   warn "skipping the native build check (--skip-build)"
 fi
 
-# android_auto_linux ships the Android dependencies prebuilt, from android/deps, which
+# android_auto_native ships the Android dependencies prebuilt, from android/deps, which
 # git does not track and android/.pubignore publishes. Publishing without them would put
 # a package on pub.dev that cannot build for Android, so they are brought up to date
 # here, which takes seconds when nothing changed, and every ABI is checked for.
 step "Building the Android dependencies the package ships"
 tools/build-android-deps.sh | grep -E "done:" | sed 's/^/  /'
 for abi in arm64-v8a armeabi-v7a x86_64; do
-  [ -f "packages/android_auto_linux/android/deps/$abi/lib/libboost_log.a" ] \
+  [ -f "packages/android_auto_native/android/deps/$abi/lib/libboost_log.a" ] \
     || die "no Android dependencies for $abi after building them, see docs/packaging.md"
 done
 if [ "$SKIP_BUILD" = "0" ]; then
@@ -268,7 +268,7 @@ undo_commit() {
 # cannot decide this. The difference matters: an error means pub.dev would refuse the
 # package, a warning means it would take it and grumble.
 #
-# One warning is expected and permanent. android_auto_linux vendors aasdk as a git
+# One warning is expected and permanent. android_auto_native vendors aasdk as a git
 # submodule, aasdk's own .gitignore excludes its Docker build environment and editor
 # configuration, and those files are nonetheless committed upstream. pub includes any
 # checked-in file and warns when a .gitignore disagrees. A .pubignore does not reach

@@ -56,7 +56,7 @@ Goal: `libaasdk.a` builds from source inside this repo on Ubuntu 26.04 and links
 against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
 
 - [x] Install host build dependencies (`tools/setup-dev-machine.sh --build-deps`)
-- [x] Add `opencardev/aasdk` as a git submodule under `packages/android_auto_linux/linux/third_party/aasdk`, pinned to `9bf6adf`
+- [x] Add `opencardev/aasdk` as a git submodule under `packages/android_auto_native/third_party/aasdk`, pinned to `9bf6adf`
 - [x] Try a stock build, capture the full error list into `docs/aasdk-port-notes.md`
 - [x] Port `boost::asio::io_service` to `io_context` (95 files affected)
   - [x] `io_service` to `io_context`
@@ -64,7 +64,7 @@ against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
   - [x] `ip::address::from_string` to `ip::make_address`
   - [x] `IOContextWrapper`'s `io_context->post/dispatch` to the free functions
   - [x] `strand.context()` narrowed from `execution_context&` to `io_context&`
-  - [x] Keep the diff as a patch under `packages/android_auto_linux/linux/patches/` so the submodule stays clean
+  - [x] Keep the diff as a patch under `packages/android_auto_native/patches/` so the submodule stays clean
 - [x] Raise the three `cmake_minimum_required()` calls CMake 4 rejects
 - [x] Drop the `system` component from `find_package(Boost)`, gone in Boost 1.90
 - [x] Put aasdk's include directory on the `aasdk` target so `add_subdirectory()` consumers can use it
@@ -75,7 +75,7 @@ against the system Boost 1.90, protobuf 3.21, OpenSSL 3.5, libusb 1.0.29.
 - [x] Verify the whole thing round-trips from a clean submodule: reset, apply patch, build, smoke test passes
 
 Reproduce with `tools/build-aasdk.sh`, which fetches the submodule, applies the patch,
-builds and runs `packages/android_auto_linux/linux/smoke/aasdk_smoke.cpp`. Expected:
+builds and runs `packages/android_auto_native/linux/smoke/aasdk_smoke.cpp`. Expected:
 
 ```
 boost      : 1.90.0
@@ -96,11 +96,11 @@ write up in `docs/aasdk-port-notes.md`.
 Goal: the example app starts, calls into native code, gets a texture id back, and
 shows a test pattern in a `Texture` widget with Flutter widgets on top.
 
-- [x] Create `packages/android_auto_linux/linux/src/` with the core skeleton
+- [x] Create `packages/android_auto_native/src/` with the core skeleton
   - [x] `aa_core.h`: the flat C ABI (opaque handle, create/destroy/start/stop, config struct, event callback)
   - [x] `aa_core.cc`: lifecycle, owns the Boost `io_context` thread pool
   - [x] `event_bus.{h,cc}`: native to Dart events, closed before the Dart callable is torn down
-- [x] Wire `AndroidAutoLinuxPlugin` (GTK entry point) to capture the `FlTextureRegistrar` into a process-global
+- [x] Wire `AndroidAutoNativePlugin` (GTK entry point) to capture the `FlTextureRegistrar` into a process-global
 - [x] `frame_ring.{h,cc}`: the API agnostic seam, a three slot rotation between producer and raster thread
 - [x] Implement `present/gl_adapter.{h,cc}`: an `FlTextureGL` subclass fed from the frame ring
   - [x] Define the API agnostic frame descriptor (`fd`, modifier, stride, offset, fourcc, size) the seam is built on
@@ -108,8 +108,8 @@ shows a test pattern in a `Texture` widget with Flutter widgets on top.
   - [x] Register the texture from the platform thread, not from the producer thread
   - [x] Render a moving test pattern to prove the texture pipeline end to end
 - [x] Link aasdk into the plugin so the M3 transport work has nothing left to integrate
-- [x] `ffigen` config + generated bindings in `packages/android_auto_linux/lib/src/bindings/`
-- [x] Dart side: `AndroidAutoLinux` registers itself as the platform implementation
+- [x] `ffigen` config + generated bindings in `packages/android_auto_native/lib/src/bindings/`
+- [x] Dart side: `AndroidAutoNative` registers itself as the platform implementation
 - [x] `NativeCallable.listener` based event stream from native to Dart
 - [x] Define the public API in `android_auto_platform_interface`
   - [x] `AndroidAutoConfig` (resolution, fps, dpi, head unit identity)
@@ -235,7 +235,7 @@ place. Seven crashes came out of this, each a different instance of the same sha
 | `MessageInStream` dereferenced a null `promise_` during teardown | segfault in an io_context thread |
 | Our own send rejection handler captured a raw `this` | segfault after the session was gone |
 
-Three of these are upstream bugs now fixed in `linux/patches/`: the use after free, the
+Three of these are upstream bugs now fixed in `patches/`: the use after free, the
 ten unguarded `promise_` dereferences, and endpoint halt clearing. The rest are handled
 by giving the long lived pieces process lifetime: libusb, the USB connector and the
 channel strand are created once and never destroyed. See `src/session/usb_context.h`.
@@ -968,7 +968,7 @@ and watching the phone come back with a dark map.
 It also means a host app can set values before it has ever started a session. The Dart
 side keeps the write closures rather than the values, so replaying them into a new core
 is the same code path as setting them in the first place; see `_writeSensor` and
-`_applySensorSettings` in `android_auto_linux.dart`.
+`_applySensorSettings` in `android_auto_native.dart`.
 
 ### The driving restrictions are a set, not a switch
 
@@ -1048,7 +1048,7 @@ larger patch to carry for ever, for messages this plugin is the only consumer of
 aasdk's `Channel` base is public and does the part that is actually hard, so instead
 there is one `MetadataChannel` here that answers the open request and hands every other
 message to a decoder, and one decoder per channel in `metadata_channels.cc`. The patch in
-`linux/patches/` did not grow by a line.
+`patches/` did not grow by a line.
 
 ### What this phone opens, and what it ignores
 
@@ -1229,7 +1229,7 @@ Bluetooth tethering for the machine's network, or put both ends on an ordinary o
 
 - [ ] Cross build and test on ARM64 (the target mini PC)
 - [x] Cache the aasdk build so a clean `flutter build linux` is not a 10 minute wait
-- [x] Decide static versus shared linking of aasdk into `libandroid_auto_linux_plugin.so`
+- [x] Decide static versus shared linking of aasdk into `libandroid_auto_native_plugin.so`
 - [x] Document the runtime dependencies an end user has to install
 - [x] GitHub Actions: build x86_64 and ARM64, run unit tests
 - [x] `README.md` with a real screenshot, quick start, and the licence situation spelled out
@@ -1300,7 +1300,7 @@ libaap_protobuf.so.2026 => not found
 
 aasdk versions itself by the day it was built, so a shared build is
 `libaasdk.so.2026.09.17+git.9bf6adf` with a `libaasdk.so.2026` SONAME symlink beside it.
-`android_auto_linux_bundled_libraries` had been pointed at the SONAME, on the reasoning
+`android_auto_native_bundled_libraries` had been pointed at the SONAME, on the reasoning
 that the SONAME is what `DT_NEEDED` records, so the SONAME is what has to be in the
 bundle. Flutter's install step then copied the symlink and not its target, and the
 result kept working on this machine anyway, because the plugin's `RUNPATH` is an
@@ -1454,7 +1454,7 @@ tested is a Samsung Galaxy M21 running LineageOS 20 (Android 13, Exynos 9611), f
 self mode (its own Android Auto 17.9, through the head unit server, into the example
 app on the same phone) and then with the Pixel 8 Pro on its USB-C port.
 
-**Decided 2026-10-29: one native package, not two.** `android_auto_linux` declares
+**Decided 2026-10-29: one native package, not two.** `android_auto_native` declares
 `android` as well as `linux`. The C++ core, aasdk and the Dart FFI class are the same
 files on both, and pub.dev cannot share sources between packages, so a separate
 `android_auto_android` would have meant two copies of everything. Host apps depend on
@@ -1463,7 +1463,7 @@ files on both, and pub.dev cannot share sources between packages, so a separate
 - [x] Cross compile what aasdk links against: `tools/build-android-deps.sh` builds Boost 1.90 (static), protobuf 3.21.12, OpenSSL 3.5.9 and libusb 1.0.29 for arm64-v8a and x86_64 into `android/deps/`
 - [x] aasdk, the protocol session and every channel build with NDK 28 unchanged, bar one hunk in the port patch (static Boost on Android)
 - [x] Android backends beside their Linux siblings behind the existing seams: `gl_adapter_android.cc`, `mediacodec_decoder.cc`, `aaudio_sink.cc`, `aaudio_source.cc`, a Bluetooth placeholder, and `platform/android_jni.cc`
-- [x] Java plugin class: loads the library, hands out `SurfaceProducer`s. The Dart side is the same `AndroidAutoLinux` class through the same C ABI
+- [x] Java plugin class: loads the library, hands out `SurfaceProducer`s. The Dart side is the same `AndroidAutoNative` class through the same C ABI
 - [x] Test pattern through EGL into a `SurfaceProducer`, composited under Flutter widgets, animating (bar at x = 1121, 1710, 2001 a 0.7 s apart)
 - [x] `aa_session_connect_head_unit_server` and `AndroidAutoController.connectHeadUnitServer`: dial Android Auto's developer head unit server over TCP
 - [x] Version, SSL, service discovery and every channel opened by the phone, first try
@@ -1495,7 +1495,7 @@ files on both, and pub.dev cannot share sources between packages, so a separate
 - [ ] Offering several video configs, so the phone picks the largest its link allows instead of the head unit guessing from the band
 - [x] Packaging: the dependencies ship prebuilt in the package, stripped and with Boost's headers cut to what is used, 30 MB compressed for three ABIs. Kept out of git, published through `android/.pubignore`; verified with `dart pub publish --dry-run`
 - [x] armeabi-v7a, because Flutter ships it in every APK and 32 bit car stereos are common: built, and verified by projecting with the example installed as `armeabi-v7a`. A missing library no longer kills the app at startup
-- [ ] Rename the package now it is not Linux only, and move `linux/src` to the package root as the shared tree
+- [x] Renamed `android_auto_linux` to `android_auto_native`, the Dart class to `AndroidAutoNative`, and moved the shared native tree from `linux/src` to the package root as `src/`, with `third_party/` and `patches/` beside it
 - [ ] An Android build in CI: the `android` job in `release.yml` and the publish job in `publish.yml` are written and have not run yet
 
 ### Measured
@@ -1596,7 +1596,7 @@ unit server down.
 These need a call from the project owner. The first one blocks M1.
 
 1. ~~**Licence.**~~ **Decided 2026-09-12: GPL-3.0-or-later for the whole repository.**
-   `aasdk` is GPL-3.0-or-later, so `android_auto_linux` has no other option, and the
+   `aasdk` is GPL-3.0-or-later, so `android_auto_native` has no other option, and the
    infotainment app this plugin is built for is GPL-3.0 anyway. One `LICENSE` at the
    root covers every package.
 
@@ -1609,7 +1609,7 @@ These need a call from the project owner. The first one blocks M1.
    known Google Automotive Link certificate. It is not a secret, but it is also not ours.
    The plugin will load it from a configurable path so integrators can drop in their own.
 
-3. **Package names.** `android_auto`, `android_auto_linux`,
+3. **Package names.** `android_auto`, `android_auto_native`,
    `android_auto_platform_interface` are all free on pub.dev as of 2026-09-12.
 
 4. **Minimum Flutter version.** Pinned to `>=3.24.0` for now. Revisit once the texture

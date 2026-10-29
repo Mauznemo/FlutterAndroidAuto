@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "include/android_auto_linux/android_auto_linux_plugin.h"
+#include "include/android_auto_native/android_auto_native_plugin.h"
 
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>
@@ -19,22 +19,22 @@
 // Do not add a method channel here without a reason that FFI cannot serve.
 
 #define ANDROID_AUTO_LINUX_PLUGIN(obj)                                     \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj), android_auto_linux_plugin_get_type(), \
-                              AndroidAutoLinuxPlugin))
+  (G_TYPE_CHECK_INSTANCE_CAST((obj), android_auto_native_plugin_get_type(), \
+                              AndroidAutoNativePlugin))
 
-struct _AndroidAutoLinuxPlugin {
+struct _AndroidAutoNativePlugin {
   GObject parent_instance;
 };
 
-G_DEFINE_TYPE(AndroidAutoLinuxPlugin, android_auto_linux_plugin, g_object_get_type())
+G_DEFINE_TYPE(AndroidAutoNativePlugin, android_auto_native_plugin, g_object_get_type())
 
-static void android_auto_linux_plugin_class_init(AndroidAutoLinuxPluginClass* klass) {}
+static void android_auto_native_plugin_class_init(AndroidAutoNativePluginClass* klass) {}
 
-static void android_auto_linux_plugin_init(AndroidAutoLinuxPlugin* self) {}
+static void android_auto_native_plugin_init(AndroidAutoNativePlugin* self) {}
 
-void android_auto_linux_plugin_register_with_registrar(FlPluginRegistrar* registrar) {
-  AndroidAutoLinuxPlugin* plugin = ANDROID_AUTO_LINUX_PLUGIN(
-      g_object_new(android_auto_linux_plugin_get_type(), nullptr));
+void android_auto_native_plugin_register_with_registrar(FlPluginRegistrar* registrar) {
+  AndroidAutoNativePlugin* plugin = ANDROID_AUTO_LINUX_PLUGIN(
+      g_object_new(android_auto_native_plugin_get_type(), nullptr));
 
   aa::SetFlutterRegistrar(fl_plugin_registrar_get_texture_registrar(registrar),
                           fl_plugin_registrar_get_view(registrar));

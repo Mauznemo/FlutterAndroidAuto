@@ -70,7 +70,7 @@ head unit claims a position. Offer only what the app will actually feed.
 
 ## Platforms
 
-Linux, through `android_auto_linux`, over USB or over Wi-Fi. Built and tested on
+Linux, through `android_auto_native`, over USB or over Wi-Fi. Built and tested on
 x86_64; ARM64 is intended and not yet verified.
 
 **Android is in progress**, through the same package and the same native core: the
@@ -95,7 +95,7 @@ opt in by calling `AndroidAutoSimulator.registerWith()` before creating its cont
 ## Setting up a Linux machine
 
 **To build** an app that uses this package, the machine needs the development packages,
-because `android_auto_linux` compiles aasdk from source as part of the app's build. On
+because `android_auto_native` compiles aasdk from source as part of the app's build. On
 Ubuntu or Debian:
 
 ```bash

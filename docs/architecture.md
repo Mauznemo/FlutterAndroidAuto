@@ -23,14 +23,14 @@
 └───────────────────────────────┬──────────────────────────────────────┘
                                 │ implements
 ┌───────────────────────────────▼──────────────────────────────────────┐
-│  android_auto_linux           (GPL-3.0, links aasdk, Linux + Android)│
+│  android_auto_native           (GPL-3.0, links aasdk, Linux + Android)│
 │                                                                      │
-│  Dart:   AndroidAutoLinux ── dart:ffi ──┐   NativeCallable.listener  │
+│  Dart:   AndroidAutoNative ── dart:ffi ──┐   NativeCallable.listener  │
 │                                         │            ▲               │
 │  ─────────────────────────────────────  │  ──────────│───────────    │
 │  Native (C++):                          ▼            │               │
 │                                                                      │
-│    android_auto_linux_plugin.cc   GTK entry point                    │
+│    android_auto_native_plugin.cc   GTK entry point                    │
 │      └─ stashes FlTextureRegistrar + FlView into a process global    │
 │                                                                      │
 │    aa_core.h                      flat C ABI, the only FFI surface   │
@@ -147,7 +147,7 @@ anything richer crossing as one JSON string per update. Everything the head unit
 back to Dart goes through a single event callback rather than out parameters, so the
 whole thing binds with `ffigen` and no hand written glue.
 
-**`packages/android_auto_linux/linux/src/aa_core.h` is the definition**, and it carries
+**`packages/android_auto_native/src/aa_core.h` is the definition**, and it carries
 a doc comment on every function explaining not just what it does but why it is shaped
 that way. A summary here would be a second source of truth that drifts, which is exactly
 what happened to the sketch this section used to hold: by the time anybody read it, every
@@ -242,7 +242,7 @@ picture it drew, which is the texture's corner.
 ## Package boundaries and licence
 
 `android_auto` and `android_auto_platform_interface` contain no aasdk code.
-`android_auto_linux` links aasdk and is GPL-3.0-or-later, and so is every package here
+`android_auto_native` links aasdk and is GPL-3.0-or-later, and so is every package here
 today: the split is in the code, not in the licence grant.
 
 What it buys is optionality. A future permissive implementation could be dropped in
@@ -252,9 +252,9 @@ untangling anything.
 
 ## Android, the same core behind other backends
 
-`android_auto_linux` declares `android` as well as `linux`, and on Android it builds
-the same `linux/src` tree with the NDK into `libandroid_auto_native.so`. The Dart class
-is the same `AndroidAutoLinux` over the same C ABI. What changes is one file behind each
+`android_auto_native` declares `android` as well as `linux`, and on Android it builds
+the same `src/` tree with the NDK into `libandroid_auto_native.so`. The Dart class
+is the same `AndroidAutoNative` over the same C ABI. What changes is one file behind each
 seam, beside its Linux sibling:
 
 | Seam | Linux | Android |
@@ -267,7 +267,7 @@ seam, beside its Linux sibling:
 | Bluetooth, `bluetooth/bluez_client.h` | `bluez_client.cc` | `bluez_client_android.cc`, a `BluetoothServerSocket` in Java over a socket pair |
 | Wi-Fi, `wireless/wifi_network.h` | `wifi_network.cc`, wireless extensions | `wifi_network_android.cc`, `WifiManager` and a LocalOnlyHotspot |
 | USB, the `UsbConnector` interface | `usb_connector.cc`, libusb hotplug | `usb_connector_android.cc`, descriptors from `UsbManager` |
-| entry point | `android_auto_linux_plugin.cc`, GTK | `platform/android_jni.cc` and `AndroidAutoPlugin.java` |
+| entry point | `android_auto_native_plugin.cc`, GTK | `platform/android_jni.cc` and `AndroidAutoPlugin.java` |
 
 `video_decoder.h` is the one header that differs per platform: it includes
 `libav_decoder.h` or `mediacodec_decoder.h`, which declare classes of the same name

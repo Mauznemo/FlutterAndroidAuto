@@ -13,7 +13,7 @@ build/linux/<arch>/release/bundle/
   android_auto_example                 the executable
   data/                                Flutter assets and the ICU data
   lib/
-    libandroid_auto_linux_plugin.so    the head unit, aasdk inside it
+    libandroid_auto_native_plugin.so    the head unit, aasdk inside it
     libapp.so                          the app's compiled Dart
     libflutter_linux_gtk.so            the Flutter engine
 ```
@@ -28,7 +28,7 @@ the failure is invisible on the machine that did the build:
 
 ```bash
 cp -a build/linux/x64/release/bundle /tmp/relocation-test
-ldd /tmp/relocation-test/lib/libandroid_auto_linux_plugin.so | grep 'not found'
+ldd /tmp/relocation-test/lib/libandroid_auto_native_plugin.so | grep 'not found'
 ```
 
 Silence is a pass. A dangling entry means something is being resolved out of the build
@@ -61,7 +61,7 @@ is GPL-3.0-or-later whether aasdk is inside it or beside it.
 So `AASDK_LIBRARY_TYPE` is set to `STATIC` in the plugin's CMake, aasdk's own
 CMakeLists takes the library type from the parent project (part of the port, see
 [`aasdk-port-notes.md`](aasdk-port-notes.md)), and
-`android_auto_linux_bundled_libraries` is empty.
+`android_auto_native_bundled_libraries` is empty.
 
 Two things follow from static linking that had to be handled:
 
@@ -72,7 +72,7 @@ Two things follow from static linking that had to be handled:
   symbols arrived with default visibility and the plugin exported 6159 of them where 65
   are the interface. A Flutter application loads every plugin into one address space and
   the first definition of a symbol wins for all of them, so a second plugin carrying its
-  own protobuf or Boost would have bound to this one's. `android_auto_linux_plugin.map`
+  own protobuf or Boost would have bound to this one's. `android_auto_native_plugin.map`
   is a linker version script that exports the `aa_*` C ABI and the GTK registrar entry
   point and nothing else.
 
@@ -197,7 +197,7 @@ software fallback if it does.
 ## Android
 
 On Android the plugin is `libandroid_auto_native.so`, built by Gradle's CMake from
-`android/CMakeLists.txt` out of the same `linux/src` tree. Everything aasdk links is
+`android/CMakeLists.txt` out of the same `src/` tree. Everything aasdk links is
 inside it statically, for the same reasons as on Linux, and the version script
 `android/android_auto_native.map` exports the C ABI, `JNI_OnLoad` and the plugin's
 `Java_*` methods and nothing else: 73 symbols. It links only against what every Android

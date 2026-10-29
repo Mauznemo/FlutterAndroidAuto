@@ -1,6 +1,9 @@
-# android_auto_linux
+# android_auto_native
 
-The Linux implementation of [`android_auto`](https://pub.dev/packages/android_auto).
+The Linux and Android implementation of
+[`android_auto`](https://pub.dev/packages/android_auto): one native head unit core,
+built for both. Published as `android_auto_linux` up to 0.1.7, before it ran on
+Android.
 
 **You do not depend on this directly.** Depend on `android_auto`; this package is
 endorsed by it and registers itself.
@@ -19,17 +22,21 @@ A native head unit core behind a flat C ABI, bound with `dart:ffi`:
 - **Wireless transport**: a Bluetooth RFCOMM service, the handshake that tells the phone
   which Wi-Fi network to join and which address to dial, then a TCP acceptor on 5288.
   Everything above that connection is byte for byte the USB path.
-- **Video**: H.264 decoded through VA-API into a dmabuf, imported as an `EGLImage` and
-  converted to RGBA on Flutter's raster thread, with a libswscale fallback. The plugin
-  hands Flutter a dmabuf rather than a GL texture, so an Impeller Vulkan backend needs no
-  redesign.
-- **Audio**: media, system and speech as three PulseAudio streams, mixed here, with
-  media ducked under speech. The microphone in the other direction, opened only when the
-  phone asks.
+- **Video**: on Linux, H.264 decoded through VA-API into a dmabuf, imported as an
+  `EGLImage` and converted to RGBA on Flutter's raster thread, with a libswscale
+  fallback. On Android, MediaCodec into an `AHardwareBuffer`, drawn by EGL on a thread
+  of its own into a Flutter `SurfaceProducer`. Neither copies a decoded frame.
+- **Audio**: media, system and speech as three streams (PulseAudio on Linux, AAudio on
+  Android), mixed here, with media ducked under speech. The microphone in the other
+  direction, opened only when the phone asks.
 - **Sensors and metadata**: what the car reports to the phone, and the five channels the
   phone reports on.
 
 ## Building
+
+On Android there is nothing to set up: the package ships Boost, protobuf, OpenSSL and
+libusb prebuilt for arm64-v8a, armeabi-v7a and x86_64. A host app needs `minSdk = 28`.
+The rest of this section is about Linux.
 
 The vendored aasdk is a git submodule and does not compile unpatched against Boost 1.87
 or newer. A fresh clone therefore needs its submodules, and the plugin's CMake applies

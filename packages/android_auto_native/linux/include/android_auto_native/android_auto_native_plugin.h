@@ -12,14 +12,14 @@ G_BEGIN_DECLS
 #define FLUTTER_PLUGIN_EXPORT
 #endif
 
-typedef struct _AndroidAutoLinuxPlugin AndroidAutoLinuxPlugin;
+typedef struct _AndroidAutoNativePlugin AndroidAutoNativePlugin;
 typedef struct {
   GObjectClass parent_class;
-} AndroidAutoLinuxPluginClass;
+} AndroidAutoNativePluginClass;
 
-FLUTTER_PLUGIN_EXPORT GType android_auto_linux_plugin_get_type();
+FLUTTER_PLUGIN_EXPORT GType android_auto_native_plugin_get_type();
 
-FLUTTER_PLUGIN_EXPORT void android_auto_linux_plugin_register_with_registrar(
+FLUTTER_PLUGIN_EXPORT void android_auto_native_plugin_register_with_registrar(
     FlPluginRegistrar* registrar);
 
 G_END_DECLS

@@ -22,7 +22,7 @@ import 'src/bindings/aa_core_bindings.dart';
 /// Everything hot goes over FFI rather than a method channel. The plugin still has a
 /// `pluginClass` registration on the native side, but only so it can capture Flutter's
 /// texture registrar at startup.
-class AndroidAutoLinux extends AndroidAutoPlatform {
+class AndroidAutoNative extends AndroidAutoPlatform {
   final _events = StreamController<AndroidAutoEvent>.broadcast();
 
   /// Audio settings live here rather than only in the core, so that a host app can set
@@ -97,7 +97,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
 
   /// Called by the Flutter tooling through `dartPluginClass`.
   static void registerWith() {
-    AndroidAutoPlatform.instance = AndroidAutoLinux();
+    AndroidAutoPlatform.instance = AndroidAutoNative();
   }
 
   @override
@@ -1104,7 +1104,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
     );
   }
 
-  /// The AaTouchAction integers from `linux/src/aa_core.h`.
+  /// The AaTouchAction integers from `src/aa_core.h`.
   ///
   /// Spelled out rather than taken from the enum's index, because the protocol reuses
   /// Android's MotionEvent constants and those skip 3 and 4.
@@ -1134,7 +1134,7 @@ class AndroidAutoLinux extends AndroidAutoPlatform {
   }
 
   static AndroidAutoConnectionState _stateFromNative(int value) {
-    // The integers are the AaState enum in linux/src/aa_core.h. Keep the two in step.
+    // The integers are the AaState enum in src/aa_core.h. Keep the two in step.
     if (value < 0 || value >= AndroidAutoConnectionState.values.length) {
       return AndroidAutoConnectionState.error;
     }

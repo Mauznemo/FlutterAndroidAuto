@@ -1,5 +1,5 @@
-# The native core on Android: the same sources the Linux plugin builds, with the
-# Android backends in place of the Linux ones.
+# The native core on Android: the same sources under ../src the Linux plugin builds,
+# with the Android backends in place of the Linux ones.
 #
 #   Linux                         Android
 #   present/gl_adapter.cc         present/gl_adapter_android.cc   EGL into a SurfaceProducer
@@ -9,7 +9,7 @@
 #   bluetooth/bluez_client.cc     bluetooth/bluez_client_android.cc  RFCOMM through Java
 #   wireless/wifi_network.cc      wireless/wifi_network_android.cc   WifiManager through Java
 #   session/usb_connector.cc      session/usb_connector_android.cc   devices from UsbManager
-#   android_auto_linux_plugin.cc  platform/android_jni.cc         the plugin's entry point
+#   android_auto_native_plugin.cc  platform/android_jni.cc         the plugin's entry point
 #
 # Everything else, aasdk, the protocol session and every channel, is shared.
 cmake_minimum_required(VERSION 3.22)
@@ -19,9 +19,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(AA_PACKAGE "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(AA_SRC "${AA_PACKAGE}/linux/src")
-set(AASDK_DIR "${AA_PACKAGE}/linux/third_party/aasdk")
-set(AASDK_PATCH "${AA_PACKAGE}/linux/patches/0001-port-to-boost-asio-io_context.patch")
+set(AA_SRC "${AA_PACKAGE}/src")
+set(AASDK_DIR "${AA_PACKAGE}/third_party/aasdk")
+set(AASDK_PATCH "${AA_PACKAGE}/patches/0001-port-to-boost-asio-io_context.patch")
 set(AA_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/deps/${ANDROID_ABI}")
 
 option(AA_USE_CCACHE "Compile through ccache when it is installed" ON)

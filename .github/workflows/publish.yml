@@ -34,7 +34,7 @@ permissions:
 jobs:
   # In dependency order, serialised with `needs`, because pub.dev will not accept a
   # package whose dependencies it has never heard of. The versions are in lockstep, so
-  # android_auto's constraint on android_auto_linux is satisfied only once the latter
+  # android_auto's constraint on android_auto_native is satisfied only once the latter
   # is actually up.
   platform_interface:
     if: vars.PUBLISH_FROM_CI == 'true'
@@ -71,14 +71,14 @@ jobs:
       - name: Restore the Android dependencies
         uses: actions/cache@v4
         with:
-          path: packages/android_auto_linux/android/deps
+          path: packages/android_auto_native/android/deps
           key: android-deps-${{ hashFiles('tools/build-android-deps.sh') }}
 
       - name: Build the Android dependencies
         run: tools/build-android-deps.sh
 
       - name: Publish
-        working-directory: packages/android_auto_linux
+        working-directory: packages/android_auto_native
         run: |
           set -euo pipefail
           for abi in arm64-v8a armeabi-v7a x86_64; do

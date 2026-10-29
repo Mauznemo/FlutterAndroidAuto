@@ -20,7 +20,7 @@ import sys
 # whose dependencies it has never heard of.
 PACKAGES = [
     "android_auto_platform_interface",
-    "android_auto_linux",
+    "android_auto_native",
     "android_auto",
 ]
 
@@ -31,16 +31,18 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # tools/ maps to the Linux package on purpose: setup-dev-machine.sh, build-aasdk.sh and
 # port-aasdk.sh exist to build the vendored aasdk, and install-echo-cancel.sh and
 # wireless-ap.sh configure the machine it runs on. All of that is news to somebody
-# depending on android_auto_linux and to nobody else.
+# depending on android_auto_native and to nobody else.
 #
 # Anything not matched here, which is the root documents, dev/ and the workflows, is in
 # no package's changelog. A changelog is for a person consuming the package, and how
 # the repository runs its own CI is not something they consume.
 PATH_OWNERS = [
     ("packages/android_auto_platform_interface/", "android_auto_platform_interface"),
-    ("packages/android_auto_linux/", "android_auto_linux"),
+    ("packages/android_auto_native/", "android_auto_native"),
+    # Its name until 0.1.7. Commits from before the rename still belong to it.
+    ("packages/android_auto_linux/", "android_auto_native"),
     ("packages/android_auto/", "android_auto"),
-    ("tools/", "android_auto_linux"),
+    ("tools/", "android_auto_native"),
 ]
 
 # Only these reach a changelog. chore, docs, test and revert are about the repository
@@ -184,7 +186,7 @@ def _ensure_false_secrets():
     CMake reads both files to compile them in, so a package without the key does not
     build.
     """
-    path = pubspec("android_auto_linux")
+    path = pubspec("android_auto_native")
     text = path.read_text()
     if "false_secrets:" in text:
         return
@@ -198,7 +200,7 @@ def _ensure_false_secrets():
 # pub.dev's leak detection has to be told that it was never a secret. See the Licence
 # section of the README.
 false_secrets:
-  - /linux/third_party/aasdk/cert/headunit.key
+  - /third_party/aasdk/cert/headunit.key
 """
     )
 
@@ -301,7 +303,7 @@ def cmd_verify_local():
     accept them, and they resolve locally only because a Dart workspace prefers its own
     members and the local version satisfies the constraint. Bump the versions without
     bumping the constraints and pub quietly starts resolving against pub.dev instead,
-    at which point editing android_auto_linux stops affecting the example app and
+    at which point editing android_auto_native stops affecting the example app and
     nothing says why.
     """
     import json

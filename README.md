@@ -103,7 +103,7 @@ them.
 packages/
   android_auto                        app facing API and the macOS/Windows simulator, pure Dart
   android_auto_platform_interface     the contract, pure Dart
-  android_auto_linux                  Linux and Android implementation, links aasdk
+  android_auto_native                  Linux and Android implementation, links aasdk
 example/                              the reference integration and test bench
 docs/
   research.md                         protocol notes and library evaluation
@@ -142,7 +142,7 @@ flutter pub add android_auto
 ```
 
 That is the only package to name.
-[`android_auto_linux`](https://pub.dev/packages/android_auto_linux) is endorsed by it
+[`android_auto_native`](https://pub.dev/packages/android_auto_native) is endorsed by it
 and comes along on its own, and
 [`android_auto_platform_interface`](https://pub.dev/packages/android_auto_platform_interface)
 is only for writing another implementation.

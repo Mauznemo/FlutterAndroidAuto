@@ -3,7 +3,7 @@
 # Kept separate from the Flutter plugin's CMakeLists so the aasdk build stays testable on
 # its own: if this builds and the smoke binary prints OK, the Boost port is intact.
 #
-#   cmake -S packages/android_auto_linux/linux/smoke -B build/aasdk-smoke -G Ninja
+#   cmake -S packages/android_auto_native/linux/smoke -B build/aasdk-smoke -G Ninja
 #   cmake --build build/aasdk-smoke && ./build/aasdk-smoke/aasdk_smoke
 #
 # tools/build-aasdk.sh wraps all of that.
@@ -22,7 +22,7 @@ set(SKIP_BUILD_ABSL     ON  CACHE BOOL "" FORCE)
 set(AASDK_TEST          OFF CACHE BOOL "" FORCE)
 set(AASDK_BENCHMARK     OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(../third_party/aasdk ${CMAKE_BINARY_DIR}/aasdk)
+add_subdirectory(../../third_party/aasdk ${CMAKE_BINARY_DIR}/aasdk)
 
 add_executable(aasdk_smoke aasdk_smoke.cpp)
 target_link_libraries(aasdk_smoke PRIVATE aasdk aap_protobuf)

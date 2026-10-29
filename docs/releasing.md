@@ -113,7 +113,7 @@ The cross package dependencies are **caret constraints, not paths**:
 ```yaml
 dependencies:
   android_auto_platform_interface: ^0.1.0
-  android_auto_linux: ^0.1.0
+  android_auto_native: ^0.1.0
 ```
 
 pub refuses to publish a package that depends on a path, so they have to be
@@ -130,11 +130,11 @@ ever fires, the two have gone out of step.
 
 ## One warning that never goes away
 
-`android_auto_linux` always reports:
+`android_auto_native` always reports:
 
 ```
 * 1 checked-in file is ignored by a `.gitignore`.
-  linux/third_party/aasdk/...
+  third_party/aasdk/...
 ```
 
 aasdk is vendored as a git submodule, its own `.gitignore` excludes its Docker build
@@ -181,7 +181,7 @@ slow cache after the package was already up. It now waits ten minutes and, if th
 not enough, warns and carries on.
 
 The same lag then makes a resumed run read a package as missing when it is not, so the
-script publishes it again and pub answers `Version 0.1.1 of package android_auto_linux
+script publishes it again and pub answers `Version 0.1.1 of package android_auto_native
 already exists`. That is the state the release wanted, so it is now treated as success
 rather than as an error. Between them, the publish loop is safe to run as many times as
 it takes.
@@ -193,10 +193,29 @@ credential there. It does not have to stay that way, and the first release is th
 one that must work like that: pub.dev configures automated publishing on a package's
 admin page, and a package has no admin page until it has been published once.
 
-`android_auto_linux` is the one package that cannot be published from a bare checkout:
+`android_auto_native` is the one package that cannot be published from a bare checkout:
 it ships the prebuilt Android dependencies, which git does not track. The release script
 and the CI publish job both run `tools/build-android-deps.sh` first, see the Android
 section of `docs/packaging.md`.
+
+### The rename to android_auto_native
+
+The native package was published as `android_auto_linux` up to 0.1.7 and is
+`android_auto_native` from the next release, because it implements Android too. Host
+apps depend on `android_auto` and see no difference. pub.dev has no rename, so it is a
+new package, and three things have to happen once, by hand, on pub.dev:
+
+1. **Nothing before the release.** `dev/release.sh` publishes `android_auto_native` for
+   the first time from this machine, which creates it under the account `dart pub
+   login` used. It reports the package as "not on pub.dev yet" and carries on; that is
+   expected. A brand new package cannot be published by GitHub Actions, which is
+   another reason this release goes out from here.
+2. **After it is live**, on `android_auto_native`'s pub.dev page, **Admin**: move it to
+   the same publisher as the other two if they have one, and enable **Automated
+   publishing** as described below, so CI can publish it from then on.
+3. **Then discontinue the old name**: on `android_auto_linux`'s page, **Admin**, mark it
+   discontinued with `android_auto_native` as its replacement. Its versions stay
+   downloadable, so an app pinned to an old `android_auto` still resolves.
 
 After the first release:
 

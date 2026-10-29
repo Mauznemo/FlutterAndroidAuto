@@ -16,7 +16,7 @@ dependencies:
   flutter:
     sdk: flutter
   android_auto_platform_interface: ^0.1.7
-  android_auto_linux: ^0.1.7
+  android_auto_native: ^0.1.7
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -26,9 +26,9 @@ flutter:
   plugin:
     platforms:
       linux:
-        default_package: android_auto_linux
+        default_package: android_auto_native
       android:
-        default_package: android_auto_linux
+        default_package: android_auto_native
       # The real head unit runs on Linux and Android. These two get a pure Dart simulator, so
       # a host app can be developed on the machines most people write Flutter on.
       macos:

@@ -13,7 +13,7 @@
 
 namespace aa {
 
-// Called once from android_auto_linux_plugin_register_with_registrar.
+// Called once from android_auto_native_plugin_register_with_registrar.
 void SetFlutterRegistrar(FlTextureRegistrar* registrar, FlView* view);
 
 // NULL until the plugin has registered, which happens before any Dart code runs.

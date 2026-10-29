@@ -6,7 +6,7 @@ import 'bindings/aa_core_bindings.dart';
 
 /// Loads the native head unit core and exposes its bindings.
 ///
-/// On Linux the core lives inside `libandroid_auto_linux_plugin.so`, the same shared
+/// On Linux the core lives inside `libandroid_auto_native_plugin.so`, the same shared
 /// object Flutter already loaded to run the plugin's GTK registration. On Android it is
 /// `libandroid_auto_native.so`, which the plugin's Java class loaded when the engine
 /// attached. Either way opening it again by name is cheap: `dlopen` returns a handle to
@@ -28,11 +28,11 @@ class AaLibrary {
 
   static DynamicLibrary _open() {
     if (!Platform.isLinux && !Platform.isAndroid) {
-      throw UnsupportedError('android_auto_linux only supports Linux and Android.');
+      throw UnsupportedError('android_auto_native only supports Linux and Android.');
     }
     final name = Platform.isAndroid
         ? 'libandroid_auto_native.so'
-        : 'libandroid_auto_linux_plugin.so';
+        : 'libandroid_auto_native_plugin.so';
     try {
       return DynamicLibrary.open(name);
     } on ArgumentError catch (error) {
@@ -63,6 +63,6 @@ class AaLibraryLoadException implements Exception {
 
   @override
   String toString() =>
-      'Could not load $libraryName. The android_auto_linux plugin is probably not '
+      'Could not load $libraryName. The android_auto_native plugin is probably not '
       'bundled with this application. Details: $details';
 }

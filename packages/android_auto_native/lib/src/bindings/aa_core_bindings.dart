@@ -11,7 +11,7 @@ import 'dart:ffi' as ffi;
 
 /// Bindings to the native Android Auto head unit core.
 ///
-/// Generated from linux/src/aa_core.h by package:ffigen. Do not edit by hand.
+/// Generated from src/aa_core.h by package:ffigen. Do not edit by hand.
 ///
 class AaCoreBindings {
   /// Holds the symbol lookup function.

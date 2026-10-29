@@ -7,7 +7,7 @@
 #
 # On Linux these come from the distribution. Android has no such thing, so they are
 # built here from pinned upstream releases, statically, into
-# packages/android_auto_linux/android/deps/<abi>/, which the plugin's Android CMake
+# packages/android_auto_native/android/deps/<abi>/, which the plugin's Android CMake
 # reads. It is never committed, and it is published: android/.pubignore lets pub
 # include what .gitignore keeps out of git, so a host app builds against these archives
 # and never runs this script. See docs/packaging.md.
@@ -25,7 +25,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$REPO/build/android-deps"
-PREFIX_ROOT="$REPO/packages/android_auto_linux/android/deps"
+PREFIX_ROOT="$REPO/packages/android_auto_native/android/deps"
 
 # Matches Flutter's own default, so a host app and this plugin agree on one NDK.
 NDK_VERSION="28.2.13676358"
