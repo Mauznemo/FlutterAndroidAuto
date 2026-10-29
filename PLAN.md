@@ -30,7 +30,7 @@ Android turned out to need no change to the app-facing API beyond one optional c
 | M9 | Metadata channels for native Flutter UI | **done**, bar a call and two channels this phone never opens |
 | M10 | Wireless Android Auto | **done**, bar media audio, touch and sensors over Wi-Fi |
 | M11 | Packaging, ARM64, CI, docs | **in progress**, bar running it on an ARM64 device |
-| M12 | Android implementation | **in progress**, projecting over USB and Wi-Fi, packaged, bar CI proof and the rename |
+| M12 | Android implementation | **in progress**, projecting over USB and Wi-Fi, packaged and built in CI, bar a release |
 
 ---
 
@@ -1496,7 +1496,7 @@ files on both, and pub.dev cannot share sources between packages, so a separate
 - [x] Packaging: the dependencies ship prebuilt in the package, stripped and with Boost's headers cut to what is used, 30 MB compressed for three ABIs. Kept out of git, published through `android/.pubignore`; verified with `dart pub publish --dry-run`
 - [x] armeabi-v7a, because Flutter ships it in every APK and 32 bit car stereos are common: built, and verified by projecting with the example installed as `armeabi-v7a`. A missing library no longer kills the app at startup
 - [x] Renamed `android_auto_linux` to `android_auto_native`, the Dart class to `AndroidAutoNative`, and moved the shared native tree from `linux/src` to the package root as `src/`, with `third_party/` and `patches/` beside it
-- [ ] An Android build in CI: the `android` job in `release.yml` and the publish job in `publish.yml` are written and have not run yet
+- [x] An Android build in CI: the `android` job in `release.yml` builds the dependencies from nothing (6 minutes for three ABIs on a GitHub runner), debug and release APKs, and checks every ABI's core is present and exports only its interface. Green on run 40883881357, with every other job. The publish job in `publish.yml` shares its setup and has not run, since nothing has been released
 
 ### Measured
 
