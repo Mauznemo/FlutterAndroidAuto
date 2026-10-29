@@ -1734,23 +1734,39 @@ int32_t aa_session_connect_head_unit_server(AaSession* session, const char* host
     return -2;
   }
   const std::string where = address + ":" + std::to_string(to_port);
-  session->events.Emit(AA_STATE_SEARCHING, "Dialling the head unit server at " + where + ".");
+  if (session->reached_connected) {
+    // Not searching: a phone is projecting and keeps doing so whatever this dial finds.
+    // Announcing searching here had a host app following the state treat the phone as
+    // lost, and stop it mid projection when its timeout ran out.
+    session->events.Emit(session->events.last_state(),
+                         "Dialling the head unit server at " + where + ".");
+  } else {
+    session->events.Emit(AA_STATE_SEARCHING,
+                         "Dialling the head unit server at " + where + ".");
+  }
 
   auto socket = std::make_shared<boost::asio::ip::tcp::socket>(session->io_context);
   socket->async_connect(
       boost::asio::ip::tcp::endpoint(ip, to_port),
       [session, socket, where](const boost::system::error_code& error) {
+        if (session->reached_connected) {
+          // Same rule as a phone dialling in over Wi-Fi: a working session is not torn
+          // down for one that is merely offered. Said as connected, which is what the
+          // session is, in case it was announced as searching before that phone got
+          // there. A dial that failed is no news either while a phone projects.
+          if (!error) {
+            socket->close();
+          }
+          session->events.Emit(AA_STATE_CONNECTED,
+                               "A phone is already projecting, so the head unit server "
+                               "at " + where + " was not used.");
+          return;
+        }
         if (error) {
           session->events.Emit(
               AA_STATE_ERROR,
               "Could not reach the head unit server at " + where + ": " + error.message() +
                   ". Start it on the phone in Android Auto's developer settings.");
-          return;
-        }
-        if (session->reached_connected) {
-          // Same rule as a phone dialling in over Wi-Fi: a working session is not torn
-          // down for one that is merely offered.
-          socket->close();
           return;
         }
         boost::system::error_code option_error;
