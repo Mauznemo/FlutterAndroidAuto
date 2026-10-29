@@ -1,3 +1,13 @@
+## 0.2.0
+
+### Added
+
+- android head unit over usb
+
+### Changed
+
+- rename android_auto_linux to android_auto_native
+
 ## 0.1.7
 
 ### Added

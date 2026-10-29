@@ -1,3 +1,21 @@
+## 0.2.0
+
+### Added
+
+- android head unit over usb
+- wireless android auto on android
+- wireless with no bssid or phone to configure
+- ship the android dependencies prebuilt
+
+### Fixed
+
+- wireless session restarts as the phone dials in
+
+### Changed
+
+- split the h264 decoder by platform
+- rename android_auto_linux to android_auto_native
+
 ## 0.1.7
 
 ### Added
