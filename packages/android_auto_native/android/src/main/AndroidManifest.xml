@@ -17,6 +17,11 @@
        SSID and BSSID; that is left to the host app, which can name both instead. -->
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-  <!-- Bringing up a hotspot of the head unit's own for the phone to join. -->
+  <!-- Bringing up a hotspot of the head unit's own for the phone to join. From Android
+       13 that also takes NEARBY_WIFI_DEVICES, a runtime permission the host app asks
+       for. Never for location: the head unit only hosts a network and never scans. -->
   <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+  <uses-permission
+      android:name="android.permission.NEARBY_WIFI_DEVICES"
+      android:usesPermissionFlags="neverForLocation" />
 </manifest>

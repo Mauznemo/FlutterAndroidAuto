@@ -2,9 +2,6 @@
     <!-- For the Wi-Fi network's name and access point, which the phone is told. The
          plugin leaves this to the host app, see MainActivity.kt. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- Android 13's permission for starting a hotspot, which the head unit hosts for
-         the phone to join. -->
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <application
         android:label="android_auto_example"
         android:name="${applicationName}"
